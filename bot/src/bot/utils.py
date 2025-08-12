@@ -10,6 +10,7 @@ from typing import Deque, Dict
 import orjson
 
 from .config import settings
+from typing import Iterable, Protocol
 
 TIME_PATTERN = re.compile(r"(\d+)([smhdw])", re.I)
 UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
@@ -52,3 +53,29 @@ def build_context_snippet(results: list[dict]) -> str:
     return "\n".join(lines)
 
 __all__ = ["parse_time_range", "RateLimiter", "audit_log", "build_context_snippet"]
+
+
+class _GuildPermsProto(Protocol):  # pragma: no cover - structural typing
+    manage_messages: bool
+
+
+class _RoleProto(Protocol):  # pragma: no cover
+    id: int
+
+
+class _MemberProto(Protocol):  # pragma: no cover
+    roles: Iterable[_RoleProto]
+    guild_permissions: _GuildPermsProto
+
+
+def has_admin_access(member: _MemberProto, admin_role_ids: set[int]) -> bool:
+    """Return True if member has admin access according to configured roles / fallback.
+
+    If admin_role_ids is non-empty, require intersection; otherwise fallback to manage_messages perm.
+    """
+    if admin_role_ids:
+        role_ids = {r.id for r in getattr(member, "roles", [])}
+        return bool(role_ids & admin_role_ids)
+    return bool(getattr(member, "guild_permissions", None) and member.guild_permissions.manage_messages)
+
+__all__.append("has_admin_access")

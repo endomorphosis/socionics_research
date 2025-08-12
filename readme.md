@@ -28,12 +28,23 @@ We will use a moderated Discord server as an opt-in ecological data source and p
 
 Safeguards: explicit tagging for research-use messages; PII scrubbing pipeline; guardrail tests blocking typing/diagnostic claims; audit logs linking each data row to consent tier & pipeline version.
 
-## Tech Stack (Planned)
-- Backend: Python (FastAPI) for ingestion & APIs.
-- Data Store: Postgres (metadata) + object storage (media) + Parquet (features).
-- NLP: spaCy, sentence-transformers, pyannote.audio (diarization), OpenAI / open-weight LLM.
-- Observability: Prometheus + Grafana dashboards.
-- Task Orchestration: Prefect or lightweight custom scheduler.
+## Bot & Research Infrastructure (Implemented v0.1 Core)
+Current bot features (privacy-first):
+- Vector ingestion (/ingest_channel) storing ONLY embeddings + hashed user & token hashes.
+- Hybrid search (keyword hashed token pre-filter + semantic vector ranking).
+- Guardrails preventing type assignment & diagnostic claims.
+- Retrieval-augmented theory summaries (/theory) with doc embedding store.
+- Rate limiting (command + search categories).
+- Purge (/purge_message) and salt rotation CLI resetting hashed stores.
+- LLM context assembly (/llm_context) returns metadata JSON only.
+- Structured JSON logging (opt-in via SOCIONICS_JSON_LOGS=true).
+- Metrics endpoint (Prometheus scrape) optional.
+
+Planned service layers (future roadmap):
+- API layer (FastAPI) for external tool integration.
+- Postgres metadata + object storage for richer multimodal datasets.
+- Advanced diarization & acoustic features (pyannote.audio) integration.
+- Orchestration (Prefect or custom) for scheduled embeddings & audits.
 
 ## Open Science Practices
 - Preregistration on OSF for confirmatory phases.
@@ -88,18 +99,36 @@ docker run --rm -e SOCIONICS_DISCORD_TOKEN=your_token -e SOCIONICS_HASH_SALT=you
 If enabled (default), a Prometheus scrape endpoint is exposed on `:9108/metrics` inside the container.
 
 ### Environment Variables (Prefix SOCIONICS_)
+Essential:
 - DISCORD_TOKEN (required)
 - HASH_SALT (required)
-- EMBED_MODEL (optional)
-- RATE_LIMIT_PER_MIN, SEARCH_RATE_LIMIT_PER_MIN
-- ENABLE_METRICS (default true)
-- ADMIN_ROLE_IDS (comma-separated) *if using roles*
-- LIGHTWEIGHT_EMBEDDINGS=true (for test / low-resource)
 
-### Security Notes
-- No raw message text stored: only vectors + hashed user + hashed tokens.
-- Rotate HASH_SALT with re-indexing procedure (to implement).
-- Purge command allows right-to-be-forgotten by message id.
+Behavior / Performance:
+- EMBED_MODEL (default sentence-transformers/all-MiniLM-L6-v2)
+- LIGHTWEIGHT_EMBEDDINGS=true (hash-based 64-dim test embedder)
+- RATE_LIMIT_PER_MIN (default 15)
+- SEARCH_RATE_LIMIT_PER_MIN (default 30)
+- RETRIEVAL_TOP_K (default 4)
+- MAX_CONTEXT_RESULTS (default 20)
+
+Privacy / Ops:
+- JSON_LOGS=true (structured logs)
+- ENABLE_METRICS=true
+- ADMIN_ROLE_IDS=comma_separated_ids (enforces role check; else manage_messages fallback)
+- DATA_DIR=custom_data_path (default data/bot_store)
+
+Salt Rotation Procedure:
+1. Choose new random salt (>=16 chars recommended).
+2. Run: `python -m bot.maintenance NEW_SALT -y`
+3. Update deployment secret ENV (HASH_SALT) to NEW_SALT.
+4. Restart bot (old hashed store archived under backup_<ts>/).
+
+### Security & Privacy Notes
+- No raw message text stored: only embeddings, hashed user IDs (salted SHA256), hashed tokens (first 100 per message).
+- Salt rotation implemented (see procedure) for forward-secrecy style reset; historic re-identification impossible post-rotation.
+- Purge command supports right-to-be-forgotten by message ID (removes vector + token hashes).
+- Audit log (JSONL) records minimal event metadata (timestamp, event, counts).
+- Structured JSON logging optional; disable or route to secure sink in production.
 
 ---
-Status: Foundation draft (Updated: 2025-08-11)
+Status: Foundation draft (Updated: 2025-08-11, features synced with bot v0.1 core)

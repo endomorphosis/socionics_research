@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     max_context_results: int = Field(20, description="Max results for LLM context assembly")
     admin_role_ids: list[int] | None = Field(None, description="Role IDs allowed to run admin commands (ingest/purge)")
     lightweight_embeddings: bool = Field(False, description="Use lightweight hash-based embedder (testing)")
+    json_logs: bool = Field(False, description="Emit structured JSON logs to stdout")
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="SOCIONICS_")
 

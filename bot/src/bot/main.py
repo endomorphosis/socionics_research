@@ -8,14 +8,17 @@ import discord
 from discord import app_commands
 
 from .config import settings
+from .logging_setup import configure_logging
 from .guardrails import apply_guardrails
 from .ingest import Ingestor
-from .utils import RateLimiter, parse_time_range, audit_log, build_context_snippet
+from .utils import RateLimiter, parse_time_range, audit_log, build_context_snippet, has_admin_access
 from .metrics import inc, start_server
 from .knowledge_loader import load_doc_embeddings
 
+configure_logging()
 log = logging.getLogger("socionics_bot")
-logging.basicConfig(level=logging.INFO)
+if not settings.json_logs:
+    logging.basicConfig(level=logging.INFO)
 
 INTENTS = discord.Intents.none()
 INTENTS.message_content = False
@@ -65,8 +68,16 @@ def summarize_theory(topic: str, model, docs: list[dict]) -> str:
     if docs:
         try:
             import numpy as np
-            q_vec = np.array(model.encode(topic).tolist())
-            mat = np.vstack([d["embedding"] for d in docs])
+            raw_q = model.encode(topic)
+            # Support both list and numpy array returns
+            if hasattr(raw_q, "tolist"):
+                raw_q = raw_q.tolist()
+            q_vec = np.array(raw_q, dtype=float)
+            mat = np.vstack([
+                (d["embedding"].tolist() if hasattr(d["embedding"], "tolist") else d["embedding"])  # type: ignore[index]
+                for d in docs
+            ]).astype(float)
+            # Normalize cosine similarity
             denom = (np.linalg.norm(mat, axis=1) * (np.linalg.norm(q_vec) + 1e-9))
             scores = (mat @ q_vec) / (denom + 1e-9)
             top_idx = np.argsort(-scores)[: settings.retrieval_top_k]
@@ -74,7 +85,8 @@ def summarize_theory(topic: str, model, docs: list[dict]) -> str:
                 doc = docs[int(i)]
                 aug_lines.append(f"Doc:{doc['path']} sim:{scores[int(i)]:.3f}")
         except Exception:
-            pass
+            # Provide a soft fallback if docs exist but similarity failed
+            aug_lines.append("(Doc embeddings available; similarity calc failed)")
     if not base_msg and not aug_lines:
         return "Topic not found in beta glossary."
     composed = base_msg or "No canned summary; closest docs:"
@@ -145,14 +157,9 @@ async def ingest_channel(interaction: discord.Interaction, limit: Optional[int] 
         await interaction.response.send_message("Rate limit exceeded.", ephemeral=True)
         return
     # Role-based admin override if configured
-    if bot_client.admin_roles:
-        member = interaction.user  # type: ignore[assignment]
-        role_ids = {r.id for r in getattr(member, 'roles', [])}
-        if not (role_ids & bot_client.admin_roles):
-            await interaction.response.send_message("Admin role required.", ephemeral=True)
-            return
-    elif not interaction.user.guild_permissions.manage_messages:  # type: ignore[union-attr]
-        await interaction.response.send_message("Insufficient permissions.", ephemeral=True)
+    member = interaction.user  # type: ignore[assignment]
+    if not has_admin_access(member, bot_client.admin_roles):
+        await interaction.response.send_message("Admin role required.", ephemeral=True)
         return
     channel = interaction.channel
     if not isinstance(channel, discord.TextChannel):
@@ -270,14 +277,9 @@ async def keyword_search(
 @bot_client.tree.command(name="purge_message", description="Purge a message vector by message id (admin)")
 @app_commands.describe(message_id="Discord message ID")
 async def purge_message(interaction: discord.Interaction, message_id: str) -> None:  # type: ignore[type-arg]
-    if bot_client.admin_roles:
-        member = interaction.user  # type: ignore[assignment]
-        role_ids = {r.id for r in getattr(member, 'roles', [])}
-        if not (role_ids & bot_client.admin_roles):
-            await interaction.response.send_message("Admin role required.", ephemeral=True)
-            return
-    elif not interaction.user.guild_permissions.manage_messages:  # type: ignore[union-attr]
-        await interaction.response.send_message("Insufficient permissions.", ephemeral=True)
+    member = interaction.user  # type: ignore[assignment]
+    if not has_admin_access(member, bot_client.admin_roles):
+        await interaction.response.send_message("Admin role required.", ephemeral=True)
         return
     removed = bot_client.ingestor.purge_message(int(message_id))
     audit_log("purge", message_id=message_id, removed=removed, user=interaction.user.id)
