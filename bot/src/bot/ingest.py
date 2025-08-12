@@ -129,10 +129,18 @@ class Ingestor:
                 token_hashes = [self._hash_token(t) for t in tokens[:100]]  # cap to first 100 tokens
                 token_rows.append({"message_id": int(m.id), "token_hashes": token_hashes})
         if new_rows:
-            df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
+            new_df = pd.DataFrame(new_rows)
+            if df.empty:
+                df = new_df
+            else:
+                df = pd.concat([df, new_df], ignore_index=True, copy=False)
             self._df_cache = df
         if token_rows:
-            token_df = pd.concat([token_df, pd.DataFrame(token_rows)], ignore_index=True)
+            new_token_df = pd.DataFrame(token_rows)
+            if token_df.empty:
+                token_df = new_token_df
+            else:
+                token_df = pd.concat([token_df, new_token_df], ignore_index=True, copy=False)
             self._tokens_cache = token_df
         if new_rows or token_rows:
             self._save()
