@@ -1,0 +1,1 @@
+"""Socionics Discord Bot package."""

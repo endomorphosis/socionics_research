@@ -204,11 +204,16 @@ Sections to produce (future work):
 - Treating theoretical language (e.g., "information metabolism") as established biological substrate without evidence.
 
 ## 19. Prioritized Next Deliverables for This Repository
-1. Establish data schema draft (JSON + README).
-2. Draft observable indicators list with operational definitions.
-3. Prototype annotation interface spec.
-4. Literature review matrix (author, year, method quality, key findings, limitations).
-5. Funding / ethics application template (risk assessment, consent forms outline).
+1. Establish data schema draft (JSON + README). (Done: v0.1 drafts)
+2. Draft observable indicators list with operational definitions. (In progress)
+3. Prototype annotation interface spec. (Planned)
+4. Literature review matrix (author, year, method quality, key findings, limitations). (Seeded)
+5. Funding / ethics application template (risk assessment, consent forms outline). (Outline started)
+6. Discord community governance & consent workflow design. (New)
+7. LLM chatbot specification (capabilities, guardrails, logging, evaluation). (New)
+8. Data ingestion pipeline for Discord + chatbot interactions (with filtering & PII scrubbing). (New)
+9. Human-in-the-loop validation protocol for LLM-assisted annotations. (New)
+10. KPI dashboard scaffold (reliability, community health, model drift). (New)
 
 ## 20. Selected Bibliography (Representative / Mixed Quality)
 (Researchers should critically appraise; many sources are non-peer-reviewed or regional publications.)
@@ -240,6 +245,90 @@ Sections to produce (future work):
 Socionics presents an internally elaborate but externally under-validated framework. Its maturation into a scientifically robust paradigm requires disciplined operationalization, rigorous psychometrics, transparent data infrastructure, and falsifiable, theory-constraining studies. This document outlines a pathway for academic researchers to critically engage, test, refine—or, if warranted, falsify—its claims.
 
 ---
-Version: 0.1.0 (Foundational Draft)
+Version: 0.2.0 (Added Community & LLM Integration Plan)
 Contributors: (Add names / ORCID)
 License: Align with repository LICENSE.
+
+## 23. Community & LLM Integration Plan
+### 23.1 Objectives
+- Leverage a moderated Discord community for recruitment, longitudinal engagement, and ecological data (opt-in only).
+- Deploy an LLM-based chatbot to (a) provide standardized study information, (b) collect structured prompts for linguistic analysis, (c) assist annotators with candidate segment highlighting, and (d) surface transparency reports to users.
+- Maintain rigorous ethical, privacy, and methodological safeguards to prevent feedback loops and construct contamination.
+
+### 23.2 Discord Community Architecture
+Channels (proposed):
+- #announcements (read-only, project updates, preregistration links)
+- #consent-onboarding (bot-guided consent flow; stores hashed consent tokens)
+- #study-prompts (rotating elicitation tasks; timestamped)
+- #self-reflections (optional qualitative entries; flagged if participants want inclusion)
+- #feedback-and-issues (report problems / data removal requests)
+- #general-discussion (non-data by default—explicit opt-in tagging for research use)
+
+Bot Roles:
+- Consent Bot: Guides users through IRB-approved consent script; records consent version.
+- Data Tagger: Applies a reaction or prefix (e.g., [DATA]) to messages explicitly released for research.
+- Moderation Bot: Monitors policy violations (keyword / toxicity filters) and quarantines flagged content pending human review.
+
+### 23.3 Consent & Data Flow (Discord)
+1. User joins server → receives onboarding DM with high-level purpose + link to full consent.
+2. User executes /consent command; selects data sharing tier (None | Text Only | Text+Derived Features).
+3. Bot stores (user_id_hash, consent_tier, timestamp, version) in secure store (separate from content DB).
+4. Only messages tagged explicitly (reaction :research: or posted in #study-prompts) are ingested.
+5. Nightly ETL pulls tagged messages → PII scrubbing (NER removal, optional pseudonymization) → JSONL appended to raw_text collection.
+
+### 23.4 LLM Chatbot Use Cases
+1. Structured Prompt Sessions: Bot issues balanced tasks (abstract reasoning, concrete description, narrative recall) to diversify linguistic sample.
+2. Annotation Assist: Internal mode where annotators can request "salient segments" (LLM returns ranked list with rationales). Annotators must confirm or reject—no auto-label acceptance.
+3. Participant FAQ: Provides static, versioned answers about study scope; disallows individualized typing feedback (hard guardrail).
+4. Transparency Queries: /why command returns data handling summary + current model evaluation metrics (latency <1s expected via cached summary).
+
+### 23.5 Guardrails & Mitigations
+- No Direct Type Assignment: Chatbot blocks attempts to elicit personal type assignments; instead offers structured self-observation checklist and methodological resources.
+- Prompt Library Versioning: Each elicitation prompt carries an ID; changes logged to avoid silent dataset shifts.
+- Data Leakage Prevention: Training fine-tunes exclude any personally identifying raw Discord messages; only derived, anonymized features used.
+- Abuse Monitoring: Rate limits (e.g., 10 research prompts / 24h) to prevent domination by a single user.
+- Bias Audits: Quarterly review of LLM suggestion acceptance rates across demographic groups; investigate disparities.
+
+### 23.6 Technical Stack (Draft)
+- Discord Interface: discord.py or hikari; async event loop.
+- Message Queue: Lightweight (Redis streams) for ingestion pipeline.
+- Storage: Raw (restricted) → scrubbed (research) → features (parquet) with lineage metadata.
+- LLM Access: Hosted API (initial) with local fallback (open-weight model) for reproducibility tests.
+- Monitoring: Prometheus + Grafana (metrics: request count, latency, rejection rate, guardrail triggers).
+
+### 23.7 Data Ingestion Pipeline Steps
+1. Fetch tagged messages (API cursor pagination).
+2. Deduplicate (message_id hash).
+3. PII Scrub (NER model + regex emails/usernames) → replacement tokens.
+4. Language detect (fastText); non-English routed to translation queue (if multilingual phase active).
+5. Store scrubbed text; compute lexical/syntactic features.
+6. Append provenance record (source=discord, channel, prompt_id, consent_tier).
+
+### 23.8 Evaluation Metrics
+- Community Retention: 30-day active % ≥ 40% of consenting participants.
+- Prompt Coverage: Median participants completing ≥ 3 distinct prompt categories.
+- LLM Assist Utility: Annotator acceptance rate of suggested segments 40–70% (too high may imply rubber-stamping, too low poor relevance).
+- Privacy Incidents: 0 unresolved > 72h.
+- Latency: 95th percentile chatbot response < 2.5s.
+
+### 23.9 Research Integrity Protections
+- Segregate exploratory (Discord-sourced) hypotheses from preregistered confirmatory studies.
+- Flag all Discord-derived analyses as ecological / convenience sampled; avoid over-generalization.
+- Maintain audit logs linking each dataset row to consent tier & scrub pipeline version.
+
+### 23.10 Roadmap Integration
+Phase 1 Supplement: Discord recruitment + initial linguistic corpus.
+Phase 2 Support: LLM aids in rapid candidate indicator discovery (exploratory labels clearly marked).
+Phase 3 Safeguard: Freeze feature extraction version before major CFA/EFA runs.
+
+### 23.11 Open Questions
+- Optimal balance between spontaneity vs. prompt-structured discourse for ecological validity.
+- Measuring contamination risk (participants adjusting behavior to perceived type theory).
+- Calibration tasks to detect if chatbot influence biases linguistic markers.
+
+### 23.12 Next Immediate Actions
+1. Draft Discord server policy & community guidelines.
+2. Define /consent command schema + storage table.
+3. Create guardrail test suite (red-team prompts) for chatbot.
+4. Pilot internal LLM annotation assist on historical (non-Discord) transcripts.
+5. Establish manual review queue for first 2 weeks of live deployment.
