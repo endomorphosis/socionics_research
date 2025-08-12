@@ -1,5 +1,7 @@
 # Socionics Research Project
 
+![CI](https://github.com/endomorphosis/socionics_research/actions/workflows/ci.yml/badge.svg)
+
 Purpose: Build a transparent, empirically rigorous infrastructure to evaluate and, if justified, refine or falsify core claims of Socionics (information metabolism, functional model, intertype relations) using open science practices.
 
 ## Documentation Index
@@ -54,6 +56,50 @@ See `LICENSE`.
 
 ## Disclaimer
 Socionics constructs are under empirical evaluation here; no interpretive feedback constitutes psychological advice or diagnosis.
+
+## Development
+
+### Run Tests
+Ensure Python 3.11 and a virtual environment, then:
+```
+cd bot
+pip install .[dev]
+export SOCIONICS_DISCORD_TOKEN=dummy
+export SOCIONICS_HASH_SALT=local_salt
+pytest
+```
+
+### Run Bot Locally (Ephemeral)
+```
+cd bot
+export SOCIONICS_DISCORD_TOKEN=your_token_here
+export SOCIONICS_HASH_SALT=your_random_salt
+python -m bot.main
+```
+
+### Docker
+```
+cd bot
+docker build -t socionics-bot:latest .
+docker run --rm -e SOCIONICS_DISCORD_TOKEN=your_token -e SOCIONICS_HASH_SALT=your_salt socionics-bot:latest
+```
+
+### Metrics
+If enabled (default), a Prometheus scrape endpoint is exposed on `:9108/metrics` inside the container.
+
+### Environment Variables (Prefix SOCIONICS_)
+- DISCORD_TOKEN (required)
+- HASH_SALT (required)
+- EMBED_MODEL (optional)
+- RATE_LIMIT_PER_MIN, SEARCH_RATE_LIMIT_PER_MIN
+- ENABLE_METRICS (default true)
+- ADMIN_ROLE_IDS (comma-separated) *if using roles*
+- LIGHTWEIGHT_EMBEDDINGS=true (for test / low-resource)
+
+### Security Notes
+- No raw message text stored: only vectors + hashed user + hashed tokens.
+- Rotate HASH_SALT with re-indexing procedure (to implement).
+- Purge command allows right-to-be-forgotten by message id.
 
 ---
 Status: Foundation draft (Updated: 2025-08-11)

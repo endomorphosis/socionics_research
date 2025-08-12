@@ -1,0 +1,21 @@
+discord.py<3.0.0,>=2.3.2
+httpx<0.28.0,>=0.27.0
+pydantic<3.0.0,>=2.6.0
+pydantic-settings<3.0.0,>=2.0.0
+sentence-transformers<3.0.0,>=2.6.0
+faiss-cpu>=1.7.4
+pandas<3.0.0,>=2.2.0
+pyarrow<20.0.0,>=16.0.0
+orjson>=3.10.0
+rich>=13.7.0
+tenacity>=8.2.0
+python-dotenv>=1.0.0
+
+[:platform_system == "Linux"]
+uvloop
+
+[dev]
+pytest
+ruff
+mypy
+types-requests

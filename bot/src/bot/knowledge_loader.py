@@ -35,4 +35,14 @@ def build_vector_store(docs_root: str) -> None:
     with (data_dir / "doc_embeddings.json").open("wb") as f:
         f.write(orjson.dumps(records))
 
-__all__ = ["build_vector_store"]
+def load_doc_embeddings() -> list[dict]:
+    """Lazy load previously built doc embeddings; empty list if missing."""
+    path = Path(settings.data_dir) / "doc_embeddings.json"
+    if not path.exists():
+        return []
+    try:
+        return orjson.loads(path.read_bytes())  # type: ignore[return-value]
+    except Exception:
+        return []
+
+__all__ = ["build_vector_store", "load_doc_embeddings"]

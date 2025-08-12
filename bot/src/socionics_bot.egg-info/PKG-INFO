@@ -1,0 +1,101 @@
+Metadata-Version: 2.4
+Name: socionics-bot
+Version: 0.1.0
+Summary: Discord bot for Socionics research community with LLM-assisted responses
+Author: Project Team
+License: MIT
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: discord.py<3.0.0,>=2.3.2
+Requires-Dist: httpx<0.28.0,>=0.27.0
+Requires-Dist: pydantic<3.0.0,>=2.6.0
+Requires-Dist: pydantic-settings<3.0.0,>=2.0.0
+Requires-Dist: sentence-transformers<3.0.0,>=2.6.0
+Requires-Dist: faiss-cpu>=1.7.4
+Requires-Dist: pandas<3.0.0,>=2.2.0
+Requires-Dist: pyarrow<20.0.0,>=16.0.0
+Requires-Dist: orjson>=3.10.0
+Requires-Dist: rich>=13.7.0
+Requires-Dist: tenacity>=8.2.0
+Requires-Dist: uvloop; platform_system == "Linux"
+Requires-Dist: python-dotenv>=1.0.0
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
+Requires-Dist: mypy; extra == "dev"
+Requires-Dist: types-requests; extra == "dev"
+
+# Socionics Discord Bot (LLM-Assisted)
+
+Purpose: Provide structured, safeguarded access to Socionics research information, educational explanations, and guided self-reflection prompts within the Discord community.
+
+## Functional Scope (v0.1)
+- /about_socionics: Neutral overview of theory + empirical status.
+- /theory <topic>: Returns concise, sourced explanation (rate-limited).
+- /intertype <type1> <type2>: Summarize canonical relation description + evidence gaps + suggested falsifiable questions.
+- /reflect: Issues a randomized structured prompt (logged with prompt_id).
+- /consent: Runs consent onboarding flow (integrates with repository governance service).
+- /my_type_help: Provides a structured questionnaire to help users gather observations; DOES NOT assign a type automatically.
+- /explain_functions: High-level definitions with caveats.
+- /privacy: Displays data handling & logging details.
+
+## Out-of-Scope (Hard Guardrails)
+- Direct assignment of a user's Socionics type.
+- Personalized coaching or psychological advice.
+- Medical or diagnostic claims.
+
+## Conditional Guidance for Type Exploration
+Workflow:
+1. User runs /my_type_help.
+2. Bot returns a 6-dimension self-observation checklist (energy focus, information seeking pattern, comfort/volition cues, decision framing, discourse style, feedback sensitivity).
+3. User optionally answers follow-up questions (1–2 per dimension).
+4. Bot summarizes patterns using neutral descriptors and suggests 2–3 candidate study tasks (e.g., record a monologue under two prompt categories) rather than naming a type.
+5. If user persists in asking for a type, bot reiterates policy and offers resources: methodology doc link + explanatory article.
+
+## Interpersonal Dynamics Explanation
+- Provide standard relation category description (e.g., Duality) + highlight: "Empirical Evidence Status: unverified / limited / emerging".
+- Encourage formulation of testable interactions: e.g., "Measure coordination time on novel tasks vs. matched non-Dual pairs." 
+
+## Safeguards
+- Profanity / harassment filter before LLM call.
+- Red-team prompt tests at startup (ensure blocked outputs for disallowed requests).
+- Response provenance: prepend banner if answer includes theoretical claims not yet empirically validated.
+- Logging (hashed user ID, command, prompt_id, timestamp, model version, guardrail flags) to JSONL (rotated daily).
+
+## Evaluation Metrics
+- Average response latency < 2.5s (95th < 5s) excluding first-token cold start.
+- Guardrail violation rate < 0.5% of requests (auto escalation if >1%).
+- User satisfaction (thumb reaction ratio) > 70% positive on /theory.
+- Escalations to human moderators < 1 per 500 commands (steady state).
+
+## Architecture Overview
+```
+Discord Gateway → Command Router → Guardrail Pipeline → Intent Classifier → Tool/LLM Orchestrator → Response Formatter → Discord API
+```
+
+Guardrail Pipeline Components:
+- Pattern Blocker (regex for explicit type assignment requests)
+- Sensitive Topic Classifier (basic safety)
+- Rate Limiter (token bucket per user + global concurrency)
+- PII Scrubber (optional for logs)
+
+Tool/LLM Orchestration:
+- Static Knowledge: Pre-rendered markdown snippets (versioned).
+- Dynamic Retrieval: Local vector store of theory documents (FAISS) for /theory queries.
+- Template-fused prompt constructing disclaimers + citations.
+
+## Data Sources
+- `docs/intro_socionics_research.md`
+- `docs/operational_indicators.md`
+- `docs/annotation_protocol.md`
+
+## Future Extensions
+- Semi-automated annotation suggestion for internal raters (/annotator mode).
+- Multi-language support with translation quality confidence scores.
+- Adaptive clarification questions (dialog state machine) for deeper concept explanations.
+
+## Local Development
+(Placeholder; add install instructions once dependencies are finalized.)
+
+## License
+Inherits repository license.
