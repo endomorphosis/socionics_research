@@ -21,6 +21,7 @@ Requires-Dist: uvloop; platform_system == "Linux"
 Requires-Dist: python-dotenv>=1.0.0
 Provides-Extra: dev
 Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-cov; extra == "dev"
 Requires-Dist: ruff; extra == "dev"
 Requires-Dist: mypy; extra == "dev"
 Requires-Dist: types-requests; extra == "dev"
@@ -38,6 +39,12 @@ Purpose: Provide structured, safeguarded access to Socionics research informatio
 - /my_type_help: Provides a structured questionnaire to help users gather observations; DOES NOT assign a type automatically.
 - /explain_functions: High-level definitions with caveats.
 - /privacy: Displays data handling & logging details.
+- /ingest_channel: Ingest recent messages (vectors + hashed metadata only) (admin).
+- /search_vectors: Semantic similarity search (rate-limited).
+- /keyword_search: Hybrid hashed token + semantic narrowing.
+- /context_window: Builds context snippet metadata.
+- /purge_message: Remove a specific message vector (admin).
+- /llm_context: Returns JSON metadata for RAG assembly (no content).
 
 ## Out-of-Scope (Hard Guardrails)
 - Direct assignment of a user's Socionics type.
@@ -95,7 +102,43 @@ Tool/LLM Orchestration:
 - Adaptive clarification questions (dialog state machine) for deeper concept explanations.
 
 ## Local Development
-(Placeholder; add install instructions once dependencies are finalized.)
+Install & Run Tests:
+```
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .[dev]
+pytest -q
+```
+
+Run Bot (example):
+```
+export SOCIONICS_DISCORD_TOKEN=your_token_here
+python -m bot.main
+```
+
+Salt Rotation (privacy maintenance):
+```
+export SOCIONICS_HASH_SALT=current_salt
+python -m bot.maintenance NEW_LONG_RANDOM_SALT -y
+```
+This archives existing parquet hashed stores under data/bot_store/backup_<timestamp>/ and applies the new salt for subsequent ingests. Because original raw user IDs are never stored, historical hashed identifiers cannot be re-derived; rotation effectively resets the ingested vector corpus.
+
+Structured JSON Logs:
+```
+export SOCIONICS_JSON_LOGS=true
+python -m bot.main | jq '.'
+```
+Outputs fields: ts, level, logger, msg plus any extra contextual attributes.
+
+## Admin & Maintenance
+- Salt Rotation: `python -m bot.maintenance NEW_SALT -y` (archives old parquet stores under backup_<ts>/).
+- Purge: `/purge_message <id>` removes vector + token hash entries.
+- Admin Access: If SOCIONICS_ADMIN_ROLE_IDS set, role intersection required; else fallback to manage_messages permission.
+
+## Privacy Summary
+- Stored: embeddings, hashed user IDs (first 32 hex chars of salted SHA256), hashed tokens (first 16 hex chars), timestamps, channel/message IDs.
+- Not Stored: raw message content, usernames, discriminators.
+- Limitation: Salt rotation discards linkage to prior store (expected design for privacy); cannot migrate hashes.
 
 ## License
 Inherits repository license.
