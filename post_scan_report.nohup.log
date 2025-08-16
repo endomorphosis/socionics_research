@@ -1,0 +1,33 @@
+nohup: ignoring input
+[post-scan] Waiting for scan-all and v1 scrape to finish...
+[post-scan] Scans finished. Running coverage, ingest-report, and export...
+--- coverage ---
+Raw rows: 469; unique CIDs: 469; vectors: 468; v1_profiles: 3; seen_ids: 429
+Missing v1 profiles (sample 20 of 426): [5791, 7102, 9655, 10300, 10879, 12281, 12398, 12523, 12525, 12564, 14117, 14118, 14810, 14981, 15778, 16544, 17334, 20827, 21554, 21628]
+--- ingest-report ---
+Total ingested items (search/top + follow-hot): 14
+By list (top):
+  profiles: 14
+Top queries for list 'profiles':
+  Elon%2520Musk: 14
+--- export ---
+/home/devel/socionics_research/bot/src/bot/pdb_cli.py:505: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
+  out["has_vector"] = out["has_vector"].fillna(False)
+Exported 469 rows to data/bot_store/pdb_profiles_normalized.parquet
+--- summarize ---
+Rows: 469
+Top mbti values:
+  INTJ: 3
+  ENTJ: 2
+  ISFJ: 1
+  INFJ: 1
+  ENTP: 1
+  ISTP: 1
+  INTP: 1
+Top socionics values:
+  LII: 1
+  ESI: 1
+Top big5 values:
+  RCOEI: 1
+  SCOEI: 1
+[post-scan] Done.

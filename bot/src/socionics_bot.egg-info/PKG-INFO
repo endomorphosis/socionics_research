@@ -17,6 +17,7 @@ Requires-Dist: pyarrow<20.0.0,>=16.0.0
 Requires-Dist: orjson>=3.10.0
 Requires-Dist: rich>=13.7.0
 Requires-Dist: tenacity>=8.2.0
+Requires-Dist: base58>=2.1.1
 Requires-Dist: uvloop; platform_system == "Linux"
 Requires-Dist: python-dotenv>=1.0.0
 Provides-Extra: dev
