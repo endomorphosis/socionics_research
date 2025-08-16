@@ -157,3 +157,45 @@ Column groups:
 - 📋 **Ingestion Pipeline**: Create automated scripts with comprehensive integrity testing harness  
 - 📋 **Data Dictionary**: Complete mapping of each feature to computation method with literature citations
 - 📋 **Schema Evolution**: Implement backward-compatible versioning system for schema updates
+
+---
+
+## Appendix A: PDB Storage Artifacts
+
+This project ingests Personality Database (PDB) data into content-addressed Parquet stores with embeddings and a relationship graph.
+
+### A.1 Raw Profiles Parquet (`data/bot_store/pdb_profiles.parquet`)
+- `cid` (string): IPFS Content ID computed over canonicalized JSON (ephemeral keys prefixed `_` excluded during compaction)
+- `payload_bytes` (bytes): Serialized JSON payload (v1 and v2 responses, plus annotated provenance fields starting with `_`)
+
+### A.2 Vectors Parquet (`data/bot_store/pdb_profile_vectors.parquet`)
+- `cid` (string): Foreign key to raw profiles
+- `vector` (list[float]): Embedding vector for semantic search
+
+### A.3 Normalized Export (`data/bot_store/pdb_profiles_normalized.parquet`)
+- `cid` (string)
+- `pid` (int, optional): Profile ID if available
+- `name` (string, optional)
+- `mbti`, `socionics`, `big5`, `enneagram` (optional): Typology hints when present in payload
+- `has_vector` (bool): Indicator merged from vectors parquet
+
+### A.4 Relationship Graph (`data/bot_store/pdb_profile_edges.parquet`)
+- `from_pid` (int): Seed/parent profile ID
+- `to_pid` (int): Related profile ID
+- `relation` (string): Source list name (e.g., `relatedProfiles`, `profiles`, etc.)
+- `source` (string): Ingestion source label (e.g., `v2_related`)
+
+### A.5 Graph Components Export (`data/bot_store/pdb_profile_edges_components.parquet`)
+- `pid` (int)
+- `component` (int): Undirected connected component ID
+- `out_degree` (int), `in_degree` (int), `degree` (int)
+
+### A.6 FAISS Index Files
+- `data/bot_store/pdb_faiss.index`: Inner-product index over L2-normalized vectors
+- `data/bot_store/pdb_faiss.index.cids`: Newline-delimited list of CIDs aligned to index rows
+
+### A.7 Scan State (`data/bot_store/scan_state.json`)
+- `processed_related_pids`: PIDs already expanded via related
+- `processed_names`: Names already used for `search/top`
+- `processed_sweep_tokens`: Sweep tokens already attempted
+- `v1_failed_pids`: PIDs where v1 fetch failed (to skip in future runs)

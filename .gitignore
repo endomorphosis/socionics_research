@@ -37,9 +37,12 @@ post_scan_report.nohup.log
 
 # Data artifacts
 data/bot_store/*.parquet
+data/bot_store/**/*.parquet
 data/bot_store/*.index
 data/bot_store/*.cids
 data/bot_store/pdb_api_cache/
+data/bot_store/scan_state.json
+data/bot_store/backup_*/
 
 # Secrets
 .secrets/

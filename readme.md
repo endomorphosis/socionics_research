@@ -24,6 +24,42 @@
 
 **For Community Members**: The Discord bot documentation is at [`bot/README.md`](bot/README.md). For data contribution and consent information, see [`docs/ethics_consent_outline.md`](docs/ethics_consent_outline.md).
 
+**PDB CLI (Ingestion) Quickstart**:
+```bash
+# one-time setup
+python -m venv .venv
+source .venv/bin/activate
+cd bot && pip install -e .[dev] && cd ..
+
+# configure v2 headers (browser-like) and enable cache
+export PDB_CACHE=1
+export PDB_API_BASE_URL=https://api.personality-database.com/api/v2
+export PDB_API_HEADERS="$(tr -d '\n' < .secrets/pdb_headers.json)"
+
+# explore & ingest
+PYTHONPATH=bot/src python -m bot.pdb_cli peek profiles --params '{"limit":3}'
+PYTHONPATH=bot/src python -m bot.pdb_cli search-top --only-profiles --pages 1 --limit 20
+PYTHONPATH=bot/src python -m bot.pdb_cli coverage --sample 10
+
+# edges and graph analysis
+PYTHONPATH=bot/src python -m bot.pdb_cli edges-report --top 15
+PYTHONPATH=bot/src python -m bot.pdb_cli edges-analyze --top 3 --per-component-top 5
+PYTHONPATH=bot/src python -m bot.pdb_cli edges-export --out data/bot_store/pdb_profile_edges_components.parquet
+
+# discovery-first scan (stateful + cached)
+PYTHONPATH=bot/src python -m bot.pdb_cli \
+	--rpm 90 --concurrency 3 --timeout 30 \
+	scan-all --max-iterations 0 \
+	--search-names --limit 20 --pages 1 --until-empty \
+	--sweep-queries a,b,c --sweep-pages 10 --sweep-until-empty --sweep-into-frontier \
+	--max-no-progress-pages 3 \
+	--auto-embed --auto-index --index-out data/bot_store/pdb_faiss.index \
+	--scrape-v1 --v1-base-url https://api.personality-database.com/api/v1 \
+	--v1-headers "$(tr -d '\n' < .secrets/pdb_headers.json)" \
+	--use-state
+```
+See [`docs/pdb_pipeline.md`](docs/pdb_pipeline.md) for full pipeline details and `scan-all` behavior.
+
 ## Documentation Index
 - **Intro / Conceptual Overview**: [`docs/intro_socionics_research.md`](docs/intro_socionics_research.md) - Academic introduction to socionics theory and research framework
 - **Data Schema**: [`docs/data_schema.md`](docs/data_schema.md) - Structured data formats for research storage and analysis
@@ -33,6 +69,7 @@
 - **Ethics & Consent**: [`docs/ethics_consent_outline.md`](docs/ethics_consent_outline.md) - Ethical framework and participant consent procedures
 - **PDB Pipeline**: [`docs/pdb_pipeline.md`](docs/pdb_pipeline.md) - Personality Database integration and processing pipeline
 - **Bot Documentation**: [`bot/README.md`](bot/README.md) - Discord bot implementation and usage guide
+ - **Data Artifacts (PDB)**: See Appendix A in [`docs/data_schema.md`](docs/data_schema.md#appendix-a-pdb-storage-artifacts) for parquet schemas and FAISS index mapping
 
 ## Current Status & Focus (Milestone M0 → Foundation)
 

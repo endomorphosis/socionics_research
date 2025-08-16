@@ -175,6 +175,19 @@ Inherits repository license.
 
 These commands support discovery-first ingestion from the Personality Database API with CID-keyed Parquet storage, embeddings, and FAISS search.
 
+Install locally for development:
+```
+python -m venv .venv
+source .venv/bin/activate
+cd bot
+pip install -e .[dev]
+```
+
+Tip: You can also run without install using the module path:
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli <command> ...
+```
+
 Global flags (override env):
 - `--rpm`: Max requests per minute (overrides `PDB_RPM`)
 - `--concurrency`: Parallel HTTP concurrency (overrides `PDB_CONCURRENCY`)
@@ -241,6 +254,13 @@ PYTHONPATH=bot/src python -m bot.pdb_cli search-top --query '' --only-profiles -
 PYTHONPATH=bot/src python -m bot.pdb_cli search-top --query 'Elon%2520Musk' --encoded --only-profiles --pages 1 --limit 20 --dry-run
 ```
 
+### coverage
+Quick snapshot of ingestion and vector coverage, plus sample of missing v1 profiles.
+
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli coverage --sample 10
+```
+
 ### ingest-report
 Summarizes items ingested via `search/top` and `follow-hot`, grouped by `_source_list` and top `_query` values.
 
@@ -299,6 +319,7 @@ Key flags:
 - `--use-state` and `--state-file`: Persist and reuse progress between runs
 - `--search-names`, `--limit`, `--pages`, `--until-empty`: Control name-search breadth
 - `--sweep-queries a,b,c`, `--sweep-pages`, `--sweep-until-empty`, `--sweep-into-frontier`: Token sweeps to broaden discovery
+- `--max-no-progress-pages 3`: Stop paging names/sweeps after N consecutive pages with no new items
 - `--scrape-v1`, `--v1-base-url`, `--v1-headers`: Fetch v1 profiles for discovered IDs
 - `--auto-embed`, `--auto-index`, `--index-out`: Maintain vectors and FAISS index
 
@@ -317,6 +338,12 @@ PYTHONPATH=bot/src PDB_CACHE=1 python -m bot.pdb_cli \
 	--v1-headers "$(tr -d '\n' < .secrets/pdb_headers.json)" \
 	--use-state
 ```
+
+Troubleshooting:
+- If name-search or sweeps loop without new IDs, set `--max-no-progress-pages` (default 3) to bound.
+- Ensure v2 and v1 calls include browser-like headers (Referer/Origin/Cookie) and valid cookies if you get 401.
+- Use `diagnose-query` to inspect pages/cursors collected for a specific keyword.
+ - To start fresh with stateful scans, pass `--state-reset` or delete `data/bot_store/scan_state.json`.
 
 ---
 
