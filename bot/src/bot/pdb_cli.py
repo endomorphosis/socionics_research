@@ -205,6 +205,9 @@ def main():
     p_svm.add_argument("--auto-embed", action="store_true", help="Run embedding after scraping")
     p_svm.add_argument("--auto-index", action="store_true", help="Rebuild FAISS index after scraping (implies --auto-embed)")
     p_svm.add_argument("--index-out", type=str, default="data/bot_store/pdb_faiss.index", help="Index output path for --auto-index")
+    p_svm.add_argument("--fallback-v2", action="store_true", help="On v1 error (e.g., 401), attempt v2 profiles/{id} and upsert as v2_profile")
+    p_svm.add_argument("--v2-base-url", type=str, default="https://api.personality-database.com/api/v2", help="Base URL for v2 fallback fetches")
+    p_svm.add_argument("--v2-headers", type=str, default=None, help="Headers JSON for v2 fallback requests (merged last)")
     p_svm.add_argument("--dry-run", action="store_true", help="Preview without upserts/embedding/indexing")
 
     p_disc = sub.add_parser("discover", help="Discover frequent values of fields to guide filters")
@@ -257,6 +260,29 @@ def main():
     p_dc.add_argument("--pids", type=str, default=None, help="Comma-separated pid values to probe (skip sampling)")
     p_dc.add_argument("--cat-ids", type=str, default=None, help="Comma-separated cat_id values to probe (skip sampling)")
     p_dc.add_argument("--property-ids", type=str, default=None, help="Comma-separated property_id values to probe (skip sampling)")
+
+    # Edges reporting: summarize relationship graph
+    p_er = sub.add_parser("edges-report", help="Summarize edges parquet: totals and top degrees")
+    p_er.add_argument("--top", type=int, default=10, help="Show top N nodes by out-degree and in-degree")
+
+    # Edges analytics: connected components (undirected) and top component summaries
+    p_ea = sub.add_parser(
+        "edges-analyze",
+        help="Analyze edges parquet: connected components (undirected) and top component degree stats",
+    )
+    p_ea.add_argument("--top", type=int, default=3, help="Show top N largest components")
+    p_ea.add_argument(
+        "--per-component-top", type=int, default=5, help="Top nodes by degree to show per component"
+    )
+
+    # Edges export: write per-node component and degrees to a Parquet file
+    p_ex = sub.add_parser("edges-export", help="Export per-node component id and degrees to Parquet")
+    p_ex.add_argument(
+        "--out",
+        type=str,
+        default="data/bot_store/pdb_profile_edges_components.parquet",
+        help="Output Parquet path",
+    )
 
     p_ir = sub.add_parser("ingest-report", help="Summarize ingested v2 search/top and follow-hot items")
     p_ir.add_argument("--top-queries", type=int, default=5, help="Top N queries per list to show")
@@ -358,6 +384,15 @@ def main():
     p_all.add_argument("--v1-base-url", type=str, default="https://api.personality-database.com/api/v1", help="Base URL for v1 profile fetches")
     p_all.add_argument("--v1-headers", type=str, default=None, help="Headers JSON for v1 requests (merged last)")
     p_all.add_argument("--dry-run", action="store_true", help="Preview without upserts/embedding/indexing")
+    # State and efficiency
+    p_all.add_argument("--use-state", action="store_true", help="Persist and reuse skip-state to avoid reprocessing items across runs")
+    p_all.add_argument(
+        "--state-file",
+        type=str,
+        default="data/bot_store/scan_state.json",
+        help="Path to JSON state file used when --use-state",
+    )
+    p_all.add_argument("--state-reset", action="store_true", help="When --use-state, ignore existing state and start fresh")
 
     args = parser.parse_args()
 
@@ -371,6 +406,12 @@ def main():
         async def _run():
             client = _make_client(args)
             store = PdbStorage()
+            try:
+                from .pdb_edges import PdbEdgesStorage as _PdbEdges
+                edges_store = _PdbEdges()
+            except Exception:
+                edges_store = None
+            # no edges recorded for dump-any
             batch: list[dict] = []
             count = 0
             async for item in client.iter_profiles_any(start_offset=args.start_offset):
@@ -587,13 +628,47 @@ def main():
                     v1_kwargs["headers"] = None
             from .pdb_client import PdbClient as _PdbClient
             client_v1 = _PdbClient(**v1_kwargs)
+            # optional v2 fallback client
+            client_v2 = None
+            if args.fallback_v2:
+                v2_kwargs = {"base_url": args.v2_base_url}
+                if getattr(args, "rpm", None) is not None:
+                    v2_kwargs["rate_per_minute"] = args.rpm
+                if getattr(args, "concurrency", None) is not None:
+                    v2_kwargs["concurrency"] = args.concurrency
+                if getattr(args, "timeout", None) is not None:
+                    v2_kwargs["timeout_s"] = args.timeout
+                if args.v2_headers:
+                    try:
+                        v2_kwargs["headers"] = _json.loads(args.v2_headers)
+                    except Exception:
+                        v2_kwargs["headers"] = None
+                client_v2 = _PdbClient(**v2_kwargs)
             scraped = 0
             for pid in missing:
                 try:
                     data = await client_v1.get_profile(pid)
                 except Exception as e:
                     print(f"v1 get_profile failed for id={pid}: {e}")
-                    continue
+                    # Try v2 fallback if enabled
+                    if client_v2 is not None:
+                        try:
+                            v2data = await client_v2.fetch_json(f"profiles/{pid}")
+                        except Exception as e2:
+                            print(f"v2 fallback failed for id={pid}: {e2}")
+                            continue
+                        obj = None
+                        if isinstance(v2data, dict):
+                            obj = v2data.get("data") if isinstance(v2data.get("data"), dict) else v2data
+                        if not isinstance(obj, dict):
+                            print(f"v2 fallback unexpected shape for id={pid}")
+                            continue
+                        main_obj = {**obj, "_source": "v2_profile", "_profile_id": pid, "_fallback": "v2"}
+                        n, u = store.upsert_raw([main_obj])
+                        scraped += n + u
+                        continue
+                    else:
+                        continue
                 if not isinstance(data, dict):
                     continue
                 main_obj = {**data, "_source": "v1_profile", "_profile_id": pid}
@@ -858,6 +933,12 @@ def main():
         async def _run():
             client = _make_client(args)
             store = PdbStorage()
+            # optional edges storage
+            try:
+                from .pdb_edges import PdbEdgesStorage as _PdbEdges
+                edges_store = _PdbEdges()
+            except Exception:
+                edges_store = None
             try:
                 ids = [int(x.strip()) for x in (args.ids or "").split(',') if x.strip()]
             except Exception:
@@ -896,6 +977,28 @@ def main():
                     print(f"No related items for id={pid}")
                     continue
                 new, upd = store.upsert_raw(out)
+                # Record edges from seed to related profile ids
+                try:
+                    edges: list[dict] = []
+                    for it in out:
+                        if isinstance(it, dict):
+                            vid = None
+                            for kk in ("id", "profileId", "profileID", "profile_id"):
+                                vv = it.get(kk)
+                                if isinstance(vv, int):
+                                    vid = vv; break
+                                if isinstance(vv, str):
+                                    try:
+                                        vid = int(vv); break
+                                    except Exception:
+                                        pass
+                            if isinstance(vid, int):
+                                edges.append({"from_pid": pid, "to_pid": vid, "relation": it.get("_source_list") or "related", "source": "v2_related"})
+                    if edges:
+                        if edges_store is not None:
+                            edges_store.upsert_edges(edges)
+                except Exception:
+                    pass
                 total += new + upd
                 print(f"id={pid}: upserted {new} new, {upd} updated")
             print(f"Done. Total upserts: {total}")
@@ -1272,6 +1375,181 @@ def main():
                 for params, n in sorted(found, key=lambda x: -x[1])[:10]:
                     print(f"  {params} -> {n} items")
         asyncio.run(_run())
+    elif args.cmd == "edges-report":
+        import pandas as pd
+        from collections import Counter
+        try:
+            from .pdb_edges import PdbEdgesStorage as _PdbEdges
+        except Exception:
+            print("Edges storage not available.")
+            return
+        es = _PdbEdges()
+        path = es.edges_path
+        if not path.exists():
+            print(f"No edges parquet found at {path}")
+            return
+        df = pd.read_parquet(path)
+        if df.empty:
+            print("Edges parquet is empty.")
+            return
+        total_edges = len(df)
+        nodes = set(df['from_pid'].astype(int).tolist() + df['to_pid'].astype(int).tolist())
+        print(f"Edges: {total_edges}; Unique nodes: {len(nodes)}")
+        out_deg = Counter(df['from_pid'].astype(int).tolist())
+        in_deg = Counter(df['to_pid'].astype(int).tolist())
+        k = max(getattr(args, 'top', 10), 1)
+        if out_deg:
+            print("Top out-degree:")
+            for pid, deg in out_deg.most_common(k):
+                print(f"  {pid}: {deg}")
+        if in_deg:
+            print("Top in-degree:")
+            for pid, deg in in_deg.most_common(k):
+                print(f"  {pid}: {deg}")
+    elif args.cmd == "edges-analyze":
+        import pandas as pd
+        from collections import defaultdict, Counter
+        try:
+            from .pdb_edges import PdbEdgesStorage as _PdbEdges
+        except Exception:
+            print("Edges storage not available.")
+            return
+        es = _PdbEdges()
+        path = es.edges_path
+        if not path.exists():
+            print(f"No edges parquet found at {path}")
+            return
+        df = pd.read_parquet(path)
+        if df.empty:
+            print("Edges parquet is empty.")
+            return
+        from_nodes = df['from_pid'].astype(int).tolist()
+        to_nodes = df['to_pid'].astype(int).tolist()
+        nodes = set(from_nodes + to_nodes)
+        # Build undirected adjacency for component discovery
+        adj: dict[int, set[int]] = defaultdict(set)
+        for u, v in zip(from_nodes, to_nodes):
+            if u == v:
+                continue
+            adj[u].add(v)
+            adj[v].add(u)
+        # BFS/DFS to find components
+        visited: set[int] = set()
+        components: list[set[int]] = []
+        for n in nodes:
+            if n in visited:
+                continue
+            comp: set[int] = set()
+            stack = [n]
+            visited.add(n)
+            while stack:
+                cur = stack.pop()
+                comp.add(cur)
+                for nx in adj.get(cur, ()):  # neighbors
+                    if nx not in visited:
+                        visited.add(nx)
+                        stack.append(nx)
+            components.append(comp)
+        # Degree counters
+        out_deg = Counter(from_nodes)
+        in_deg = Counter(to_nodes)
+        deg = Counter()
+        for k, v in out_deg.items():
+            deg[k] += v
+        for k, v in in_deg.items():
+            deg[k] += v
+        print(f"Nodes: {len(nodes)}; Edges: {len(df)}; Components: {len(components)}")
+        # Show top components
+        topN = max(getattr(args, 'top', 3), 1)
+        per = max(getattr(args, 'per_component_top', 5), 1)
+        comps_sorted = sorted(components, key=lambda c: -len(c))[:topN]
+        for idx, comp in enumerate(comps_sorted, start=1):
+            sub_nodes = comp
+            # edges within component (undirected unique pairs)
+            comp_edges = 0
+            # Count undirected edges by scanning df rows
+            comp_set = sub_nodes
+            for u, v in zip(from_nodes, to_nodes):
+                if u in comp_set and v in comp_set and u != v:
+                    comp_edges += 1
+            # summarize degrees
+            comp_deg = {n: deg.get(n, 0) for n in sub_nodes}
+            top_nodes = sorted(comp_deg.items(), key=lambda x: -x[1])[:per]
+            print(f"Component {idx}: size={len(sub_nodes)} edges={comp_edges}")
+            if top_nodes:
+                print("  Top degrees:")
+                for n, d in top_nodes:
+                    print(f"    {n}: {int(d)}")
+    elif args.cmd == "edges-export":
+        import pandas as pd
+        from collections import defaultdict, Counter
+        from pathlib import Path
+        try:
+            from .pdb_edges import PdbEdgesStorage as _PdbEdges
+        except Exception:
+            print("Edges storage not available.")
+            return
+        es = _PdbEdges()
+        path = es.edges_path
+        if not path.exists():
+            print(f"No edges parquet found at {path}")
+            return
+        df = pd.read_parquet(path)
+        if df.empty:
+            print("Edges parquet is empty.")
+            return
+        from_nodes = df['from_pid'].astype(int).tolist()
+        to_nodes = df['to_pid'].astype(int).tolist()
+        nodes = set(from_nodes + to_nodes)
+        # adjacency (undirected) for component id assignment
+        adj: dict[int, set[int]] = defaultdict(set)
+        for u, v in zip(from_nodes, to_nodes):
+            if u == v:
+                continue
+            adj[u].add(v)
+            adj[v].add(u)
+        comp_id: dict[int, int] = {}
+        cid = 0
+        for n in nodes:
+            if n in comp_id:
+                continue
+            cid += 1
+            stack = [n]
+            comp_id[n] = cid
+            while stack:
+                cur = stack.pop()
+                for nx in adj.get(cur, ()):  # neighbors
+                    if nx not in comp_id:
+                        comp_id[nx] = cid
+                        stack.append(nx)
+        # degree stats
+        out_deg = Counter(from_nodes)
+        in_deg = Counter(to_nodes)
+        deg = Counter()
+        for k, v in out_deg.items():
+            deg[k] += v
+        for k, v in in_deg.items():
+            deg[k] += v
+        rows = []
+        for n in nodes:
+            rows.append({
+                "pid": int(n),
+                "component": int(comp_id.get(n, 0)),
+                "out_degree": int(out_deg.get(n, 0)),
+                "in_degree": int(in_deg.get(n, 0)),
+                "degree": int(deg.get(n, 0)),
+            })
+        out = pd.DataFrame(rows)
+        outp = Path(getattr(args, 'out', 'data/bot_store/pdb_profile_edges_components.parquet'))
+        outp.parent.mkdir(parents=True, exist_ok=True)
+        out.to_parquet(outp, index=False)
+        # summary
+        comps = out['component'].value_counts().sort_values(ascending=False)
+        print(f"Wrote {len(out)} rows to {outp}")
+        if not comps.empty:
+            print("Top components by size:")
+            for comp, cnt in comps.head(5).items():
+                print(f"  component {int(comp)}: {int(cnt)} nodes")
     elif args.cmd == "ingest-report":
         import pandas as pd
         from collections import Counter, defaultdict
@@ -1774,6 +2052,12 @@ def main():
 
         async def _run():
             client_v2 = _make_client(args)
+            # optional edges storage
+            try:
+                from .pdb_edges import PdbEdgesStorage as _PdbEdges
+                edges_store = _PdbEdges()
+            except Exception:
+                edges_store = None
             # Optional v1 client for scraping
             v1_kwargs = {}
             if getattr(args, "rpm", None) is not None:
@@ -1794,6 +2078,55 @@ def main():
             store = PdbStorage()
             raw_path = store.raw_path
             seen_ids: set[int] = set()
+            # Load persistent state if requested
+            import json as _json
+            from pathlib import Path as _Path
+            state_path = _Path(args.state_file) if args.use_state else None
+            state: dict[str, object] = {}
+            processed_related: set[int] = set()
+            processed_names: set[str] = set()
+            processed_sweeps: set[str] = set()
+            v1_failed: set[int] = set()
+            if args.use_state:
+                if args.state_reset:
+                    pass
+                else:
+                    try:
+                        if state_path and state_path.exists():
+                            state = _json.loads(state_path.read_text(encoding="utf-8"))
+                            for k, tgt in (
+                                ("processed_related_pids", processed_related),
+                                ("processed_names", processed_names),
+                                ("processed_sweep_tokens", processed_sweeps),
+                                ("v1_failed_pids", v1_failed),
+                            ):
+                                vals = state.get(k)
+                                if isinstance(vals, list):
+                                    for x in vals:
+                                        try:
+                                            if k == "processed_names" or k == "processed_sweep_tokens":
+                                                if isinstance(x, str):
+                                                    tgt.add(x)
+                                            else:
+                                                tgt.add(int(x))
+                                        except Exception:
+                                            pass
+                    except Exception:
+                        pass
+            def _save_state() -> None:
+                if not args.use_state or not state_path:
+                    return
+                try:
+                    state_path.parent.mkdir(parents=True, exist_ok=True)
+                    blob = {
+                        "processed_related_pids": sorted(list(processed_related)),
+                        "processed_names": sorted(list(processed_names)),
+                        "processed_sweep_tokens": sorted(list(processed_sweeps)),
+                        "v1_failed_pids": sorted(list(v1_failed)),
+                    }
+                    state_path.write_text(_json.dumps(blob), encoding="utf-8")
+                except Exception:
+                    pass
             # Helper for robust profile id extraction
             def _get_pid(obj: dict) -> int | None:
                 if not isinstance(obj, dict):
@@ -1880,6 +2213,8 @@ def main():
                 newids: set[int] = set()
                 prev_cursor: int | str | None = None
                 next_token: int | str | None = None
+                seen_ident: set[str] = set()
+                no_progress = 0
                 while True:
                     page += 1
                     params = {"keyword": name, "limit": args.limit}
@@ -1897,13 +2232,31 @@ def main():
                     for fname, val in container.items():
                         if allowed_lists is not None and fname not in allowed_lists:
                             continue
-                            if isinstance(val, list) and val:
-                                for it in val:
-                                    if isinstance(it, dict):
-                                        out.append({**it, "_source": "v2_search_top_by_name", "_source_list": fname, "_query": name, "_page": page, "_nextCursor": next_token})
+                        if isinstance(val, list) and val:
+                            for it in val:
+                                if isinstance(it, dict):
+                                    out.append({**it, "_source": "v2_search_top_by_name", "_source_list": fname, "_query": name, "_page": page, "_nextCursor": next_token})
                                     vid = _get_pid(it)
                                     if isinstance(vid, int) and vid not in seen_ids:
                                         newids.add(vid)
+                    # compute identity keys per item for progress tracking
+                    page_keys: list[str] = []
+                    for it2 in out:
+                        oid = None
+                        if isinstance(it2, dict):
+                            for kk in ("id", "profileId", "profileID", "profile_id"):
+                                vv = it2.get(kk)
+                                if isinstance(vv, (int, str)):
+                                    oid = str(vv)
+                                    break
+                        sl = it2.get("_source_list") if isinstance(it2, dict) else None
+                        page_keys.append(f"{sl}:{oid}")
+                    new_keys = [pk for pk in page_keys if pk not in seen_ident]
+                    if new_keys:
+                        seen_ident.update(new_keys)
+                        no_progress = 0
+                    else:
+                        no_progress += 1
                     if not out:
                         if args.until_empty:
                             break
@@ -1925,6 +2278,9 @@ def main():
                         next_token = None
                         if not args.until_empty:
                             break
+                    if args.max_no_progress_pages > 0 and no_progress >= args.max_no_progress_pages:
+                        print(f"name={name!r}: stopping after {no_progress} no-progress pages")
+                        break
                     if not args.until_empty and page >= max(args.pages, 1):
                         break
                 return upserts, newids
@@ -1974,8 +2330,31 @@ def main():
                 new_ids_this_iter: set[int] = set()
                 next_frontier: list[int] = []
                 for pid in list(frontier):
+                    if args.use_state and pid in processed_related:
+                        continue
                     rel_upserts, items = await _do_related(pid)
                     total_related_upserts += rel_upserts
+                    # record edges from pid to related item ids
+                    try:
+                        if edges_store is not None and items:
+                            edges: list[dict] = []
+                            for it in items:
+                                if isinstance(it, dict):
+                                    vid = _get_pid(it)
+                                    if isinstance(vid, int):
+                                        edges.append({
+                                            "from_pid": pid,
+                                            "to_pid": vid,
+                                            "relation": it.get("_source_list") or "related",
+                                            "source": "v2_related"
+                                        })
+                            if edges:
+                                edges_store.upsert_edges(edges)
+                    except Exception:
+                        pass
+                    if args.use_state:
+                        processed_related.add(pid)
+                        _save_state()
                     # collect new ids from related items
                     for it in items:
                         vid = _get_pid(it) if isinstance(it, dict) else None
@@ -1984,16 +2363,24 @@ def main():
                     if args.search_names and items:
                         names = _extract_name_list(items)
                         for name in names:
+                            if args.use_state and name in processed_names:
+                                continue
                             s_up, s_new = await _do_search_top_by_name(name)
                             total_search_upserts += s_up
                             new_ids_this_iter.update(s_new)
+                            if args.use_state:
+                                processed_names.add(name)
+                                _save_state()
                 # After related/name-search, optionally run sweep queries this iteration
                 sweep_new_ids: set[int] = set()
                 sweep_tokens = [t.strip() for t in (args.sweep_queries or '').split(',') if t.strip()]
                 for tok in sweep_tokens:
+                    if args.use_state and tok in processed_sweeps:
+                        continue
                     page = 0
                     prev_cursor: int | str | None = None
                     next_token: int | str | None = None
+                    no_progress = 0
                     while True:
                         page += 1
                         params = {"keyword": tok, "limit": args.limit}
@@ -2008,6 +2395,7 @@ def main():
                         if not isinstance(container, dict):
                             break
                         out = []
+                        prev_new_ids_count = len(sweep_new_ids)
                         for fname, val in container.items():
                             if allowed_lists is not None and fname not in allowed_lists:
                                 continue
@@ -2018,38 +2406,22 @@ def main():
                                         vid = _get_pid(it)
                                         if isinstance(vid, int) and vid not in seen_ids:
                                             sweep_new_ids.add(vid)
-                        # compute identity keys per item for progress tracking
-                        page_keys: list[str] = []
-                        for it in out:
-                            oid = None
-                            if isinstance(it, dict):
-                                for kk in ("id", "profileId", "profileID", "profile_id"):
-                                    vv = it.get(kk)
-                                    if isinstance(vv, (int, str)):
-                                        oid = str(vv)
-                                        break
-                            sl = it.get("_source_list") if isinstance(it, dict) else None
-                            page_keys.append(f"{sl}:{oid}")
-                        new_keys = [pk for pk in page_keys if pk not in seen_ids]
-                        # Track progress for sweeps using a temporary set to reduce repeat churn
-                        # seen_ids already tracks discovered ids; use that for progress signal
-                        if new_keys:
+                        # track progress by actual new IDs discovered this page
+                        delta_new_ids = len(sweep_new_ids) - prev_new_ids_count
+                        if delta_new_ids > 0:
                             no_progress = 0
                         else:
-                            try:
-                                no_progress += 1
-                            except UnboundLocalError:
-                                no_progress = 1
+                            no_progress += 1
                         if not out:
                             if args.sweep_until_empty:
                                 break
                         else:
                             if args.dry_run:
-                                print(f"sweep token={tok!r} page {page}: would upsert {len(out)} items (dry-run)")
+                                print(f"sweep token={tok!r} page {page}: would upsert {len(out)} items (dry-run); new_ids={delta_new_ids}")
                             else:
                                 n, u = store.upsert_raw(out)
                                 total_search_upserts += n + u
-                                print(f"sweep token={tok!r} page {page}: upserted {n} new, {u} updated")
+                                print(f"sweep token={tok!r} page {page}: upserted {n} new, {u} updated; new_ids={delta_new_ids}")
                         nc = container.get("nextCursor") if isinstance(container, dict) else None
                         if isinstance(nc, (int, str)):
                             if nc == prev_cursor:
@@ -2065,6 +2437,9 @@ def main():
                             break
                         if not args.sweep_until_empty and page >= max(args.sweep_pages, 1):
                             break
+                    if args.use_state:
+                        processed_sweeps.add(tok)
+                        _save_state()
 
                 # update frontier with related/name-search discoveries and optionally sweep ids
                 combined_new = set(new_ids_this_iter)
@@ -2106,10 +2481,15 @@ def main():
                                 have_v1.add(v)
                 to_fetch = [i for i in seen_ids if i not in have_v1]
                 for pid in to_fetch:
+                    if args.use_state and pid in v1_failed:
+                        continue
                     try:
                         data = await client_v1.get_profile(pid)
                     except Exception as e:
                         print(f"v1 get_profile failed for id={pid}: {e}")
+                        if args.use_state:
+                            v1_failed.add(pid)
+                            _save_state()
                         continue
                     if not isinstance(data, dict):
                         continue
@@ -2119,6 +2499,13 @@ def main():
                     else:
                         n, u = store.upsert_raw([main_obj])
                         scraped_v1 += n + u
+                        # success: ensure this id is not marked failed
+                        if args.use_state and pid in v1_failed:
+                            try:
+                                v1_failed.remove(pid)
+                                _save_state()
+                            except Exception:
+                                pass
 
             # Summary and optional vector ops
             if args.dry_run:
@@ -2156,6 +2543,8 @@ def main():
                         print(f"Indexed {len(rows)} vectors to {outp}")
                 except Exception as e:
                     print(f"Auto-index failed: {e}")
+            # Final save of state
+            _save_state()
         asyncio.run(_run())
 
 

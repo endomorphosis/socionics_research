@@ -40,6 +40,14 @@ class PdbStorage:
     def upsert_raw(self, records: Iterable[dict]) -> Tuple[int, int]:
         df = _load_parquet(self.raw_path, ["cid", "payload_bytes"])
         existing = set(df["cid"].astype(str)) if not df.empty else set()
+        # Build a small lookup for existing payloads to avoid redundant writes
+        existing_payload: dict[str, bytes] = {}
+        if not df.empty:
+            for _, row in df.iterrows():
+                try:
+                    existing_payload[str(row.get("cid"))] = row.get("payload_bytes")
+                except Exception:
+                    pass
         rows = []
         new = 0
         updated = 0
@@ -54,12 +62,16 @@ class PdbStorage:
             cid = cid_from_object(base_obj)
             # Store full annotated payload for analysis/debugging
             payload = canonical_json_bytes(r)
-            if cid in existing:
-                # replace existing row by cid
-                df.loc[df.cid == cid, "payload_bytes"] = [payload]
+            scid = str(cid)
+            if scid in existing:
+                # Only write if payload actually differs
+                prev = existing_payload.get(scid)
+                if isinstance(prev, (bytes, bytearray)) and prev == payload:
+                    continue
+                df.loc[df.cid == scid, "payload_bytes"] = [payload]
                 updated += 1
             else:
-                rows.append({"cid": cid, "payload_bytes": payload})
+                rows.append({"cid": scid, "payload_bytes": payload})
                 new += 1
         if rows:
             new_df = pd.DataFrame(rows)
@@ -74,15 +86,26 @@ class PdbStorage:
     def upsert_vectors(self, items: Iterable[tuple[str, list[float]]]) -> Tuple[int, int]:
         df = _load_parquet(self.vec_path, ["cid", "vector"])
         existing = set(df["cid"].astype(str)) if not df.empty else set()
+        existing_vec: dict[str, list] = {}
+        if not df.empty:
+            for _, row in df.iterrows():
+                try:
+                    existing_vec[str(row.get("cid"))] = row.get("vector")
+                except Exception:
+                    pass
         rows = []
         new = 0
         updated = 0
         for cid, vec in items:
-            if cid in existing:
-                df.loc[df.cid == cid, "vector"] = [vec]
+            scid = str(cid)
+            if scid in existing:
+                prev = existing_vec.get(scid)
+                if isinstance(prev, list) and prev == vec:
+                    continue
+                df.loc[df.cid == scid, "vector"] = [vec]
                 updated += 1
             else:
-                rows.append({"cid": cid, "vector": vec})
+                rows.append({"cid": scid, "vector": vec})
                 new += 1
         if rows:
             new_df = pd.DataFrame(rows)

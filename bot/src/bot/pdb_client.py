@@ -131,7 +131,73 @@ class PdbClient:
                         if resp.status_code == 429:
                             raise RateLimitError("rate limited")
                         resp.raise_for_status()
-                        data = resp.json()
+                        enc = (resp.headers.get("content-encoding") or "").lower()
+                        ctype = (resp.headers.get("content-type") or "").lower()
+                        body = resp.content
+                        # Try direct parse first when JSON content-type
+                        if "application/json" in ctype:
+                            try:
+                                import orjson as _orjson  # type: ignore
+                                data = _orjson.loads(body)
+                                if self._cache_enabled:
+                                    pass
+                                return data
+                            except Exception:
+                                pass
+                        # Detect encoders by header or magic bytes
+                        def _try_parse(b: bytes):
+                            try:
+                                import orjson as _orjson  # type: ignore
+                                return _orjson.loads(b)
+                            except Exception:
+                                import json as _json
+                                return _json.loads(b.decode("utf-8"))
+
+                        parsed = None
+                        # zstd
+                        try:
+                            is_zstd = ("zstd" in enc or "zst" in enc) or (
+                                len(body) >= 4 and body[0] == 0x28 and body[1] == 0xB5 and body[2] == 0x2F and body[3] == 0xFD
+                            )
+                            if is_zstd:
+                                import zstandard as zstd  # type: ignore
+                                dctx = zstd.ZstdDecompressor()
+                                raw = dctx.decompress(body)
+                                parsed = _try_parse(raw)
+                        except Exception:
+                            parsed = None
+                        # brotli
+                        if parsed is None:
+                            try:
+                                if "br" in enc:
+                                    import brotli  # type: ignore
+                                    raw = brotli.decompress(body)
+                                    parsed = _try_parse(raw)
+                            except Exception:
+                                parsed = None
+                        # gzip
+                        if parsed is None:
+                            try:
+                                if "gzip" in enc or (len(body) >= 2 and body[0] == 0x1F and body[1] == 0x8B):
+                                    import gzip as _gzip
+                                    raw = _gzip.decompress(body)
+                                    parsed = _try_parse(raw)
+                            except Exception:
+                                parsed = None
+                        # deflate (zlib)
+                        if parsed is None:
+                            try:
+                                if "deflate" in enc:
+                                    import zlib as _zlib
+                                    raw = _zlib.decompress(body)
+                                    parsed = _try_parse(raw)
+                            except Exception:
+                                parsed = None
+                        if parsed is not None:
+                            data = parsed
+                        else:
+                            # Last resort
+                            data = resp.json()
                         if self._cache_enabled:
                             try:
                                 import json as _json

@@ -22,6 +22,8 @@ dependencies = [
   "base58>=2.1.1",
   "uvloop; platform_system == 'Linux'",
   "python-dotenv>=1.0.0",
+  "zstandard>=0.22.0",
+  "brotli>=1.1.0",
 ]
 
 [project.optional-dependencies]
