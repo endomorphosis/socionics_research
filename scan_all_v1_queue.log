@@ -1,0 +1,72 @@
+nohup: ignoring input
+[queue-v1] Waiting for all scan-all runs to finish...
+[queue-v1] All scan-all runs appear finished. Launching v1 scrape-only pass...
+Iteration 1: frontier size=31 seen=31
+Fetch related failed for id=1061891: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/1061891/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=473490: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/473490/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=1524887: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/1524887/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=1583770: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/1583770/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=1844890: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/1844890/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=1658659: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/1658659/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=805: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/805/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=418617: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/418617/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=139323: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/139323/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=841660: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/841660/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=498239: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/498239/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=1246922: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/1246922/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=1640657: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/1640657/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=411602: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/411602/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=411603: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/411603/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=411604: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/411604/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=411607: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/411607/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=411608: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/411608/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=411609: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/411609/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=411610: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/411610/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=411611: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/411611/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=411612: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/411612/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=411613: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/411613/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=411614: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/411614/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=411615: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/411615/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=411616: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/411616/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=411618: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/411618/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=411619: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/411619/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=1880546: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/1880546/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=1808616: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/1808616/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Fetch related failed for id=530045: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/profiles/530045/related'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+sweep token='a' page 1: fetch failed: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/search/top?keyword=a&limit=20'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+sweep token='b' page 1: fetch failed: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/search/top?keyword=b&limit=20'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+sweep token='c' page 1: fetch failed: Client error '404 Not Found' for url 'https://api.personality-database.com/api/v1/search/top?keyword=c&limit=20'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
