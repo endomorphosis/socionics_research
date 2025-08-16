@@ -5,7 +5,9 @@ src/bot/config.py
 src/bot/guardrails.py
 src/bot/ingest.py
 src/bot/knowledge_loader.py
+src/bot/logging_setup.py
 src/bot/main.py
+src/bot/maintenance.py
 src/bot/metrics.py
 src/bot/utils.py
 src/socionics_bot.egg-info/PKG-INFO
@@ -14,7 +16,10 @@ src/socionics_bot.egg-info/dependency_links.txt
 src/socionics_bot.egg-info/requires.txt
 src/socionics_bot.egg-info/top_level.txt
 tests/test_guardrails.py
+tests/test_hybrid_search.py
 tests/test_ingest.py
+tests/test_permissions.py
+tests/test_salt_rotation.py
 tests/test_theory_pure.py
 tests/test_theory_rag.py
 tests/test_utils.py

@@ -24,7 +24,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "mypy", "types-requests"]
 dev = ["pytest", "pytest-cov", "ruff", "mypy", "types-requests"]
 
 [tool.ruff]
