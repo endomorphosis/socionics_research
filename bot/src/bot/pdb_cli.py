@@ -248,6 +248,24 @@ def main():
     p_ir = sub.add_parser("ingest-report", help="Summarize ingested v2 search/top and follow-hot items")
     p_ir.add_argument("--top-queries", type=int, default=5, help="Top N queries per list to show")
 
+    # New: scan-related orchestrates v2 related → optional search-top by names → v1 profile scrape
+    p_scan = sub.add_parser("scan-related", help="Scan seeds, fetch v2 related, optionally search names, and scrape v1 profiles")
+    p_scan.add_argument("--seed-ids", type=str, default=None, help="Comma-separated seed profile IDs; if omitted, seeds are inferred from raw parquet")
+    p_scan.add_argument("--max-seeds", type=int, default=100, help="Max number of seeds to process when inferred")
+    p_scan.add_argument("--depth", type=int, default=1, help="Traversal depth for related expansion (currently supports 1)")
+    p_scan.add_argument("--v1-base-url", type=str, default="https://api.personality-database.com/api/v1", help="Base URL for v1 profile fetches")
+    p_scan.add_argument("--v1-headers", type=str, default=None, help="Headers JSON for v1 requests (merged last)")
+    p_scan.add_argument("--search-names", action="store_true", help="For each related item, call v2 search/top using its name")
+    p_scan.add_argument("--limit", type=int, default=20, help="Limit per search-top page when --search-names is set")
+    p_scan.add_argument("--pages", type=int, default=1, help="Pages per name for search-top when --search-names")
+    p_scan.add_argument("--until-empty", action="store_true", help="Keep paging names until empty when --search-names")
+    p_scan.add_argument("--lists", type=str, default=None, help="Comma-separated list names to upsert from search-top (e.g., profiles)")
+    p_scan.add_argument("--only-profiles", action="store_true", help="Shortcut for --lists profiles for search-top")
+    p_scan.add_argument("--auto-embed", action="store_true", help="Run embedding after scraping")
+    p_scan.add_argument("--auto-index", action="store_true", help="Rebuild FAISS index after scraping (implies --auto-embed)")
+    p_scan.add_argument("--index-out", type=str, default="data/bot_store/pdb_faiss.index", help="Index output path for --auto-index")
+    p_scan.add_argument("--dry-run", action="store_true", help="Preview without upserts/embedding/indexing")
+
     args = parser.parse_args()
 
     if args.cmd == "dump":
@@ -979,6 +997,226 @@ def main():
             print(f"Top queries for list '{name}':")
             for q, cnt in counter.most_common(max(args.top_queries, 1)):
                 print(f"  {q}: {cnt}")
+
+    elif args.cmd == "scan-related":
+        import pandas as pd
+        import json as _json
+        from pathlib import Path as _Path
+
+        async def _run():
+            # Clients: v2 for related/search, v1 for profile scrape
+            client_v2 = _make_client(args)
+            # Build v1 client with overrides
+            v1_kwargs = {}
+            if getattr(args, "rpm", None) is not None:
+                v1_kwargs["rate_per_minute"] = args.rpm
+            if getattr(args, "concurrency", None) is not None:
+                v1_kwargs["concurrency"] = args.concurrency
+            if getattr(args, "timeout", None) is not None:
+                v1_kwargs["timeout_s"] = args.timeout
+            v1_kwargs["base_url"] = args.v1_base_url
+            if args.v1_headers:
+                try:
+                    v1_kwargs["headers"] = _json.loads(args.v1_headers)
+                except Exception:
+                    v1_kwargs["headers"] = None
+            from .pdb_client import PdbClient as _PdbClient
+            client_v1 = _PdbClient(**v1_kwargs)
+
+            store = PdbStorage()
+            raw_path = store.raw_path
+            seeds: list[int] = []
+            # Seed IDs from flag or inferred from raw parquet
+            if args.seed_ids:
+                try:
+                    seeds = [int(x.strip()) for x in args.seed_ids.split(',') if x.strip()]
+                except Exception:
+                    print("Invalid --seed-ids; expected comma-separated integers")
+                    return
+            else:
+                if not raw_path.exists():
+                    print(f"Missing raw parquet: {raw_path}. Provide --seed-ids or ingest some data first.")
+                    return
+                df = pd.read_parquet(raw_path)
+                seen = set()
+                for _, row in df.iterrows():
+                    pb = row.get("payload_bytes")
+                    try:
+                        obj = orjson.loads(pb) if isinstance(pb, (bytes, bytearray)) else (json.loads(pb) if isinstance(pb, str) else (pb if isinstance(pb, dict) else None))
+                    except Exception:
+                        obj = None
+                    if not isinstance(obj, dict):
+                        continue
+                    pid = None
+                    if obj.get("_source") == "v1_profile":
+                        pid = obj.get("_profile_id")
+                    if pid is None and (obj.get("_source_list") == "profiles" or "profiles" in str(obj.get("_source_list", ""))):
+                        v = obj.get("id")
+                        pid = v if isinstance(v, int) else None
+                    if isinstance(pid, int) and pid not in seen:
+                        seeds.append(pid)
+                        seen.add(pid)
+                        if len(seeds) >= max(args.max_seeds, 1):
+                            break
+            if not seeds:
+                print("No seed IDs found.")
+                return
+            if args.depth != 1:
+                print("Warning: --depth>1 not yet implemented; proceeding with depth=1")
+            # Pull v2 related for seeds
+            total_related_items = 0
+            related_ids: set[int] = set()
+            allowed_lists = None
+            if args.only_profiles:
+                allowed_lists = {"profiles"}
+            elif args.lists:
+                allowed_lists = {s.strip() for s in args.lists.split(',') if s.strip()}
+            for pid in seeds:
+                try:
+                    data = await client_v2.fetch_json(f"profiles/{pid}/related")
+                except Exception as e:
+                    print(f"Fetch related failed for id={pid}: {e}")
+                    continue
+                items = []
+                if isinstance(data, dict):
+                    container = data.get("data") or data
+                    if isinstance(container, dict):
+                        rp = container.get("relatedProfiles")
+                        if isinstance(rp, list):
+                            items = rp
+                        else:
+                            for k, v in container.items():
+                                if allowed_lists is not None and k not in allowed_lists:
+                                    continue
+                                if isinstance(v, list):
+                                    for it in v:
+                                        if isinstance(it, dict):
+                                            it = {**it, "_source_list": k}
+                                        items.append(it)
+                annotated = []
+                newly_ids = 0
+                for it in items:
+                    if isinstance(it, dict):
+                        it = {**it, "_source": "v2_related", "_source_profile_id": pid}
+                        vid = it.get("id")
+                        if isinstance(vid, int) and vid not in related_ids:
+                            related_ids.add(vid)
+                            newly_ids += 1
+                        annotated.append(it)
+                if not annotated:
+                    print(f"seed id={pid}: no related items")
+                else:
+                    if args.dry_run:
+                        total_related_items += len(annotated)
+                        print(f"seed id={pid}: would upsert {len(annotated)} related items; {newly_ids} new related ids")
+                    else:
+                        n, u = store.upsert_raw(annotated)
+                        total_related_items += n + u
+                        print(f"seed id={pid}: upserted {n} new, {u} updated related items; {newly_ids} new related ids")
+                # optional: search-top by names from related items
+                if args.search_names and items:
+                    names: list[str] = []
+                    for it in items:
+                        if not isinstance(it, dict):
+                            continue
+                        for k in ("name", "title", "display_name", "username"):
+                            v = it.get(k)
+                            if isinstance(v, str) and v:
+                                names.append(v)
+                                break
+                    # dedupe names, limit fan-out a bit
+                    seen_names = set()
+                    for name in names:
+                        if name in seen_names:
+                            continue
+                        seen_names.add(name)
+                        next_cursor = 0
+                        page = 0
+                        while True:
+                            page += 1
+                            params = {"keyword": name, "limit": args.limit, "nextCursor": next_cursor}
+                            try:
+                                data = await client_v2.fetch_json("search/top", params)
+                            except Exception as e:
+                                print(f"search-top failed for name={name!r} page {page}: {e}")
+                                break
+                            container = data.get("data") if isinstance(data, dict) else None
+                            if not isinstance(container, dict):
+                                print(f"No data container for name={name!r} page {page}")
+                                break
+                            out = []
+                            for fname, val in container.items():
+                                if allowed_lists is not None and fname not in allowed_lists:
+                                    continue
+                                if isinstance(val, list) and val:
+                                    for it in val:
+                                        if isinstance(it, dict):
+                                            out.append({**it, "_source": "v2_search_top_by_name", "_source_list": fname, "_query": name, "_page": page, "_nextCursor": next_cursor})
+                            if not out:
+                                if args.until_empty:
+                                    break
+                            else:
+                                if args.dry_run:
+                                    print(f"name={name!r} page {page}: would upsert {len(out)} items (dry-run)")
+                                else:
+                                    new, upd = store.upsert_raw(out)
+                                    print(f"name={name!r} page {page}: upserted {new} new, {upd} updated from search/top")
+                            nc = container.get("nextCursor") if isinstance(container, dict) else None
+                            if isinstance(nc, int):
+                                next_cursor = nc
+                            else:
+                                next_cursor += 1
+                            if not args.until_empty and page >= max(args.pages, 1):
+                                break
+            # Scrape v1 profiles for discovered related IDs
+            scraped = 0
+            if related_ids:
+                for pid in sorted(related_ids):
+                    try:
+                        data = await client_v1.get_profile(pid)
+                    except Exception as e:
+                        print(f"v1 get_profile failed for id={pid}: {e}")
+                        continue
+                    if not isinstance(data, dict):
+                        continue
+                    main_obj = {**data, "_source": "v1_profile", "_profile_id": pid}
+                    if args.dry_run:
+                        scraped += 1
+                    else:
+                        n, u = store.upsert_raw([main_obj])
+                        scraped += n + u
+            if args.dry_run:
+                print(f"Scan complete (dry-run). Seeds={len(seeds)}, related_items={total_related_items}, v1_profiles={len(related_ids)}")
+                return
+            print(f"Scan complete. Seeds={len(seeds)}, related_items_upserts={total_related_items}, v1_profile_upserts={scraped}")
+            if args.auto_embed or args.auto_index:
+                try:
+                    cmd_embed()
+                except Exception as e:
+                    print(f"Auto-embed failed: {e}")
+            if args.auto_index:
+                try:
+                    import faiss  # type: ignore
+                    import numpy as _np
+                    store = PdbStorage()
+                    df = store.load_joined()
+                    rows = df.dropna(subset=["vector"]).reset_index(drop=True)
+                    if rows.empty:
+                        print("No vectors found; run embed first.")
+                    else:
+                        mat = _np.vstack(rows["vector"].to_list()).astype("float32")
+                        norms = _np.linalg.norm(mat, axis=1, keepdims=True) + 1e-12
+                        mat = mat / norms
+                        index = faiss.IndexFlatIP(mat.shape[1])
+                        index.add(mat)
+                        outp = _Path(args.index_out)
+                        outp.parent.mkdir(parents=True, exist_ok=True)
+                        faiss.write_index(index, str(outp))
+                        (outp.with_suffix(outp.suffix + ".cids")).write_text("\n".join(rows["cid"].astype(str).tolist()), encoding="utf-8")
+                        print(f"Indexed {len(rows)} vectors to {outp}")
+                except Exception as e:
+                    print(f"Auto-index failed: {e}")
+        asyncio.run(_run())
 
 
 if __name__ == "__main__":

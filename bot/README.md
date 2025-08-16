@@ -209,3 +209,28 @@ Environment overrides supported by the script:
 - `LISTS` (e.g., `profiles,boards` to pass `--lists`)
 - `DRY_RUN` (non-empty to pass `--dry-run`)
 - `UNTIL_EMPTY` (non-empty to pass `--until-empty`)
+
+### scan-related
+Traverse seeds to collect v2 related profiles, optionally search by related names, and scrape v1 profiles for the discovered IDs. Supports dry-run and post-scrape embedding/indexing.
+
+Flags:
+- `--seed-ids`: Comma-separated seed profile IDs; if omitted, seeds are inferred from current raw parquet (up to `--max-seeds`).
+- `--max-seeds`: Limit number of inferred seeds (default 100).
+- `--depth`: Traversal depth (currently depth=1 supported).
+- `--v1-base-url`, `--v1-headers`: Override base URL and headers for v1 profile fetches.
+- `--search-names`: For each related item, call v2 `search/top` using its name.
+- `--limit`, `--pages`, `--until-empty`: Pagination for name search.
+- `--lists`, `--only-profiles`: Restrict list arrays to upsert from name search.
+- `--auto-embed`, `--auto-index`, `--index-out`: Post-scrape vector/index ops.
+- `--dry-run`: Preview without upserts/embedding/indexing.
+
+Examples:
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli scan-related --seed-ids 498239,12345 --search-names --only-profiles --pages 1 --limit 20 --dry-run
+
+# Infer seeds from parquet, collect related, then scrape v1 profiles and index
+PYTHONPATH=bot/src python -m bot.pdb_cli \
+	--base-url https://api.personality-database.com/api/v2 \
+	--headers '{"User-Agent":"Mozilla/5.0 ...","Referer":"https://www.personality-database.com/","Origin":"https://www.personality-database.com","Cookie":"X-Lang=en-US; ..."}' \
+	scan-related --max-seeds 50 --search-names --only-profiles --pages 1 --limit 20 --auto-embed --auto-index
+```
