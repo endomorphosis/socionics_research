@@ -2,7 +2,27 @@
 
 ![CI](https://github.com/endomorphosis/socionics_research/actions/workflows/ci.yml/badge.svg)
 
-Purpose: Build a transparent, empirically rigorous infrastructure to evaluate and, if justified, refine or falsify core claims of Socionics (information metabolism, functional model, intertype relations) using open science practices.
+**Purpose**: Build a transparent, empirically rigorous infrastructure to evaluate and, if justified, refine or falsify core claims of Socionics (information metabolism, functional model, intertype relations) using open science practices.
+
+## Table of Contents
+- [Quick Start](#quick-start)
+- [Documentation Index](#documentation-index)
+- [Current Status & Focus](#current-status--focus-milestone-m0--foundation)
+- [Community & LLM Integration](#community--llm-integration-summary)
+- [Bot & Research Infrastructure](#bot--research-infrastructure-implemented-v02-core)
+- [Open Science Practices](#open-science-practices)
+- [Contributing](#contributing)
+- [Roadmap](#roadmap-high-level)
+- [License](#license)
+- [Development](#development)
+
+## Quick Start
+
+**For Researchers**: Start with [`docs/intro_socionics_research.md`](docs/intro_socionics_research.md) for theoretical background, then explore [`docs/data_schema.md`](docs/data_schema.md) and [`docs/operational_indicators.md`](docs/operational_indicators.md) for methodological details.
+
+**For Developers**: See the [Development](#development) section for setup instructions. Run tests with `cd bot && pytest` after following the installation steps.
+
+**For Community Members**: The Discord bot documentation is at [`bot/README.md`](bot/README.md). For data contribution and consent information, see [`docs/ethics_consent_outline.md`](docs/ethics_consent_outline.md).
 
 ## Documentation Index
 - **Intro / Conceptual Overview**: [`docs/intro_socionics_research.md`](docs/intro_socionics_research.md) - Academic introduction to socionics theory and research framework
@@ -19,7 +39,7 @@ Purpose: Build a transparent, empirically rigorous infrastructure to evaluate an
 **Version**: 0.2.0 (Updated: 2025-08-16)
 
 ### Completed ✓
-1. ✓ Discord bot v0.1 core implementation with privacy-first design
+1. ✓ Discord bot v0.2 core implementation with privacy-first design
 2. ✓ Basic JSON schemas for person/session/annotation/typing entities
 3. ✓ Operational indicators framework and seed definitions (20+ indicators)
 4. ✓ Literature review matrix with quality scoring methodology

@@ -45,7 +45,7 @@
   },
   "consent": {
     "version": "1.0.0",
-    "date": "2025-08-10",
+    "date": "2025-08-16",
     "modalities_approved": ["text","audio","video"],
     "data_sharing_tier": "anonymized"
   },
