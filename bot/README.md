@@ -339,6 +339,12 @@ PYTHONPATH=bot/src PDB_CACHE=1 python -m bot.pdb_cli \
 	--use-state
 ```
 
+Or use the helper script with sensible defaults and environment overrides:
+
+```
+./scripts/pdb_scan_all_stateful.sh
+```
+
 Troubleshooting:
 - If name-search or sweeps loop without new IDs, set `--max-no-progress-pages` (default 3) to bound.
 - Ensure v2 and v1 calls include browser-like headers (Referer/Origin/Cookie) and valid cookies if you get 401.
