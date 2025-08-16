@@ -32,7 +32,7 @@ export PDB_CACHE=1
 
 trap 'echo; echo "Interrupted. State persisted at data/bot_store/scan_state.json"' INT TERM
 
-PYTHONPATH=bot/src python -m bot.pdb_cli \
+PYTHONPATH=bot/src python -u -m bot.pdb_cli \
   --rpm "$RPM" --concurrency "$CONCURRENCY" --timeout "$TIMEOUT" \
   --base-url "$V2_BASE_URL" \
   --headers "$(tr -d '\n' < "$HEADERS_FILE")" \
