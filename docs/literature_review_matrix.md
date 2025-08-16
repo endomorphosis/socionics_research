@@ -1,5 +1,9 @@
-# Literature Review Matrix (Living Document v0.1)
-Purpose: Track and critically appraise sources relevant to Socionics, adjacent typologies, interpersonal dynamics, and methodological tools.
+# Literature Review Matrix (v0.2)
+
+**Updated**: 2025-08-16  
+**Status**: Systematic review framework with quality assessment
+
+**Purpose**: Track and critically appraise sources relevant to Socionics, adjacent typologies, interpersonal dynamics, and methodological tools with transparent quality scoring.
 
 ## Column Definitions
 | Column | Description |
@@ -55,7 +59,19 @@ Purpose: Track and critically appraise sources relevant to Socionics, adjacent t
 - effect_sizes_reported (boolean)
 - statistical_power_estimate
 
-## Next Actions
-- Draft search strings & PRISMA-style flow chart template.
-- Add 20 additional Socionics community sources tagged low rigor for completeness.
-- Translate two core regional articles; summarize methods.
+## Current Status & Next Actions
+
+### Completed ✓
+- ✓ **Quality Framework**: 5-point scoring system with clear criteria
+- ✓ **Seed Entries**: Representative sample across quality levels
+- ✓ **Gap Analysis**: Key methodological limitations identified
+
+### In Progress 🔄
+- 🔄 **Systematic Search**: PRISMA-style database search (Scopus, PsycINFO)
+- 🔄 **Translation Project**: Priority regional sources (Russian/Lithuanian)
+- 🔄 **Dual Coding**: Independent quality assessment with consensus protocols
+
+### Next Steps 📋
+- 📋 **Database Expansion**: Target 100+ sources with standardized extraction
+- 📋 **Meta-Analysis**: Quantitative synthesis where methodologically appropriate  
+- 📋 **CSV Export**: Machine-readable matrix for ongoing updates

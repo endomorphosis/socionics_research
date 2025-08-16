@@ -13,6 +13,7 @@ src/bot/pdb_analysis.py
 src/bot/pdb_cid.py
 src/bot/pdb_cli.py
 src/bot/pdb_client.py
+src/bot/pdb_edges.py
 src/bot/pdb_embed_search.py
 src/bot/pdb_normalize.py
 src/bot/pdb_storage.py
