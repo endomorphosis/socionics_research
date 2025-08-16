@@ -114,3 +114,98 @@ Outputs fields: ts, level, logger, msg plus any extra contextual attributes.
 
 ## License
 Inherits repository license.
+
+## Data Ingestion CLI (PDB)
+
+These commands support discovery-first ingestion from the Personality Database API with CID-keyed Parquet storage, embeddings, and FAISS search.
+
+Global flags (override env):
+- `--rpm`: Max requests per minute (overrides `PDB_RPM`)
+- `--concurrency`: Parallel HTTP concurrency (overrides `PDB_CONCURRENCY`)
+- `--timeout`: HTTP timeout in seconds (overrides `PDB_TIMEOUT_S`)
+- `--base-url`: API base (overrides `PDB_API_BASE_URL`)
+- `--headers`: Extra headers as JSON (merged last; overrides keys from `PDB_API_HEADERS`)
+
+Example with globals:
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli --rpm 120 --concurrency 8 --timeout 30 \
+	search-top --pages 2 --limit 20 --query '' --auto-embed --auto-index
+```
+Example overriding base URL + headers:
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli \
+	--base-url https://api.personality-database.com/api/v2 \
+	--headers '{"User-Agent":"Mozilla/5.0 ...","Referer":"https://www.personality-database.com/","Origin":"https://www.personality-database.com","Cookie":"X-Lang=en-US; ..."}' \
+	search-top --pages 1 --limit 20 --query ''
+```
+
+### follow-hot
+Resolves trending hot queries via v2 `search/top`. Upserts list-valued fields (e.g., `profiles`) and supports pagination.
+
+Flags:
+- `--limit`: Max results per page per query (default 10)
+- `--max-keys`: Max number of hot query keys to follow (default 10)
+- `--pages`: Number of pages to fetch via `nextCursor` for each key (default 1)
+- `--until-empty`: Keep paging per key until an empty page
+- `--next-cursor`: Starting `nextCursor` (default 0)
+- `--auto-embed`: Run embedding after ingestion
+- `--auto-index`: Rebuild FAISS index after ingestion (implies `--auto-embed`)
+- `--index-out`: Index output path
+- `--lists`: Comma-separated list names to upsert (e.g., `profiles,boards`)
+- `--only-profiles`: Shortcut for `--lists profiles`
+- `--dry-run`: Preview results without writing/upserting or embedding/indexing
+
+Example:
+```
+PYTHONPATH=bot/src PDB_CACHE=1 PDB_API_BASE_URL=https://api.personality-database.com/api/v2 \
+PDB_API_HEADERS='{"User-Agent":"Mozilla/5.0 ...","Referer":"https://www.personality-database.com/","Origin":"https://www.personality-database.com","Cookie":"X-Lang=en-US; ..."}' \
+python -m bot.pdb_cli --rpm 90 --concurrency 6 --timeout 25 \
+	follow-hot --max-keys 15 --limit 20 --pages 3 --auto-embed --auto-index --index-out data/bot_store/pdb_faiss.index
+```
+
+Dry-run (no writes):
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli follow-hot --only-profiles --pages 2 --limit 20 --dry-run
+```
+
+### search-top
+Queries v2 `search/top` directly, with paging and list filtering.
+
+Flags:
+- `--query` / `--keyword`: Query parameter (use `--encoded` if already URL-encoded)
+- `--encoded`: Treat `--query` as already URL-encoded (e.g., `Elon%2520Musk`)
+- `--limit`, `--next-cursor`, `--pages`, `--until-empty`: Pagination controls
+- `--auto-embed`, `--auto-index`, `--index-out`: Post-ingest vector/index ops
+- `--lists`, `--only-profiles`: Restrict which list arrays to upsert
+- `--dry-run`: Preview results without writing/upserting or embedding/indexing
+
+Examples:
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli search-top --query '' --only-profiles --pages 1 --limit 20 --dry-run
+PYTHONPATH=bot/src python -m bot.pdb_cli search-top --query 'Elon%2520Musk' --encoded --only-profiles --pages 1 --limit 20 --dry-run
+```
+
+### ingest-report
+Summarizes items ingested via `search/top` and `follow-hot`, grouped by `_source_list` and top `_query` values.
+
+Example:
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli ingest-report --top-queries 10
+```
+
+### Ingestion Cycle Script
+To run a full ingestion cycle end-to-end with environment-configurable headers, rate, and concurrency, use:
+
+```
+./scripts/pdb_ingest_cycle.sh
+```
+
+Environment overrides supported by the script:
+- `PDB_BASE` (default `https://api.personality-database.com/api/v2`)
+- `PDB_HEADERS` (JSON for headers incl. User-Agent, Referer, Origin, Cookie)
+- `PDB_RPM`, `PDB_CONCURRENCY`, `PDB_TIMEOUT_S`
+- `MAX_KEYS`, `PAGES`, `LIMIT`, `INDEX_OUT`
+- `ONLY_PROFILES` (non-empty to pass `--only-profiles`)
+- `LISTS` (e.g., `profiles,boards` to pass `--lists`)
+- `DRY_RUN` (non-empty to pass `--dry-run`)
+- `UNTIL_EMPTY` (non-empty to pass `--until-empty`)
