@@ -160,6 +160,159 @@ Column groups:
 
 ---
 
+## Appendix A: Parquet Artifacts & Storage Architecture
+
+### A.1 Raw Profile Data (`pdb_profiles.parquet`)
+
+**Schema**:
+- `cid` (string): IPFS Content Identifier - cryptographic hash of the canonical JSON payload
+- `payload_bytes` (binary): Original JSON profile data as compressed bytes
+
+**Purpose**: Primary storage with deduplication via content-addressing. Identical profiles across different API responses share the same CID.
+
+**Content Addressing Benefits**:
+- Automatic deduplication of identical content
+- Cryptographic integrity verification 
+- Immutable references to specific data versions
+
+### A.2 Vector Embeddings (`pdb_profile_vectors.parquet`)
+
+**Schema**:
+- `cid` (string): References `pdb_profiles.parquet` primary key
+- `vector` (list[float]): Semantic embedding vector (dimensionality depends on model)
+
+**Index Mapping**: CID → embedding vector for similarity search operations.
+
+**Generation Process**:
+```bash
+# Lightweight embeddings (development/testing)
+pdb-cli embed
+
+# Full embeddings (production)
+export SOCIONICS_LIGHTWEIGHT_EMBEDDINGS=0
+export SOCIONICS_EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
+pdb-cli embed
+```
+
+### A.3 Normalized Profiles (`pdb_profiles_normalized.parquet`)
+
+**Schema**:
+- `cid` (string): Primary key linking to raw data
+- `name` (string): Extracted display name
+- `description` (string): Profile description/bio text
+- `mbti` (string): MBTI type if present
+- `socionics` (string): Socionics type if present  
+- `big5` (object): Big Five scores if present
+
+**Purpose**: Structured extraction of key fields for analysis without parsing raw JSON repeatedly.
+
+### A.4 Relationship Network (`pdb_profile_edges.parquet`)
+
+**Schema**:
+- `from_pid` (int): Source profile ID in relationship
+- `to_pid` (int): Target profile ID in relationship  
+- `relation` (string): Relationship type (e.g., "related", "similar", "works")
+- `source` (string): Data source annotation (e.g., "v2_related", "v1_works", "search_top")
+
+**Network Analysis Tools**:
+```bash
+# Summary statistics
+pdb-cli edges-report --top 15
+
+# Connected components analysis  
+pdb-cli edges-analyze --top 5 --per-component-top 10
+
+# Export enriched node data
+pdb-cli edges-export --out pdb_profile_edges_components.parquet
+```
+
+**Component Analysis Output** (`pdb_profile_edges_components.parquet`):
+- `pid` (int): Profile ID
+- `component` (int): Connected component ID
+- `out_degree` (int): Number of outgoing edges
+- `in_degree` (int): Number of incoming edges  
+- `degree` (int): Total degree (in + out)
+
+### A.5 FAISS Index (`pdb_faiss.index` + `.cids`)
+
+**Index File Structure**:
+- `pdb_faiss.index`: FAISS vector index for fast similarity search
+- `pdb_faiss.index.cids`: CID mapping file (index position → CID)
+
+**Usage**:
+```bash
+# Build index
+pdb-cli index --out data/bot_store/pdb_faiss.index
+
+# Search with index
+pdb-cli search-faiss "curious introverted detective" --top 5 --index data/bot_store/pdb_faiss.index
+```
+
+### A.6 Persistent Scan State (`scan_state.json`)
+
+**Purpose**: Track progress across scan-all discovery runs to avoid redundant API calls.
+
+**Schema Structure**:
+```json
+{
+  "processed_seeds": ["12345", "67890"],
+  "processed_names": ["Carl Jung", "Isabel Myers"], 
+  "processed_sweep_tokens": ["a", "b", "psychology"],
+  "last_run_timestamp": "2025-08-16T10:30:00Z",
+  "discovery_stats": {
+    "total_profiles_found": 1543,
+    "total_edges_created": 892,
+    "new_profiles_last_run": 23
+  }
+}
+```
+
+**State Management**:
+```bash
+# Use persistent state (recommended)
+pdb-cli scan-all --use-state --state-file data/bot_store/scan_state.json
+
+# Reset state for fresh discovery
+pdb-cli scan-all --state-reset
+# or: rm data/bot_store/scan_state.json
+```
+
+### A.7 API Response Cache (`pdb_api_cache/`)
+
+**Structure**: Directory of JSON files named by SHA-256 hash of request parameters.
+
+**Cache Management**:
+```bash
+# Enable caching
+export PDB_CACHE=1
+
+# Clear cache
+pdb-cli cache-clear
+```
+
+**Purpose**: Reduce API load during development and iterative discovery runs.
+
+### A.8 Storage Best Practices
+
+1. **Content Addressing**: Always reference profiles by CID rather than API IDs for consistency across discovery methods.
+
+2. **Incremental Updates**: Use `upsert` operations - new profiles with existing CIDs update timestamps but don't duplicate content.
+
+3. **Vector Regeneration**: When changing embedding models, regenerate all vectors:
+   ```bash
+   rm data/bot_store/pdb_profile_vectors.parquet
+   pdb-cli embed
+   ```
+
+4. **Index Rebuilds**: FAISS indexes need rebuilding after vector updates:
+   ```bash
+   pdb-cli index --out data/bot_store/pdb_faiss.index
+   ```
+
+5. **State Persistence**: For production discovery, always use `--use-state` to avoid re-processing known seeds and enable efficient incremental updates.
+
+---
+
 ## Appendix A: PDB Storage Artifacts
 
 This project ingests Personality Database (PDB) data into content-addressed Parquet stores with embeddings and a relationship graph.

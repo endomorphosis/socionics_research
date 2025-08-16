@@ -109,7 +109,16 @@ pdb-cli search-faiss "curious introverted detective" --top 5 --index data/bot_st
 
 **Coverage Snapshot**:
 ```bash
+# Basic coverage report
 pdb-cli coverage --sample 10
+
+# Detailed coverage with vector status
+pdb-cli coverage --sample 50 --verbose
+
+# Coverage after discovery run
+export PDB_CACHE=1
+pdb-cli scan-all --max-iterations 1 --search-names --pages 2
+pdb-cli coverage --sample 20  # check progress
 ```
 Reports raw rows, unique CIDs, vector coverage, v1 coverage, and sample missing IDs.
 
@@ -141,9 +150,31 @@ pdb-cli related --ids 498239,12345
 - Fallback to list-valued fields (`works`, `acting`) with source annotation
 - Content-addressed storage prevents duplication across relationship sources
 
+**Search-Top Examples**:
+```bash
+# Basic search-top (personality keywords)
+pdb-cli search-top "introvert" --pages 3 --limit 20
+
+# Only include profiles (filter out other entities)
+pdb-cli search-top "INTJ" --only-profiles --pages 5 --limit 50
+
+# Search with caching enabled
+export PDB_CACHE=1
+pdb-cli search-top "psychology" --pages 2 --until-empty
+
+# Batch search multiple terms
+for term in "ENFP" "ISFJ" "psychology"; do
+  pdb-cli search-top "$term" --pages 1 --only-profiles
+done
+```
+
 **Trending Query Discovery**:
 ```bash
+# Fetch trending queries 
 pdb-cli hot-queries
+
+# Follow trending queries with discovery
+pdb-cli follow-hot --pages 3 --limit 30
 ```
 Fetches and stores trending search terms for community interest analysis.
 
@@ -175,22 +206,138 @@ pdb-cli \
 	--use-state
 ```
 
+**Additional scan-all Examples**:
+
+```bash
+# Minimal discovery run (BFS only, no sweeps)
+pdb-cli scan-all --max-iterations 5
+
+# Name search only (no sweeps, with state persistence)
+pdb-cli scan-all \
+  --search-names --pages 3 --limit 50 \
+  --max-no-progress-pages 2 \
+  --use-state
+
+# Full sweep with early termination guards
+export PDB_CACHE=1
+pdb-cli scan-all \
+  --search-names --pages 2 \
+  --sweep-queries "psychology,personality,mbti,jung" \
+  --sweep-pages 5 --sweep-until-empty \
+  --max-no-progress-pages 3 \
+  --use-state --auto-embed
+
+# State reset + fresh discovery
+pdb-cli scan-all --state-reset --max-iterations 3 --search-names
+```
+
 Troubleshooting:
 - If you see repeated pages with “0 new, N updated”, set or lower `--max-no-progress-pages`.
 - If v1 scraping returns 401, verify cookies in `--v1-headers`.
 - Use `diagnose-query` to inspect collected pages and cursors for a given keyword.
 
-### Troubleshooting
+### Comprehensive Troubleshooting Guide
 
-- Auth 401/403 on v2 or v1:
-	- Ensure `Referer`, `Origin`, and `Cookie` are present in headers; refresh cookies from an active session.
-	- Pass headers via `--headers "$(tr -d '\n' < .secrets/pdb_headers.json)"` or set `PDB_API_HEADERS`.
-- Endless paging or low discovery yield:
-	- Use `--max-no-progress-pages 3` (default) and reduce `--pages`/`--sweep-pages`.
-	- Run `pdb-cli diagnose-query --contains <token>` to inspect page/cursor behavior.
-- Cache & State:
-	- Clear cache: `pdb-cli cache-clear`.
-	- Reset stateful scan: remove `data/bot_store/scan_state.json` or use `--state-reset`.
+#### Authentication Issues
+
+**v1/v2 API 401/403 Errors**:
+- Ensure `Referer`, `Origin`, and `Cookie` are present in headers
+- Refresh cookies from an active browser session
+- Pass headers via `--headers "$(tr -d '\n' < .secrets/pdb_headers.json)"` or set `PDB_API_HEADERS`
+- For v2 endpoints, verify the base URL: `https://api.personality-database.com/api/v2`
+- Check that your headers include a valid `User-Agent` string
+
+**Example Valid Headers** (`.secrets/pdb_headers.json`):
+```json
+{
+  "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0",
+  "Accept": "application/json, text/plain, */*",
+  "Referer": "https://www.personality-database.com/",
+  "Origin": "https://www.personality-database.com",
+  "Cookie": "session_id=abc123..."
+}
+```
+
+#### Paging and Discovery Issues
+
+**Endless Paging Loops**:
+- Use `--max-no-progress-pages 3` (default) to stop low-yield paging
+- Reduce `--pages` and `--sweep-pages` for initial runs
+- Run `pdb-cli diagnose-query --contains <token>` to inspect pagination behavior
+- Check for cursor loops: `diagnose-query` will show repeated cursors
+
+**Low Discovery Yield**:
+```bash
+# Debug specific search terms
+pdb-cli diagnose-query --contains "psychology" --verbose
+
+# Check coverage before/after runs
+pdb-cli coverage --sample 20
+pdb-cli scan-all --max-iterations 1
+pdb-cli coverage --sample 20  # compare results
+```
+
+#### Cache and State Management
+
+**Clear API Cache**:
+```bash
+pdb-cli cache-clear  # removes all cached HTTP responses
+```
+
+**Reset Scan State**:
+```bash
+# Complete reset
+rm data/bot_store/scan_state.json
+pdb-cli scan-all --max-iterations 5
+
+# Or use built-in reset
+pdb-cli scan-all --state-reset --max-iterations 5
+```
+
+**State File Corruption**:
+```bash
+# Backup and reset if state file is corrupted
+mv data/bot_store/scan_state.json data/bot_store/scan_state.json.backup
+pdb-cli scan-all --use-state  # will create fresh state
+```
+
+#### Performance and Rate Limiting
+
+**Rate Limit Debugging**:
+```bash
+# Reduce concurrency and RPM for debugging
+pdb-cli --rpm 30 --concurrency 1 --timeout 60 scan-all --max-iterations 1
+
+# Monitor logs for rate limit responses
+tail -f scan_all_run.log
+```
+
+**Memory Issues with Large Datasets**:
+```bash
+# Process in smaller batches
+pdb-cli scan-all --max-iterations 1 --auto-embed
+# Then continue:
+pdb-cli scan-all --max-iterations 1 --use-state --auto-embed
+```
+
+#### Data Consistency Issues
+
+**Vector/Embedding Problems**:
+```bash
+# Regenerate all vectors
+rm data/bot_store/pdb_profile_vectors.parquet
+pdb-cli embed
+
+# Rebuild FAISS index after vector regeneration  
+pdb-cli index --out data/bot_store/pdb_faiss.index
+```
+
+**CID Integrity Check**:
+```bash
+# Export normalized data and check for CID consistency
+pdb-cli export --out test_export.parquet
+pdb-cli summarize --normalized test_export.parquet
+```
 
 ### Statistical Analysis
 

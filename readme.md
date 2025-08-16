@@ -36,12 +36,12 @@ export PDB_CACHE=1
 export PDB_API_BASE_URL=https://api.personality-database.com/api/v2
 export PDB_API_HEADERS="$(tr -d '\n' < .secrets/pdb_headers.json)"
 
-# explore & ingest
+# explore & ingest (basic commands)
 PYTHONPATH=bot/src python -m bot.pdb_cli peek profiles --params '{"limit":3}'
-PYTHONPATH=bot/src python -m bot.pdb_cli search-top --only-profiles --pages 1 --limit 20
+PYTHONPATH=bot/src python -m bot.pdb_cli search-top "psychology" --only-profiles --pages 1 --limit 20
 PYTHONPATH=bot/src python -m bot.pdb_cli coverage --sample 10
 
-# edges and graph analysis
+# relationship network analysis
 PYTHONPATH=bot/src python -m bot.pdb_cli edges-report --top 15
 PYTHONPATH=bot/src python -m bot.pdb_cli edges-analyze --top 3 --per-component-top 5
 PYTHONPATH=bot/src python -m bot.pdb_cli edges-export --out data/bot_store/pdb_profile_edges_components.parquet
@@ -51,13 +51,18 @@ PYTHONPATH=bot/src python -m bot.pdb_cli \
 	--rpm 90 --concurrency 3 --timeout 30 \
 	scan-all --max-iterations 0 \
 	--search-names --limit 20 --pages 1 --until-empty \
-	--sweep-queries a,b,c --sweep-pages 10 --sweep-until-empty --sweep-into-frontier \
+	--sweep-queries psychology,personality,mbti \
+	--sweep-pages 5 --sweep-until-empty \
 	--max-no-progress-pages 3 \
 	--auto-embed --auto-index --index-out data/bot_store/pdb_faiss.index \
-	--scrape-v1 --v1-base-url https://api.personality-database.com/api/v1 \
-	--v1-headers "$(tr -d '\n' < .secrets/pdb_headers.json)" \
 	--use-state
+
+# troubleshooting helpers
+PYTHONPATH=bot/src python -m bot.pdb_cli cache-clear
+PYTHONPATH=bot/src python -m bot.pdb_cli diagnose-query --contains "psychology"
 ```
+
+See [`docs/pdb_pipeline.md`](docs/pdb_pipeline.md) for comprehensive CLI documentation and troubleshooting guides.
 See [`docs/pdb_pipeline.md`](docs/pdb_pipeline.md) for full pipeline details and `scan-all` behavior.
 
 ## Documentation Index

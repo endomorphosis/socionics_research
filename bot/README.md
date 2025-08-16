@@ -175,6 +175,29 @@ Inherits repository license.
 
 These commands support discovery-first ingestion from the Personality Database API with CID-keyed Parquet storage, embeddings, and FAISS search.
 
+## Quick Start & Installation
+
+### Module Path Invocation (Development)
+
+For development work, you can invoke CLI commands via module path without installation:
+
+```bash
+# Set PYTHONPATH to include bot source
+export PYTHONPATH=bot/src
+
+# Run PDB CLI commands
+python -m bot.pdb_cli --help
+python -m bot.pdb_cli peek profiles --params '{"limit":3}'
+python -m bot.pdb_cli coverage --sample 10
+```
+
+This approach is useful for:
+- Quick testing of CLI changes during development
+- CI/CD environments where you don't want to install packages
+- Isolated testing environments
+
+### Standard Installation
+
 Install locally for development:
 ```
 python -m venv .venv

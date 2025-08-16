@@ -44,6 +44,29 @@ data/bot_store/pdb_api_cache/
 data/bot_store/scan_state.json
 data/bot_store/backup_*/
 
+# Bot-specific data artifacts (nested)
+bot/data/
+**/data/bot_store/*.parquet
+**/data/bot_store/**/*.parquet
+**/data/bot_store/*.index
+**/data/bot_store/*.cids
+**/data/bot_store/pdb_api_cache/
+**/data/bot_store/scan_state.json
+**/data/bot_store/backup_*/
+
+# Parquet files anywhere in the repository
+**/*.parquet
+
+# Scan state files anywhere
+**/scan_state.json
+
+# API cache directories anywhere
+**/pdb_api_cache/
+**/api_cache/
+
+# Backup directories anywhere
+**/backup_*/
+
 # Secrets
 .secrets/
 *.env
