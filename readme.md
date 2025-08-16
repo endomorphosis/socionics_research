@@ -57,6 +57,9 @@ PYTHONPATH=bot/src python -m bot.pdb_cli \
 	--scrape-v1 --v1-base-url https://api.personality-database.com/api/v1 \
 	--v1-headers "$(tr -d '\n' < .secrets/pdb_headers.json)" \
 	--use-state
+ 
+# or use the helper script
+./scripts/pdb_scan_all_stateful.sh
 ```
 See [`docs/pdb_pipeline.md`](docs/pdb_pipeline.md) for full pipeline details and `scan-all` behavior.
 

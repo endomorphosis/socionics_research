@@ -247,3 +247,22 @@ PDB_API_HEADERS='{"User-Agent":"...","Referer":"...","Origin":"...","Cookie":"..
 ./scripts/pdb_ingest_cycle.sh
 ```
 This runs `hot-queries → follow-hot → export → summarize → ingest-report → index` with caching enabled.
+
+### Stateful Scan Script
+
+Automate a discovery-first stateful scan (with caching, sweeps, and no-progress guards) via `scripts/pdb_scan_all_stateful.sh`:
+
+```bash
+./scripts/pdb_scan_all_stateful.sh
+```
+
+Customize with environment variables:
+
+```bash
+RPM=120 CONCURRENCY=6 PAGES=2 SWEEP_PAGES=10 \
+./scripts/pdb_scan_all_stateful.sh
+```
+
+Requirements:
+- `.secrets/pdb_headers.json` with browser-like headers and valid cookies
+- Sufficient disk space under `data/bot_store/` for Parquet and FAISS artifacts
