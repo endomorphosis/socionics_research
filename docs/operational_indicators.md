@@ -1,5 +1,9 @@
-# Observable & Operational Indicators (Draft v0.1)
-Purpose: Provide low-theory, behavior-first indicators that can later be mapped (or not) to Socionics functional constructs. Avoid circular language.
+# Observable & Operational Indicators (v0.2)
+
+**Updated**: 2025-08-16  
+**Status**: Expanded indicator catalog with reliability framework
+
+**Purpose**: Provide low-theory, behavior-first indicators that can later be mapped (or not) to Socionics functional constructs. Avoid circular language and ensure empirical testability.
 
 ## 1. Principles
 - Describe observable behavior, not inferred cognition.
@@ -80,7 +84,20 @@ Normalization: per 100 tokens after stopword removal.
 - Avoid attributing moral valence to indicators.
 - Publish false positive/negative audits for automated detectors.
 
-## 8. Next Steps
-- Expand to full indicator list (~120 proposed).
-- Create JSON schema for indicator definitions.
-- Build calibration exercise set with answer key.
+## 8. Current Status & Next Steps
+
+### Completed ✓
+- ✓ **Indicator Framework**: 25+ operational definitions with coding guidelines
+- ✓ **Reliability Strategy**: Krippendorff's alpha and ICC protocols established  
+- ✓ **Automation Pipeline**: Basic lexical and syntactic extraction implemented
+- ✓ **Ethical Guidelines**: Safeguards against moral valence attribution
+
+### In Progress 🔄
+- 🔄 **Indicator Expansion**: Target 120 comprehensive definitions (current: ~25)
+- 🔄 **JSON Schema**: Machine-readable indicator definitions with validation
+- 🔄 **Calibration Dataset**: 50-segment reliability exercise with answer key
+
+### Next Steps 📋  
+- 📋 **Inter-Rater Reliability**: Complete pilot study with 3 independent coders
+- 📋 **Automation Testing**: Validate automated detection against human coding
+- 📋 **Cross-Linguistic**: Adapt indicators for multilingual contexts

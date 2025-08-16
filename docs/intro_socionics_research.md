@@ -203,17 +203,29 @@ Sections to produce (future work):
 - Neglecting measurement invariance across gender/culture/age cohorts.
 - Treating theoretical language (e.g., "information metabolism") as established biological substrate without evidence.
 
-## 19. Prioritized Next Deliverables for This Repository
-1. Establish data schema draft (JSON + README). (Done: v0.1 drafts)
-2. Draft observable indicators list with operational definitions. (In progress)
-3. Prototype annotation interface spec. (Planned)
-4. Literature review matrix (author, year, method quality, key findings, limitations). (Seeded)
-5. Funding / ethics application template (risk assessment, consent forms outline). (Outline started)
-6. Discord community governance & consent workflow design. (New)
-7. LLM chatbot specification (capabilities, guardrails, logging, evaluation). (New)
-8. Data ingestion pipeline for Discord + chatbot interactions (with filtering & PII scrubbing). (New)
-9. Human-in-the-loop validation protocol for LLM-assisted annotations. (New)
-10. KPI dashboard scaffold (reliability, community health, model drift). (New)
+## 19. Current Repository Status & Next Deliverables
+
+**Updated: 2025-08-16**
+
+### Completed ✓
+1. ✓ **Data Schema v0.2**: Enhanced JSON schemas with validation rules ([`data_schema.md`](data_schema.md))
+2. ✓ **Operational Indicators**: 25+ behavioral indicators with operational definitions ([`operational_indicators.md`](operational_indicators.md))
+3. ✓ **Literature Review Matrix**: Systematic quality assessment framework ([`literature_review_matrix.md`](literature_review_matrix.md))
+4. ✓ **Ethics Framework**: IRB-ready consent procedures and risk assessment ([`ethics_consent_outline.md`](ethics_consent_outline.md))
+5. ✓ **Discord Bot v0.2**: Production-ready core with privacy-first design
+6. ✓ **Community Guidelines**: Governance framework for research participation
+
+### In Progress 🔄
+7. 🔄 **Annotation Interface**: Web-based prototype for researcher workflow
+8. 🔄 **Reliability Calibration**: Inter-rater agreement benchmarking (target: 50 segments × 3 raters)
+9. 🔄 **LLM Evaluation Harness**: Guardrail testing and bias assessment pipeline
+10. 🔄 **Data Ingestion Pipeline**: Automated Discord message processing with PII protection
+
+### Planned 📋
+11. 📋 **Human-in-the-Loop Validation**: LLM-assisted annotation workflow
+12. 📋 **KPI Dashboard**: Real-time monitoring of reliability, community health, model drift
+13. 📋 **Cross-Cultural Indicators**: Expansion beyond English-language samples
+14. 📋 **API Specification**: External tool integration for researchers
 
 ## 20. Selected Bibliography (Representative / Mixed Quality)
 (Researchers should critically appraise; many sources are non-peer-reviewed or regional publications.)

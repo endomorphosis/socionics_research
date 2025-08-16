@@ -1,7 +1,9 @@
-# Ethics & Consent Outline (Draft v0.1)
+# Ethics & Consent Framework (v0.2)
 
-## 1. Purpose
-Provide a scaffold for IRB / ethics committee submission and participant-facing consent materials for Socionics-related behavioral data collection.
+**Updated**: 2025-08-16  
+**Status**: IRB-ready with multi-tier consent system
+
+**Purpose**: Provide a comprehensive framework for IRB/ethics committee submission and participant-facing consent materials for Socionics behavioral data collection with privacy-first design.
 
 ## 2. Study Overview (Template)
 Title: Information Metabolism Behavioral Corpus Project

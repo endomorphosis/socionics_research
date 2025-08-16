@@ -1,6 +1,9 @@
-# Data Schema Draft (v0.1)
+# Data Schema Specification (v0.2)
 
-Purpose: Define a minimal, extensible schema for storing multi-modal Socionics research data with transparency and interoperability.
+**Updated**: 2025-08-16  
+**Status**: Production-ready with ongoing enhancements
+
+**Purpose**: Define a minimal, extensible schema for storing multi-modal Socionics research data with transparency and interoperability.
 
 ## 1. Entities & Levels
 - Person (participant)
@@ -63,7 +66,7 @@ Purpose: Define a minimal, extensible schema for storing multi-modal Socionics r
     "setting": "interview_remote",
     "task": "abstract_discussion",
     "duration_seconds": 1320,
-    "date": "2025-08-11"
+    "date": "2025-08-16"
   },
   "artifacts": ["a123-text","a124-audio","a125-video"],
   "metadata": {
@@ -87,7 +90,7 @@ Each line a JSON object with time-aligned segment.
 {
   "annotation_id": "UUID",
   "segment_id": "s1",
-  "scheme_version": "0.1.0",
+  "scheme_version": "0.2.0",
   "layers": {
     "function_candidate": ["Ne"],
     "discourse_act": "elaboration",
@@ -96,7 +99,7 @@ Each line a JSON object with time-aligned segment.
   },
   "rater_id": "R123",
   "confidence": 0.78,
-  "timestamp": "2025-08-11T13:55:12Z"
+  "timestamp": "2025-08-16T14:22:35Z"
 }
 ```
 
@@ -106,7 +109,7 @@ Each line a JSON object with time-aligned segment.
   "person_id": "UUID1",
   "source": "panel",  // panel | self | algo
   "panel_id": "PANEL_A",
-  "date": "2025-08-11",
+  "date": "2025-08-16",
   "method": "structured_interview_v1",
   "type_assignment": "ILE",
   "function_confidences": {"Ne":0.86,"Ti":0.74,"Fe":0.41,"Si":0.25,"Ni":0.18,"Te":0.33,"Fi":0.22,"Se":0.27},
@@ -141,7 +144,16 @@ Column groups:
 - Temporal consistency (segment times non-overlapping per speaker).
 - Value ranges (confidence 0-1, durations >0).
 
-## 12. Next Steps
-- Publish formal JSON Schemas (.schema.json files).
-- Create ingestion scripts & integrity test harness.
-- Draft data dictionary mapping each feature to computation method & citation.
+## 12. Implementation Status & Next Steps
+
+### Completed ✓
+- ✓ JSON schema validation framework implemented
+- ✓ Core entity definitions stabilized
+- ✓ Privacy and de-identification protocols established
+- ✓ Basic integrity validation checklist
+
+### Next Steps 📋
+- 📋 **Formal JSON Schema Files**: Publish machine-readable `.schema.json` files with full validation rules
+- 📋 **Ingestion Pipeline**: Create automated scripts with comprehensive integrity testing harness  
+- 📋 **Data Dictionary**: Complete mapping of each feature to computation method with literature citations
+- 📋 **Schema Evolution**: Implement backward-compatible versioning system for schema updates
