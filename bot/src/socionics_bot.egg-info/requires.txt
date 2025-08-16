@@ -16,6 +16,7 @@ uvloop
 
 [dev]
 pytest
+pytest-cov
 ruff
 mypy
 types-requests
