@@ -1,60 +1,89 @@
-# Socionics Discord Bot (LLM-Assisted)
+# Socionics Discord Bot (v0.2)
 
-Purpose: Provide structured, safeguarded access to Socionics research information, educational explanations, and guided self-reflection prompts within the Discord community.
+**Updated**: 2025-08-16  
+**Status**: Production-ready with privacy-first architecture
 
-## Functional Scope (v0.1)
-- /about_socionics: Neutral overview of theory + empirical status.
-- /theory <topic>: Returns concise, sourced explanation (rate-limited).
-- /intertype <type1> <type2>: Summarize canonical relation description + evidence gaps + suggested falsifiable questions.
-- /reflect: Issues a randomized structured prompt (logged with prompt_id).
-- /consent: Runs consent onboarding flow (integrates with repository governance service).
-- /my_type_help: Provides a structured questionnaire to help users gather observations; DOES NOT assign a type automatically.
-- /explain_functions: High-level definitions with caveats.
-- /privacy: Displays data handling & logging details.
-- /ingest_channel: Ingest recent messages (vectors + hashed metadata only) (admin).
-- /search_vectors: Semantic similarity search (rate-limited).
-- /keyword_search: Hybrid hashed token + semantic narrowing.
-- /context_window: Builds context snippet metadata.
-- /purge_message: Remove a specific message vector (admin).
-- /llm_context: Returns JSON metadata for RAG assembly (no content).
+**Purpose**: Provide structured, safeguarded access to Socionics research information, educational explanations, and guided self-reflection prompts within the Discord research community.
+
+## Bot Commands & Functionality
+
+### Public Research Commands
+- **`/about_socionics`**: Neutral overview of theory with empirical status caveats
+- **`/theory <topic>`**: Concise, sourced explanations with rate limiting and citation tracking
+- **`/intertype <type1> <type2>`**: Canonical relation descriptions with evidence gaps and falsifiable questions
+- **`/explain_functions`**: High-level function definitions with methodological caveats
+- **`/reflect`**: Randomized structured prompts for self-observation (logged with prompt_id)
+- **`/privacy`**: Comprehensive data handling and logging transparency
+
+### Participant Interaction  
+- **`/consent`**: Multi-tier consent onboarding with granular data usage controls
+- **`/my_type_help`**: Structured self-observation questionnaire (NO automatic type assignment)
+- **`/search_vectors`**: Semantic similarity search across community knowledge base (rate-limited)
+- **`/keyword_search`**: Hybrid hashed token + semantic search functionality
+
+### Administrative Commands (Role-Restricted)
+- **`/ingest_channel`**: Vector ingestion storing only embeddings + salted hashes
+- **`/context_window`**: Context snippet metadata assembly for researchers  
+- **`/purge_message`**: Privacy-compliant message deletion by ID
+- **`/llm_context`**: RAG metadata assembly (returns JSON metadata only)
 
 ## Out-of-Scope (Hard Guardrails)
 - Direct assignment of a user's Socionics type.
 - Personalized coaching or psychological advice.
 - Medical or diagnostic claims.
 
-## Conditional Guidance for Type Exploration
-Workflow:
-1. User runs /my_type_help.
-2. Bot returns a 6-dimension self-observation checklist (energy focus, information seeking pattern, comfort/volition cues, decision framing, discourse style, feedback sensitivity).
-3. User optionally answers follow-up questions (1–2 per dimension).
-4. Bot summarizes patterns using neutral descriptors and suggests 2–3 candidate study tasks (e.g., record a monologue under two prompt categories) rather than naming a type.
-5. If user persists in asking for a type, bot reiterates policy and offers resources: methodology doc link + explanatory article.
+## Privacy & Research Ethics Framework
 
-## Interpersonal Dynamics Explanation
-- Provide standard relation category description (e.g., Duality) + highlight: "Empirical Evidence Status: unverified / limited / emerging".
-- Encourage formulation of testable interactions: e.g., "Measure coordination time on novel tasks vs. matched non-Dual pairs." 
+### Core Safeguards
+- **Content Filtering**: Profanity and harassment detection before LLM processing
+- **Red-Team Testing**: Startup validation ensuring blocked outputs for disallowed requests  
+- **Response Provenance**: Clear labeling of empirically unvalidated theoretical claims
+- **Audit Logging**: Comprehensive tracking (hashed user ID, command, timestamp, model version, guardrail flags)
 
-## Safeguards
-- Profanity / harassment filter before LLM call.
-- Red-team prompt tests at startup (ensure blocked outputs for disallowed requests).
-- Response provenance: prepend banner if answer includes theoretical claims not yet empirically validated.
-- Logging (hashed user ID, command, prompt_id, timestamp, model version, guardrail flags) to JSONL (rotated daily).
+### Data Architecture (Privacy-First)
 ```
 Discord Gateway → Command Router → Guardrail Pipeline → Intent Classifier → Tool/LLM Orchestrator → Response Formatter → Discord API
+                                          ↓
+                                 Audit Log (JSONL)
+                                 Vector Store (Salted Hashes Only)
 ```
 
-Guardrail Pipeline Components:
+### Type Exploration Workflow (Non-Diagnostic)
+1. **Self-Observation**: `/my_type_help` provides 6-dimension checklist (energy focus, information patterns, comfort cues, decision framing, discourse style, feedback sensitivity)
+2. **Guided Questions**: Optional follow-up prompts (1–2 per dimension) for deeper reflection  
+3. **Pattern Summary**: Bot provides neutral descriptors and suggests observational tasks
+4. **Study Suggestions**: Recommends structured activities (e.g., monologue recording under different prompt categories)
+5. **Resource Provision**: If users persist in seeking type assignment, bot redirects to methodology documentation
 
-## Data Sources
-- `docs/intro_socionics_research.md`
-- `docs/operational_indicators.md`
-- `docs/annotation_protocol.md`
+### Interpersonal Relations Framework
+- **Theoretical Descriptions**: Standard relation categories (Duality, Activity, etc.) with empirical status labels
+- **Evidence Transparency**: Clear marking of "unverified / limited / emerging" evidence status  
+- **Research Questions**: Encouragement of testable hypotheses (e.g., "Measure coordination time on novel tasks vs. matched non-Dual pairs")
 
-## Future Extensions
-- Semi-automated annotation suggestion for internal raters (/annotator mode).
-- Multi-language support with translation quality confidence scores.
-- Adaptive clarification questions (dialog state machine) for deeper concept explanations.
+## Data Sources & Knowledge Base
+
+**Primary Documentation Sources**:
+- [`docs/intro_socionics_research.md`](../docs/intro_socionics_research.md) - Academic theory overview
+- [`docs/operational_indicators.md`](../docs/operational_indicators.md) - Behavioral measurement framework  
+- [`docs/annotation_protocol.md`](../docs/annotation_protocol.md) - Research methodology protocols
+- [`docs/literature_review_matrix.md`](../docs/literature_review_matrix.md) - Quality-assessed research bibliography
+
+**Vector Knowledge Base**: Embeddings from documentation with semantic search capabilities and retrieval-augmented generation for contextualized responses.
+
+## Development Roadmap
+
+### Current Features (v0.2) ✓
+- ✓ Core command functionality with comprehensive guardrails
+- ✓ Privacy-first vector storage with salted hash protection
+- ✓ Multi-tier consent system with granular controls
+- ✓ Rate limiting and abuse prevention mechanisms
+- ✓ Comprehensive audit logging and transparency features
+
+### Planned Enhancements 📋
+- 📋 **Annotation Assistance**: Semi-automated suggestions for internal raters (`/annotator` mode)
+- 📋 **Multilingual Support**: Translation capabilities with quality confidence scoring
+- 📋 **Adaptive Dialogs**: Context-aware clarification questions for complex concepts  
+- 📋 **Research Integration**: Enhanced integration with data collection workflows
 
 ### Relationship Edges and IO Optimizations
 
@@ -288,3 +317,17 @@ PYTHONPATH=bot/src PDB_CACHE=1 python -m bot.pdb_cli \
 	--v1-headers "$(tr -d '\n' < .secrets/pdb_headers.json)" \
 	--use-state
 ```
+
+---
+
+## Summary
+
+This Discord bot provides a comprehensive research platform for socionics studies with:
+
+- **Privacy-First Design**: No raw content storage, salted hashes, forward secrecy
+- **Research Integration**: Comprehensive PDB data pipeline with relationship analysis  
+- **Educational Framework**: Theory explanations with empirical status transparency
+- **Community Safety**: Multi-layered guardrails preventing diagnostic claims
+- **Scalable Architecture**: Production-ready with monitoring and audit capabilities
+
+**For installation, deployment, and configuration details, see the main project [README](../readme.md).**
