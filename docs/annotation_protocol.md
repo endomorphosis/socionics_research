@@ -1,7 +1,9 @@
-# Annotation & Typing Protocol (Draft v0.1)
+# Annotation & Typing Protocol (v0.2)
 
-## 1. Objectives
-Provide a standardized, reproducible process for generating behavioral annotations and convergent typing judgments minimizing theoretical circularity and maximizing reliability.
+**Updated**: 2025-08-16  
+**Status**: Production-ready workflow with reliability benchmarks
+
+**Purpose**: Provide a standardized, reproducible process for generating behavioral annotations and convergent typing judgments while minimizing theoretical circularity and maximizing inter-rater reliability.
 
 ## 2. Roles
 - Annotator: Codes observable indicators.

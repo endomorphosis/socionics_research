@@ -9,7 +9,10 @@ pyarrow<20.0.0,>=16.0.0
 orjson>=3.10.0
 rich>=13.7.0
 tenacity>=8.2.0
+base58>=2.1.1
 python-dotenv>=1.0.0
+zstandard>=0.22.0
+brotli>=1.1.0
 
 [:platform_system == "Linux"]
 uvloop

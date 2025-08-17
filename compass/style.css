@@ -1,0 +1,450 @@
+/* Layout container for all overlays */
+#ui-overlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100vw;
+	height: 100vh;
+	pointer-events: none;
+	z-index: 1000;
+	display: flex;
+	flex-direction: row;
+	align-items: flex-start;
+	justify-content: flex-start;
+	overflow: visible;
+	pointer-events: none;
+}
+
+/* Flex layout for left controls */
+#ui-left-controls {
+	display: flex;
+	flex-direction: column;
+	gap: 0.7em;
+	position: sticky;
+	top: 1.5em;
+	left: 0;
+	margin-left: 2em;
+	z-index: 1100;
+	pointer-events: auto;
+	max-width: 340px;
+	min-width: 220px;
+	background: none;
+	overflow-y: auto;
+	max-height: 90vh;
+}
+
+@media (max-width: 900px) {
+	body {
+		padding-bottom: 2em;
+	}
+	#ui-overlay {
+		position: static;
+		flex-direction: column;
+		align-items: flex-start;
+		width: 100vw;
+		height: auto;
+		min-height: 0;
+		left: 0;
+		top: 0;
+		overflow-y: visible;
+		z-index: 1000;
+		pointer-events: none;
+	}
+	#ui-left-controls {
+		position: static;
+		flex-direction: column;
+		width: 100vw;
+		min-width: 0;
+		max-width: 100vw;
+		margin: 0.5em 0 0.5em 0;
+		gap: 0.5em;
+		z-index: 1100;
+		box-sizing: border-box;
+		background: none;
+		pointer-events: auto;
+		overflow-y: visible;
+		max-height: none;
+	}
+	#legend {
+		position: static;
+		width: 100vw;
+		margin: 0.5em 0 0.5em 0;
+		min-width: 0;
+		font-size: 0.98em;
+		box-sizing: border-box;
+		z-index: 1050;
+		pointer-events: auto;
+	}
+	#add-personality-form, #filter-controls, #import-export-controls, #search-controls {
+		width: 98vw;
+		min-width: 0;
+		max-width: 100vw;
+		margin: 0 auto 0.5em auto;
+		box-sizing: border-box;
+	}
+}
+/* Help button and modal */
+#help-btn {
+	position: fixed;
+	bottom: 2.5em;
+	left: 2.5em;
+	width: 48px;
+	height: 48px;
+	border-radius: 50%;
+	background: #4363d8;
+	color: #fff;
+	font-size: 2em;
+	font-weight: bold;
+	border: none;
+	box-shadow: 0 2px 12px rgba(0,0,0,0.13);
+	cursor: pointer;
+	z-index: 100;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: background 0.2s;
+}
+#help-btn:hover {
+	background: #2a3799;
+}
+#help-modal {
+	position: fixed;
+	top: 0; left: 0; right: 0; bottom: 0;
+	background: rgba(0,0,0,0.35);
+	z-index: 200;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+#help-modal-content {
+	background: #fff;
+	border-radius: 14px;
+	box-shadow: 0 4px 32px rgba(0,0,0,0.18);
+	padding: 2em 2.5em 2em 2.5em;
+	max-width: 540px;
+	width: 95vw;
+	font-size: 1.1em;
+	color: #222;
+	position: relative;
+}
+#help-modal-content h2 {
+	margin-top: 0;
+	color: #4363d8;
+}
+#help-modal-close {
+	position: absolute;
+	top: 1em;
+	right: 1em;
+	font-size: 1.5em;
+	color: #888;
+	background: none;
+	border: none;
+	cursor: pointer;
+}
+/* Modern yellow button style */
+#export-image-btn, .yellow-btn {
+	margin-top: 0.7em;
+	padding: 0.5em 1.2em;
+	border-radius: 8px;
+	border: none;
+	background: linear-gradient(90deg, #ffe119 60%, #ffd700 100%);
+	color: #222;
+	font-weight: 600;
+	font-size: 1.08em;
+	box-shadow: 0 2px 8px rgba(255, 221, 51, 0.13);
+	cursor: pointer;
+	transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
+	outline: none;
+	border: 1.5px solid #e6c200;
+	letter-spacing: 0.01em;
+}
+#export-image-btn:hover, .yellow-btn:hover {
+	background: linear-gradient(90deg, #ffd700 60%, #ffe119 100%);
+	box-shadow: 0 4px 16px rgba(255, 221, 51, 0.18);
+	transform: translateY(-2px) scale(1.03);
+}
+#add-personality-form textarea {
+	background: rgba(255,255,255,0.97);
+	border-radius: 10px;
+	box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+	padding: 1em 1.5em 1em 1.5em;
+	min-width: 200px;
+	font-size: 1em;
+	display: flex;
+	flex-direction: column;
+	gap: 0.5em;
+	pointer-events: auto;
+	border: 1px solid #bbb;
+	font-size: 1em;
+	resize: vertical;
+	background: rgba(255,255,255,0.97);
+	border-radius: 10px;
+	box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+	padding: 1em 1.5em 1em 1.5em;
+	min-width: 200px;
+	font-size: 1em;
+	display: flex;
+	flex-direction: column;
+	gap: 0.3em;
+	pointer-events: auto;
+	position: fixed;
+	pointer-events: none;
+	background: rgba(255,255,255,0.98);
+	background: rgba(255,255,255,0.97);
+	border-radius: 10px;
+	box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+	padding: 0.7em 1.5em 0.7em 1.5em;
+	min-width: 200px;
+	font-size: 1em;
+	display: flex;
+	flex-direction: row;
+	gap: 0.5em;
+	align-items: center;
+	#import-export-controls {
+		background: rgba(255,255,255,0.97);
+		border-radius: 10px;
+		box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+		padding: 0.7em 1.5em 0.7em 1.5em;
+		min-width: 200px;
+		font-size: 1em;
+		display: flex;
+		flex-direction: row;
+		gap: 0.5em;
+		align-items: center;
+		pointer-events: auto;
+	}
+	#legend {
+		position: absolute;
+		top: 1.5em;
+		right: 2em;
+		background: rgba(255,255,255,0.95);
+		border-radius: 10px;
+		box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+		padding: 1em 1.5em;
+		z-index: 10;
+		min-width: 180px;
+		font-size: 1em;
+		pointer-events: auto;
+	}
+#search-input {
+	width: 100%;
+	padding: 0.4em 0.7em;
+	border-radius: 6px;
+	border: 1px solid #bbb;
+	font-size: 1em;
+}
+/* Filter Controls */
+#filter-controls {
+	position: absolute;
+	left: 2em;
+	top: 10em;
+	background: rgba(255,255,255,0.97);
+	border-radius: 10px;
+	box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+	padding: 1em 1.5em 1em 1.5em;
+	z-index: 10;
+	min-width: 200px;
+	font-size: 1em;
+	display: flex;
+	flex-direction: column;
+	gap: 0.3em;
+}
+#filter-controls h2 {
+	margin: 0 0 0.5em 0;
+	font-size: 1.1em;
+	color: #444;
+}
+#filter-controls label {
+	font-size: 0.98em;
+	margin-bottom: 0.1em;
+	display: flex;
+	align-items: center;
+	gap: 0.5em;
+}
+/* Import/Export Controls */
+#import-export-controls {
+	position: absolute;
+	left: 2em;
+	top: 18em;
+	background: rgba(255,255,255,0.97);
+	border-radius: 10px;
+	box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+	padding: 0.7em 1.5em 0.7em 1.5em;
+	z-index: 10;
+	min-width: 200px;
+	font-size: 1em;
+	display: flex;
+	flex-direction: row;
+	gap: 0.5em;
+	align-items: center;
+}
+#import-export-controls button {
+	padding: 0.4em 1em;
+	border-radius: 8px;
+	border: 1.5px solid #e6c200;
+	background: linear-gradient(90deg, #ffe119 60%, #ffd700 100%);
+	color: #222;
+	font-weight: 600;
+	font-size: 1.08em;
+	box-shadow: 0 2px 8px rgba(255, 221, 51, 0.13);
+	cursor: pointer;
+	transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
+	outline: none;
+	letter-spacing: 0.01em;
+}
+#import-export-controls button:hover {
+	background: linear-gradient(90deg, #ffd700 60%, #ffe119 100%);
+	box-shadow: 0 4px 16px rgba(255, 221, 51, 0.18);
+	transform: translateY(-2px) scale(1.03);
+}
+/* Add Personality Form */
+/* Make all left controls scrollable if needed */
+#add-personality-form, #filter-controls, #import-export-controls, #search-controls {
+	max-width: 100vw;
+	overflow-x: auto;
+}
+	position: absolute;
+	left: 2em;
+	top: 1.5em;
+	background: rgba(255,255,255,0.97);
+	border-radius: 10px;
+	box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+	padding: 1em 1.5em 1em 1.5em;
+	z-index: 10;
+	min-width: 200px;
+	font-size: 1em;
+	display: flex;
+	flex-direction: column;
+	gap: 0.5em;
+}
+#add-personality-form h2 {
+	margin: 0 0 0.5em 0;
+	font-size: 1.1em;
+	color: #444;
+}
+#add-personality-form label {
+	display: flex;
+	flex-direction: column;
+	font-size: 0.98em;
+	margin-bottom: 0.2em;
+}
+#add-personality-form input, #add-personality-form select {
+	margin-top: 0.1em;
+	padding: 0.3em 0.5em;
+	border-radius: 5px;
+	border: 1px solid #bbb;
+	font-size: 1em;
+}
+#add-personality-form button {
+	margin-top: 0.5em;
+	padding: 0.5em 1em;
+	border-radius: 6px;
+	border: none;
+	background: #4363d8;
+	color: #fff;
+	font-weight: bold;
+	font-size: 1em;
+	cursor: pointer;
+	transition: background 0.2s;
+}
+#add-personality-form button:hover {
+	background: #2a3799;
+}
+body { font-family: 'Segoe UI', Arial, sans-serif; background: #f8f8f8; margin: 0; }
+#compass-container {
+	width: 100vw;
+	height: 90vh;
+	min-width: 320px;
+	min-height: 240px;
+	display: block;
+	position: relative;
+	background: #f8f8f8;
+	outline: none;
+}
+/* Responsive design for mobile */
+@media (max-width: 700px) {
+	#compass-container {
+		width: 100vw;
+		height: 60vh;
+		min-width: 0;
+		min-height: 180px;
+		margin: 0;
+	}
+	#add-personality-form, #filter-controls, #import-export-controls, #search-controls {
+		position: static;
+		min-width: 0;
+		width: 95vw;
+		margin: 0.5em auto 0.5em auto;
+		box-sizing: border-box;
+		font-size: 1em;
+		padding: 0.7em 0.7em 0.7em 0.7em;
+	}
+	#legend {
+		position: static;
+		width: 95vw;
+		margin: 0.5em auto 0.5em auto;
+		min-width: 0;
+		font-size: 0.98em;
+		box-sizing: border-box;
+	}
+	h1 {
+		font-size: 1.2em;
+		margin: 0.7em 0 0.3em 0;
+	}
+	.point-label, .axis-label {
+		font-size: 0.9em !important;
+		padding: 2px 5px !important;
+	}
+	#help-btn {
+		width: 38px;
+		height: 38px;
+		font-size: 1.2em;
+		bottom: 1em;
+		left: 1em;
+	}
+}
+h1 { text-align: center; margin: 1em 0 0.5em 0; letter-spacing: 0.04em; color: #222; }
+
+/* Legend styles */
+#legend {
+	position: absolute;
+	top: 1.5em;
+	right: 2em;
+	background: rgba(255,255,255,0.95);
+	border-radius: 10px;
+	box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+	padding: 1em 1.5em;
+	z-index: 10;
+	min-width: 180px;
+	font-size: 1em;
+}
+#legend h2 {
+	margin: 0 0 0.5em 0;
+	font-size: 1.1em;
+	color: #444;
+}
+.legend-row {
+	display: flex;
+	align-items: center;
+	margin-bottom: 0.3em;
+}
+.legend-color {
+	display: inline-block;
+	width: 18px;
+	height: 18px;
+	border-radius: 4px;
+	margin-right: 0.7em;
+	border: 1px solid #bbb;
+}
+
+/* Point label styles */
+.point-label {
+	font-size: 1em;
+	background: rgba(255,255,255,0.85);
+	border-radius: 6px;
+	padding: 2px 8px;
+	margin-top: 2px;
+	box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+	pointer-events: none;
+	white-space: nowrap;
+}

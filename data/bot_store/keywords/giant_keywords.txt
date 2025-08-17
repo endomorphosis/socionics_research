@@ -1,0 +1,573 @@
+# General letters and digits
+A
+B
+C
+D
+E
+F
+G
+H
+I
+J
+K
+L
+M
+N
+O
+P
+Q
+R
+S
+T
+U
+V
+W
+X
+Y
+Z
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+
+# Common bigrams/trigrams
+an
+ar
+as
+at
+al
+am
+en
+er
+es
+et
+el
+em
+in
+ir
+is
+it
+il
+im
+ton
+son
+lin
+han
+man
+lee
+kim
+tan
+shi
+cha
+chi
+chu
+tha
+the
+ing
+ion
+est
+son
+mar
+car
+bar
+car
+nar
+
+# Platforms and communities
+YouTube
+TikTok
+Twitter
+Twitch
+Reddit
+Discord
+Instagram
+Facebook
+Snapchat
+Weibo
+Bilibili
+Douyin
+VK
+Telegram
+Patreon
+OnlyFans
+Spotify
+Apple Music
+SoundCloud
+Bandcamp
+
+# Typology and MBTI terms
+MBTI
+Socionics
+Big Five
+Enneagram
+16 personalities
+INTJ
+INTP
+ENTJ
+ENTP
+INFJ
+INFP
+ENFJ
+ENFP
+ISTJ
+ISTP
+ESTJ
+ESTP
+ISFJ
+ISFP
+ESFJ
+ESFP
+Ni
+Ne
+Si
+Se
+Ti
+Te
+Fi
+Fe
+quadra
+club
+temperament
+
+# General pop culture
+Taylor Swift
+Beyoncé
+Ariana Grande
+Billie Eilish
+Lady Gaga
+Kanye West
+Drake
+The Weeknd
+Olivia Rodrigo
+Doja Cat
+SZA
+Rihanna
+Selena Gomez
+Justin Bieber
+Ed Sheeran
+Bruno Mars
+Adele
+Dua Lipa
+Katy Perry
+Shawn Mendes
+
+# Internet creators
+MrBeast
+PewDiePie
+Markiplier
+xQc
+IShowSpeed
+Dream
+TommyInnit
+Wilbur Soot
+Ninja
+Pokimane
+Kai Cenat
+HasanAbi
+Destiny
+MoistCr1TiKaL
+Ludwig
+Asmongold
+JennaMarbles
+H3H3
+Philip DeFranco
+Logan Paul
+KSI
+
+# Tech and business
+Elon Musk
+Jeff Bezos
+Bill Gates
+Mark Zuckerberg
+Tim Cook
+Sundar Pichai
+Satya Nadella
+Jensen Huang
+Larry Page
+Sergey Brin
+Sam Altman
+
+# Anime/manga and games
+Naruto
+One Piece
+Bleach
+Demon Slayer
+Jujutsu Kaisen
+Attack on Titan
+My Hero Academia
+Chainsaw Man
+Dragon Ball
+Sailor Moon
+Genshin Impact
+Honkai Star Rail
+League of Legends
+Dota 2
+Valorant
+Counter-Strike
+Minecraft
+Fortnite
+Roblox
+Apex Legends
+
+# Movies and TV
+Marvel
+DC
+Star Wars
+Star Trek
+Harry Potter
+Lord of the Rings
+Game of Thrones
+House of the Dragon
+Breaking Bad
+Better Call Saul
+Stranger Things
+The Witcher
+The Office
+Friends
+
+# Regional/Global names
+Bad Bunny
+Karol G
+J Balvin
+Shakira
+Luis Fonsi
+Rosalía
+Anitta
+Jisoo
+Jennie
+Rosé
+Lisa
+BTS
+Jungkook
+Jimin
+RM
+Suga
+V
+Taehyung
+IU
+NewJeans
+LE SSERAFIM
+Twice
+Stray Kids
+Seventeen
+EXO
+TXT
+Aespa
+Itzy
+
+# European creators and figures
+Zlatan Ibrahimović
+Kylian Mbappé
+Erling Haaland
+Cristiano Ronaldo
+Lionel Messi
+Neymar
+Karim Benzema
+Robert Lewandowski
+Harry Kane
+Kevin De Bruyne
+
+# Thought leaders and politics
+Jordan Peterson
+Joe Rogan
+Andrew Tate
+Lex Fridman
+Ben Shapiro
+Sam Harris
+Noam Chomsky
+Richard Dawkins
+Yuval Noah Harari
+Malcolm Gladwell
+Naval Ravikant
+Balaji Srinivasan
+
+# Fictional characters & franchises
+Batman
+Superman
+Spider-Man
+Iron Man
+Captain America
+Thor
+Black Widow
+Hulk
+Wolverine
+Deadpool
+Joker
+Harley Quinn
+Darth Vader
+Luke Skywalker
+Hermione Granger
+Severus Snape
+Gandalf
+Frodo
+Aragorn
+Legolas
+
+# Interests and hobbies
+Astrology
+Philosophy
+Psychology
+Mathematics
+Physics
+Chemistry
+Biology
+History
+Economics
+Finance
+Politics
+Cooking
+Baking
+Gardening
+Photography
+Painting
+Drawing
+Writing
+Reading
+Chess
+
+# Platforms variant queries
+YouTube Shorts
+TikTok Live
+Twitch VOD
+Instagram Reels
+Twitter Spaces
+Reddit AMAs
+Discord Servers
+Telegram Channels
+Patreon creators
+OnlyFans models
+
+# Misc search-expansion tokens
+anime edits
+vtuber
+asmr
+tier list
+reaction
+unboxing
+speedrun
+challenge
+podcast
+interview
+clip
+compilation
+highlights
+
+# Languages (to catch non-English queries)
+Español
+Português
+Français
+Deutsch
+日本語
+한국어
+中文
+العربية
+हिन्दी
+Русский
+Türkçe
+Polski
+Italiano
+Українська
+
+# Extra broad terms
+music
+gaming
+news
+sports
+fashion
+beauty
+makeup
+fitness
+health
+science
+technology
+art
+travel
+food
+education
+comedy
+memes
+politics
+finance
+crypto
+stocks
+ai
+
+# Additional names and entities
+Emma Chamberlain
+Joji
+Corpse Husband
+Anthony Fantano
+MatPat
+JackSepticEye
+Sabrina Carpenter
+Megan Thee Stallion
+Cardi B
+Nicki Minaj
+Kendrick Lamar
+Travis Scott
+J. Cole
+Post Malone
+Lil Nas X
+21 Savage
+Tyler, The Creator
+Childish Gambino
+Frank Ocean
+The 1975
+Imagine Dragons
+Coldplay
+Linkin Park
+Radiohead
+Muse
+Arctic Monkeys
+
+# Esports & streamers
+Shroud
+Summit1g
+Tarik
+s1mple
+ZywOo
+Faker
+Caps
+Rookie
+ShowMaker
+Perkz
+
+# Film directors
+Christopher Nolan
+Quentin Tarantino
+Martin Scorsese
+Steven Spielberg
+James Cameron
+Greta Gerwig
+Denis Villeneuve
+Guillermo del Toro
+Bong Joon-ho
+Hayao Miyazaki
+
+# Series actors
+Pedro Pascal
+Henry Cavill
+Millie Bobby Brown
+Zendaya
+Bryan Cranston
+Aaron Paul
+
+# More platforms/keywords
+MBTI memes
+typing stream
+enneagram test
+big five test
+personality quiz
+compatibility
+quadra values
+club values
+cognitive functions
+shadow functions
+subtype
+victim-aggressor
+benefit relation
+duality
+conflict relation
+semi-duality
+mirror relation
+activity relation
+look-a-like
+super-ego
+quadra romance
+
+# Boards/topics from PDB-like contexts
+Cancel Culture
+Social Justice Warriors
+Flat Earth
+Conspiracy
+K-pop
+J-pop
+Anime girls
+VTubers
+Minecraft YouTubers
+Tech CEOs
+Philosophy Tubers
+Debate streamers
+Astrology TikTok
+BookTok
+Stan Twitter
+Fandom
+Ship wars
+
+# More global names
+Anya Taylor-Joy
+Florence Pugh
+Timothée Chalamet
+Zendaya
+Tom Holland
+Chris Hemsworth
+Scarlett Johansson
+Robert Downey Jr.
+Chris Evans
+Ryan Gosling
+Ryan Reynolds
+Keanu Reeves
+
+# Long-tail creator phrases
+"Day in the life"
+"What I eat in a day"
+"Get ready with me"
+"Draw my life"
+"Room tour"
+"Desk setup"
+"Study with me"
+"Reacting to"
+"Explained"
+"Lore"
+
+# Catch-alls by category
+influencer
+creator
+streamer
+vtuber
+artist
+singer
+rapper
+youtuber
+tiktoker
+podcaster
+journalist
+politician
+scientist
+entrepreneur
+founder
+athlete
+coach
+
+# Filler patterns to broaden discovery
+mbti infp
+mbti intj
+socionics LII
+socionics ILE
+socionics EIE
+socionics LSI
+enneagram 4w5
+enneagram 8w7
+big 5 openness
+big 5 conscientiousness
+cognitive stack
+"Te vs Fi"
+"Fe vs Ti"
+"Ni vs Ne"
+"Si vs Se"
+
+# Final broad sticks
+viral
+trending
+popular
+controversial
+hot take
+longform
+shorts
+clips

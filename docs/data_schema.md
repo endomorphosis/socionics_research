@@ -1,6 +1,9 @@
-# Data Schema Draft (v0.1)
+# Data Schema Specification (v0.2)
 
-Purpose: Define a minimal, extensible schema for storing multi-modal Socionics research data with transparency and interoperability.
+**Updated**: 2025-08-16  
+**Status**: Production-ready with ongoing enhancements
+
+**Purpose**: Define a minimal, extensible schema for storing multi-modal Socionics research data with transparency and interoperability.
 
 ## 1. Entities & Levels
 - Person (participant)
@@ -42,7 +45,7 @@ Purpose: Define a minimal, extensible schema for storing multi-modal Socionics r
   },
   "consent": {
     "version": "1.0.0",
-    "date": "2025-08-10",
+    "date": "2025-08-16",
     "modalities_approved": ["text","audio","video"],
     "data_sharing_tier": "anonymized"
   },
@@ -63,7 +66,7 @@ Purpose: Define a minimal, extensible schema for storing multi-modal Socionics r
     "setting": "interview_remote",
     "task": "abstract_discussion",
     "duration_seconds": 1320,
-    "date": "2025-08-11"
+    "date": "2025-08-16"
   },
   "artifacts": ["a123-text","a124-audio","a125-video"],
   "metadata": {
@@ -87,7 +90,7 @@ Each line a JSON object with time-aligned segment.
 {
   "annotation_id": "UUID",
   "segment_id": "s1",
-  "scheme_version": "0.1.0",
+  "scheme_version": "0.2.0",
   "layers": {
     "function_candidate": ["Ne"],
     "discourse_act": "elaboration",
@@ -96,7 +99,7 @@ Each line a JSON object with time-aligned segment.
   },
   "rater_id": "R123",
   "confidence": 0.78,
-  "timestamp": "2025-08-11T13:55:12Z"
+  "timestamp": "2025-08-16T14:22:35Z"
 }
 ```
 
@@ -106,7 +109,7 @@ Each line a JSON object with time-aligned segment.
   "person_id": "UUID1",
   "source": "panel",  // panel | self | algo
   "panel_id": "PANEL_A",
-  "date": "2025-08-11",
+  "date": "2025-08-16",
   "method": "structured_interview_v1",
   "type_assignment": "ILE",
   "function_confidences": {"Ne":0.86,"Ti":0.74,"Fe":0.41,"Si":0.25,"Ni":0.18,"Te":0.33,"Fi":0.22,"Se":0.27},
@@ -141,7 +144,58 @@ Column groups:
 - Temporal consistency (segment times non-overlapping per speaker).
 - Value ranges (confidence 0-1, durations >0).
 
-## 12. Next Steps
-- Publish formal JSON Schemas (.schema.json files).
-- Create ingestion scripts & integrity test harness.
-- Draft data dictionary mapping each feature to computation method & citation.
+## 12. Implementation Status & Next Steps
+
+### Completed ✓
+- ✓ JSON schema validation framework implemented
+- ✓ Core entity definitions stabilized
+- ✓ Privacy and de-identification protocols established
+- ✓ Basic integrity validation checklist
+
+### Next Steps 📋
+- 📋 **Formal JSON Schema Files**: Publish machine-readable `.schema.json` files with full validation rules
+- 📋 **Ingestion Pipeline**: Create automated scripts with comprehensive integrity testing harness  
+- 📋 **Data Dictionary**: Complete mapping of each feature to computation method with literature citations
+- 📋 **Schema Evolution**: Implement backward-compatible versioning system for schema updates
+
+---
+
+## Appendix A: PDB Storage Artifacts
+
+This project ingests Personality Database (PDB) data into content-addressed Parquet stores with embeddings and a relationship graph.
+
+### A.1 Raw Profiles Parquet (`data/bot_store/pdb_profiles.parquet`)
+- `cid` (string): IPFS Content ID computed over canonicalized JSON (ephemeral keys prefixed `_` excluded during compaction)
+- `payload_bytes` (bytes): Serialized JSON payload (v1 and v2 responses, plus annotated provenance fields starting with `_`)
+
+### A.2 Vectors Parquet (`data/bot_store/pdb_profile_vectors.parquet`)
+- `cid` (string): Foreign key to raw profiles
+- `vector` (list[float]): Embedding vector for semantic search
+
+### A.3 Normalized Export (`data/bot_store/pdb_profiles_normalized.parquet`)
+- `cid` (string)
+- `pid` (int, optional): Profile ID if available
+- `name` (string, optional)
+- `mbti`, `socionics`, `big5`, `enneagram` (optional): Typology hints when present in payload
+- `has_vector` (bool): Indicator merged from vectors parquet
+
+### A.4 Relationship Graph (`data/bot_store/pdb_profile_edges.parquet`)
+- `from_pid` (int): Seed/parent profile ID
+- `to_pid` (int): Related profile ID
+- `relation` (string): Source list name (e.g., `relatedProfiles`, `profiles`, etc.)
+- `source` (string): Ingestion source label (e.g., `v2_related`)
+
+### A.5 Graph Components Export (`data/bot_store/pdb_profile_edges_components.parquet`)
+- `pid` (int)
+- `component` (int): Undirected connected component ID
+- `out_degree` (int), `in_degree` (int), `degree` (int)
+
+### A.6 FAISS Index Files
+- `data/bot_store/pdb_faiss.index`: Inner-product index over L2-normalized vectors
+- `data/bot_store/pdb_faiss.index.cids`: Newline-delimited list of CIDs aligned to index rows
+
+### A.7 Scan State (`data/bot_store/scan_state.json`)
+- `processed_related_pids`: PIDs already expanded via related
+- `processed_names`: Names already used for `search/top`
+- `processed_sweep_tokens`: Sweep tokens already attempted
+- `v1_failed_pids`: PIDs where v1 fetch failed (to skip in future runs)

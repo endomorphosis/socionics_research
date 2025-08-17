@@ -1,0 +1,2 @@
+[console_scripts]
+pdb-cli = bot.pdb_cli:main

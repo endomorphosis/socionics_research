@@ -1,0 +1,504 @@
+import React, { useMemo, useState } from "react";
+
+// -----------------------------
+// Socionics Markov-Chain Test
+// 25 questions; answers drive a 2-state Markov chain per axis
+// Axes covered: E–I, N–S, T–F, J–P, plus 5 Reinin-style pairs
+// -----------------------------
+
+// Markov transition matrices (row-stochastic)
+// If an answer leans to the POS pole, we apply POS_MATRIX to the axis state [p_pos, p_neg].
+// If it leans to the NEG pole, we apply NEG_MATRIX. Tuned to gently push probabilities.
+const POS_MATRIX = [
+  [0.8, 0.2], // from POS -> stays POS w/ 0.8
+  [0.45, 0.55], // from NEG -> switches to POS w/ 0.45
+];
+const NEG_MATRIX = [
+  [0.55, 0.45], // from POS -> switches to NEG w/ 0.45
+  [0.2, 0.8], // from NEG -> stays NEG w/ 0.8
+];
+
+function applyMarkovUpdate(vec /* [p_pos, p_neg] */, matrix /* 2x2 */) {
+  // v' = v * M (row vector times row-stochastic matrix)
+  const [a, b] = vec;
+  const v0 = a * matrix[0][0] + b * matrix[1][0];
+  const v1 = a * matrix[0][1] + b * matrix[1][1];
+  // numerical guard & normalise
+  const s = v0 + v1;
+  return s > 0 ? [v0 / s, v1 / s] : [0.5, 0.5];
+}
+
+// Axis registry
+const AXES = {
+  EI: { key: "EI", pos: "E", neg: "I", label: "Extraversion vs. Introversion" },
+  NS: { key: "NS", pos: "N", neg: "S", label: "Intuition vs. Sensing" },
+  TF: { key: "TF", pos: "T", neg: "F", label: "Logic vs. Ethics" },
+  JP: { key: "JP", pos: "J", neg: "P", label: "Rational vs. Irrational" },
+  RH: { key: "RH", pos: "Reductionist", neg: "Holist", label: "Reductionist vs. Holist" },
+  IT: { key: "IT", pos: "Identifier", neg: "Transformer", label: "Identifier vs. Transformer" },
+  SF: { key: "SF", pos: "Stubborn", neg: "Flexible", label: "Stubborn vs. Flexible" },
+  ST: { key: "ST", pos: "Space-locked", neg: "Time-locked", label: "Space-locked vs. Time-locked" },
+  AD: { key: "AD", pos: "Affirmer", neg: "Denier", label: "Affirmer vs. Denier" },
+};
+
+// 25 Questions mapped to axes; each answer options map to POS or NEG pole
+const QUESTIONS = [
+  // Block A: E/I (1–5)
+  {
+    id: 1,
+    axis: "EI",
+    text: "After a full day, how do you usually recharge?",
+    options: [
+      { key: "A", label: "By seeing people or doing something social", pole: "POS" }, // E
+      { key: "B", label: "By being alone and keeping stimulation low", pole: "NEG" }, // I
+    ],
+  },
+  {
+    id: 2,
+    axis: "EI",
+    text: "In a new group, what happens first?",
+    options: [
+      { key: "A", label: "I naturally start talking and engaging", pole: "POS" },
+      { key: "B", label: "I observe quietly before participating", pole: "NEG" },
+    ],
+  },
+  {
+    id: 3,
+    axis: "EI",
+    text: "Your thinking style is more often…",
+    options: [
+      { key: "A", label: "Out loud – I talk to think", pole: "POS" },
+      { key: "B", label: "Internal – I think, then talk", pole: "NEG" },
+    ],
+  },
+  {
+    id: 4,
+    axis: "EI",
+    text: "When plans change suddenly…",
+    options: [
+      { key: "A", label: "I’m energised by the new interactions", pole: "POS" },
+      { key: "B", label: "I prefer to recalibrate privately first", pole: "NEG" },
+    ],
+  },
+  {
+    id: 5,
+    axis: "EI",
+    text: "Networking events feel…",
+    options: [
+      { key: "A", label: "Invigorating opportunities to connect", pole: "POS" },
+      { key: "B", label: "Draining; I pace myself or avoid them", pole: "NEG" },
+    ],
+  },
+
+  // Block B: N/S (6–10)
+  {
+    id: 6,
+    axis: "NS",
+    text: "When starting something new, I focus more on…",
+    options: [
+      { key: "A", label: "Possibilities and big-picture ideas", pole: "POS" }, // N
+      { key: "B", label: "Concrete facts, steps, and materials", pole: "NEG" }, // S
+    ],
+  },
+  {
+    id: 7,
+    axis: "NS",
+    text: "I usually notice first…",
+    options: [
+      { key: "A", label: "Patterns, implications, and trends", pole: "POS" },
+      { key: "B", label: "Details, specifics, and tangible cues", pole: "NEG" },
+    ],
+  },
+  {
+    id: 8,
+    axis: "NS",
+    text: "I’m drawn to tasks that are…",
+    options: [
+      { key: "A", label: "Open-ended and idea-generating", pole: "POS" },
+      { key: "B", label: "Hands-on and immediately useful", pole: "NEG" },
+    ],
+  },
+  {
+    id: 9,
+    axis: "NS",
+    text: "In problem-solving, I rely more on…",
+    options: [
+      { key: "A", label: "Imagination and potential outcomes", pole: "POS" },
+      { key: "B", label: "Past experience and concrete evidence", pole: "NEG" },
+    ],
+  },
+  {
+    id: 10,
+    axis: "NS",
+    text: "Regarding change, I…",
+    options: [
+      { key: "A", label: "Seek novelty and new frontiers", pole: "POS" },
+      { key: "B", label: "Prefer reliable routines and stability", pole: "NEG" },
+    ],
+  },
+
+  // Block C: T/F (11–15)
+  {
+    id: 11,
+    axis: "TF",
+    text: "When deciding, my default is…",
+    options: [
+      { key: "A", label: "Impersonal logic and criteria", pole: "POS" }, // T
+      { key: "B", label: "People’s values and feelings", pole: "NEG" }, // F
+    ],
+  },
+  {
+    id: 12,
+    axis: "TF",
+    text: "I prefer to uphold…",
+    options: [
+      { key: "A", label: "Consistent rules and principles", pole: "POS" },
+      { key: "B", label: "Harmony and exceptions for people", pole: "NEG" },
+    ],
+  },
+  {
+    id: 13,
+    axis: "TF",
+    text: "Feedback style I gravitate to…",
+    options: [
+      { key: "A", label: "Direct critique to improve accuracy", pole: "POS" },
+      { key: "B", label: "Gentle framing to protect rapport", pole: "NEG" },
+    ],
+  },
+  {
+    id: 14,
+    axis: "TF",
+    text: "I most admire…",
+    options: [
+      { key: "A", label: "Competence and objectivity", pole: "POS" },
+      { key: "B", label: "Empathy and attunement", pole: "NEG" },
+    ],
+  },
+  {
+    id: 15,
+    axis: "TF",
+    text: "In conflict, I prioritise…",
+    options: [
+      { key: "A", label: "Truth and what’s correct", pole: "POS" },
+      { key: "B", label: "Compassion and keeping peace", pole: "NEG" },
+    ],
+  },
+
+  // Block D: J/P (16–20)
+  {
+    id: 16,
+    axis: "JP",
+    text: "My work style is best with…",
+    options: [
+      { key: "A", label: "Clear schedules and milestones", pole: "POS" }, // J
+      { key: "B", label: "Flexible timelines and flow", pole: "NEG" }, // P
+    ],
+  },
+  {
+    id: 17,
+    axis: "JP",
+    text: "I prefer plans that are…",
+    options: [
+      { key: "A", label: "Predictable and structured", pole: "POS" },
+      { key: "B", label: "Adaptive and evolving", pole: "NEG" },
+    ],
+  },
+  {
+    id: 18,
+    axis: "JP",
+    text: "Deadlines…",
+    options: [
+      { key: "A", label: "Motivate and organise me", pole: "POS" },
+      { key: "B", label: "Constrain creativity; I pace myself", pole: "NEG" },
+    ],
+  },
+  {
+    id: 19,
+    axis: "JP",
+    text: "Task approach",
+    options: [
+      { key: "A", label: "Finish one before starting another", pole: "POS" },
+      { key: "B", label: "Multi-thread several at once", pole: "NEG" },
+    ],
+  },
+  {
+    id: 20,
+    axis: "JP",
+    text: "Without structure, I feel…",
+    options: [
+      { key: "A", label: "Uneasy – I want order", pole: "POS" },
+      { key: "B", label: "Restricted by too much structure", pole: "NEG" },
+    ],
+  },
+
+  // Block E: Reinin-style axes (21–25)
+  {
+    id: 21,
+    axis: "RH",
+    text: "When analysing a topic, I tend to…",
+    options: [
+      { key: "A", label: "Break it into parts and mechanisms (Reductionist)", pole: "POS" },
+      { key: "B", label: "View it as an interconnected whole (Holist)", pole: "NEG" },
+    ],
+  },
+  {
+    id: 22,
+    axis: "IT",
+    text: "With external standards, I…",
+    options: [
+      { key: "A", label: "Adopt them to orient and identify (Identifier)", pole: "POS" },
+      { key: "B", label: "Transform them into a personal system (Transformer)", pole: "NEG" },
+    ],
+  },
+  {
+    id: 23,
+    axis: "SF",
+    text: "In disagreements, I’m more…",
+    options: [
+      { key: "A", label: "Stubborn – I hold my ground", pole: "POS" },
+      { key: "B", label: "Flexible – I accommodate and adapt", pole: "NEG" },
+    ],
+  },
+  {
+    id: 24,
+    axis: "ST",
+    text: "I resonate more with…",
+    options: [
+      { key: "A", label: "Space and physical presence (Space-locked)", pole: "POS" },
+      { key: "B", label: "Time and unfolding processes (Time-locked)", pole: "NEG" },
+    ],
+  },
+  {
+    id: 25,
+    axis: "AD",
+    text: "When encountering new ideas, I first…",
+    options: [
+      { key: "A", label: "Say yes and include until disproven (Affirmer)", pole: "POS" },
+      { key: "B", label: "Say no until sufficiently proven (Denier)", pole: "NEG" },
+    ],
+  },
+];
+
+// Socionics 16 TIMs + rough dichotomy mapping (E/I, N/S, T/F, J/P)
+const TYPES = [
+  { code: "ILE", mbti: "ENTp", E: "E", N: "N", T: "T", J: "P", nick: "The Innovator" },
+  { code: "LII", mbti: "INTj", E: "I", N: "N", T: "T", J: "J", nick: "The Analyst" },
+  { code: "SEI", mbti: "ISFp", E: "I", N: "S", T: "F", J: "P", nick: "The Mediator" },
+  { code: "ESE", mbti: "ESFj", E: "E", N: "S", T: "F", J: "J", nick: "The Enthusiast" },
+  { code: "EIE", mbti: "ENFj", E: "E", N: "N", T: "F", J: "J", nick: "The Mentor" },
+  { code: "LSI", mbti: "ISTj", E: "I", N: "S", T: "T", J: "J", nick: "The Inspector" },
+  { code: "SLE", mbti: "ESTp", E: "E", N: "S", T: "T", J: "P", nick: "The Marshal" },
+  { code: "IEI", mbti: "INFp", E: "I", N: "N", T: "F", J: "P", nick: "The Lyricist" },
+  { code: "SEE", mbti: "ESFp", E: "E", N: "S", T: "F", J: "P", nick: "The Politician" },
+  { code: "ILI", mbti: "INTp", E: "I", N: "N", T: "T", J: "P", nick: "The Critic" },
+  { code: "LIE", mbti: "ENTj", E: "E", N: "N", T: "T", J: "J", nick: "The Entrepreneur" },
+  { code: "ESI", mbti: "ISFj", E: "I", N: "S", T: "F", J: "J", nick: "The Guardian" },
+  { code: "LSE", mbti: "ESTj", E: "E", N: "S", T: "T", J: "J", nick: "The Administrator" },
+  { code: "EII", mbti: "INFj", E: "I", N: "N", T: "F", J: "J", nick: "The Humanist" },
+  { code: "IEE", mbti: "ENFp", E: "E", N: "N", T: "F", J: "P", nick: "The Adviser" },
+  { code: "SLI", mbti: "ISTp", E: "I", N: "S", T: "T", J: "P", nick: "The Craftsman" },
+];
+
+function percent(n) {
+  return Math.round(n * 100);
+}
+
+function AxisBar({ axis, probs }) {
+  const pPos = probs[0];
+  const pNeg = probs[1];
+  return (
+    <div className="w-full">
+      <div className="flex items-center justify-between text-sm mb-1 text-neutral-600">
+        <span>
+          <strong>{axis.pos}</strong>
+        </span>
+        <span className="font-medium text-neutral-800">{axis.label}</span>
+        <span>
+          <strong>{axis.neg}</strong>
+        </span>
+      </div>
+      <div className="w-full h-3 rounded-xl bg-neutral-100 overflow-hidden shadow-inner">
+        <div
+          className="h-3 bg-gradient-to-r from-indigo-500 to-cyan-500"
+          style={{ width: `${percent(pPos)}%` }}
+          title={`${axis.pos} ${percent(pPos)}%`}
+        />
+      </div>
+      <div className="mt-1 text-xs text-neutral-700">
+        {axis.pos}: {percent(pPos)}% • {axis.neg}: {percent(pNeg)}%
+      </div>
+    </div>
+  );
+}
+
+function ResultCard({ axisStates }) {
+  // Compute top types from four main axes
+  const e = axisStates.EI[0]; // p(E)
+  const i = axisStates.EI[1]; // p(I)
+  const n = axisStates.NS[0]; // p(N)
+  const s = axisStates.NS[1]; // p(S)
+  const t = axisStates.TF[0]; // p(T)
+  const f = axisStates.TF[1]; // p(F)
+  const j = axisStates.JP[0]; // p(J)
+  const p = axisStates.JP[1]; // p(P)
+
+  const typed = TYPES.map((tp) => {
+    const wE = tp.E === "E" ? e : i;
+    const wN = tp.N === "N" ? n : s;
+    const wT = tp.T === "T" ? t : f;
+    const wJ = tp.J === "J" ? j : p;
+    const score = wE * wN * wT * wJ;
+    return { ...tp, score };
+  })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+
+  const sum = typed.reduce((acc, x) => acc + x.score, 0) || 1;
+  const withPct = typed.map((x) => ({ ...x, pct: (x.score / sum) * 100 }));
+
+  return (
+    <div className="mt-6">
+      <h3 className="text-lg font-semibold mb-2">Most likely types</h3>
+      <div className="grid md:grid-cols-2 gap-3">
+        {withPct.map((x) => (
+          <div
+            key={x.code}
+            className="border rounded-2xl p-3 bg-white shadow-sm hover:shadow transition"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xl font-bold tracking-wide">{x.code}</div>
+                <div className="text-sm text-neutral-600">{x.mbti} • {x.nick}</div>
+              </div>
+              <div className="text-2xl font-extrabold">{x.pct.toFixed(1)}%</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  const total = QUESTIONS.length;
+  const [index, setIndex] = useState(0); // current question index
+
+  // axis states as [p_pos, p_neg]
+  const [axisState, setAxisState] = useState({
+    EI: [0.5, 0.5],
+    NS: [0.5, 0.5],
+    TF: [0.5, 0.5],
+    JP: [0.5, 0.5],
+    RH: [0.5, 0.5],
+    IT: [0.5, 0.5],
+    SF: [0.5, 0.5],
+    ST: [0.5, 0.5],
+    AD: [0.5, 0.5],
+  });
+
+  const progress = Math.round(((index) / total) * 100);
+  const done = index >= total;
+
+  const onAnswer = (opt) => {
+    if (done) return;
+    const q = QUESTIONS[index];
+    const axisKey = q.axis;
+    const curr = axisState[axisKey];
+    const mat = opt.pole === "POS" ? POS_MATRIX : NEG_MATRIX;
+    const updated = applyMarkovUpdate(curr, mat);
+    setAxisState((prev) => ({ ...prev, [axisKey]: updated }));
+    setIndex((i) => i + 1);
+  };
+
+  const restart = () => {
+    setAxisState({ EI: [0.5, 0.5], NS: [0.5, 0.5], TF: [0.5, 0.5], JP: [0.5, 0.5], RH: [0.5, 0.5], IT: [0.5, 0.5], SF: [0.5, 0.5], ST: [0.5, 0.5], AD: [0.5, 0.5] });
+    setIndex(0);
+  };
+
+  const q = QUESTIONS[index];
+
+  return (
+    <div className="min-h-screen w-full bg-gradient-to-b from-sky-50 via-white to-indigo-50 py-8">
+      <div className="max-w-5xl mx-auto px-4">
+        <header className="mb-6">
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
+            Socionics Markov-Chain Type Test
+          </h1>
+          <p className="text-neutral-700 mt-2 max-w-2xl">
+            Answer 25 questions. Each choice updates a probabilistic state for core dichotomies using a Markov transition. At the end, you’ll see your most likely Socionics types and a breakdown of axes.
+          </p>
+        </header>
+
+        {/* Progress */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between text-sm text-neutral-700 mb-1">
+            <span>{done ? "Completed" : `Question ${index + 1} of ${total}`}</span>
+            <span>{progress}%</span>
+          </div>
+          <div className="h-2 w-full bg-neutral-200 rounded-full overflow-hidden">
+            <div className="h-2 bg-indigo-600" style={{ width: `${progress}%` }} />
+          </div>
+        </div>
+
+        <div className="grid lg:grid-cols-3 gap-6">
+          {/* Left: questionnaire / results */}
+          <div className="lg:col-span-2">
+            {!done ? (
+              <div className="bg-white border rounded-3xl p-6 shadow-sm">
+                <div className="text-xs uppercase tracking-wider text-indigo-600 font-semibold mb-2">
+                  {AXES[q.axis].label}
+                </div>
+                <div className="text-2xl font-semibold mb-4">{q.text}</div>
+                <div className="grid md:grid-cols-2 gap-3">
+                  {q.options.map((op) => (
+                    <button
+                      key={op.key}
+                      onClick={() => onAnswer(op)}
+                      className="text-left w-full border rounded-2xl p-4 hover:shadow transition bg-neutral-50 hover:bg-white"
+                    >
+                      <div className="text-sm text-neutral-500 mb-1">Option {op.key}</div>
+                      <div className="font-medium">{op.label}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white border rounded-3xl p-6 shadow-sm">
+                <h2 className="text-2xl font-bold mb-2">Your results</h2>
+                <p className="text-neutral-700 mb-4">
+                  Based on your answers, here are your most likely types and how your axes settled.
+                </p>
+                <ResultCard axisStates={axisState} />
+                <div className="mt-6">
+                  <button onClick={restart} className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700">
+                    Retake Test
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right: live axis probabilities */}
+          <aside className="lg:col-span-1">
+            <div className="bg-white border rounded-3xl p-5 shadow-sm sticky top-6">
+              <h3 className="text-lg font-semibold mb-3">Live axis tracker</h3>
+              <div className="space-y-4">
+                {(["EI", "NS", "TF", "JP", "RH", "IT", "SF", "ST", "AD"]).map((k) => (
+                  <AxisBar key={k} axis={AXES[k]} probs={axisState[k]} />
+                ))}
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <footer className="mt-10 text-xs text-neutral-500">
+          <p>
+            Note: Final type ranking here uses only the four core dichotomies (E/I, N/S, T/F, J/P). Advanced axes (Reductionist/Holist, Identifier/Transformer, etc.) are shown to inform nuance but are not folded into type scoring. This is a pedagogical Markov implementation, not a clinical instrument.
+          </p>
+        </footer>
+      </div>
+    </div>
+  );
+}
+// -----------------------------
+//

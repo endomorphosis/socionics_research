@@ -2,22 +2,101 @@
 
 ![CI](https://github.com/endomorphosis/socionics_research/actions/workflows/ci.yml/badge.svg)
 
-Purpose: Build a transparent, empirically rigorous infrastructure to evaluate and, if justified, refine or falsify core claims of Socionics (information metabolism, functional model, intertype relations) using open science practices.
+**Purpose**: Build a transparent, empirically rigorous infrastructure to evaluate and, if justified, refine or falsify core claims of Socionics (information metabolism, functional model, intertype relations) using open science practices.
+
+## Table of Contents
+- [Quick Start](#quick-start)
+- [Documentation Index](#documentation-index)
+- [Current Status & Focus](#current-status--focus-milestone-m0--foundation)
+- [Community & LLM Integration](#community--llm-integration-summary)
+- [Bot & Research Infrastructure](#bot--research-infrastructure-implemented-v02-core)
+- [Open Science Practices](#open-science-practices)
+- [Contributing](#contributing)
+- [Roadmap](#roadmap-high-level)
+- [License](#license)
+- [Development](#development)
+
+## Quick Start
+
+**For Researchers**: Start with [`docs/intro_socionics_research.md`](docs/intro_socionics_research.md) for theoretical background, then explore [`docs/data_schema.md`](docs/data_schema.md) and [`docs/operational_indicators.md`](docs/operational_indicators.md) for methodological details.
+
+**For Developers**: See the [Development](#development) section for setup instructions. Run tests with `cd bot && pytest` after following the installation steps.
+
+**For Community Members**: The Discord bot documentation is at [`bot/README.md`](bot/README.md). For data contribution and consent information, see [`docs/ethics_consent_outline.md`](docs/ethics_consent_outline.md).
+
+**PDB CLI (Ingestion) Quickstart**:
+```bash
+# one-time setup
+python -m venv .venv
+source .venv/bin/activate
+cd bot && pip install -e .[dev] && cd ..
+
+# configure v2 headers (browser-like) and enable cache
+export PDB_CACHE=1
+export PDB_API_BASE_URL=https://api.personality-database.com/api/v2
+export PDB_API_HEADERS="$(tr -d '\n' < .secrets/pdb_headers.json)"
+
+# explore & ingest
+PYTHONPATH=bot/src python -m bot.pdb_cli peek profiles --params '{"limit":3}'
+PYTHONPATH=bot/src python -m bot.pdb_cli search-top --only-profiles --pages 1 --limit 20
+PYTHONPATH=bot/src python -m bot.pdb_cli coverage --sample 10
+
+# edges and graph analysis
+PYTHONPATH=bot/src python -m bot.pdb_cli edges-report --top 15
+PYTHONPATH=bot/src python -m bot.pdb_cli edges-analyze --top 3 --per-component-top 5
+PYTHONPATH=bot/src python -m bot.pdb_cli edges-export --out data/bot_store/pdb_profile_edges_components.parquet
+
+# discovery-first scan (stateful + cached)
+PYTHONPATH=bot/src python -m bot.pdb_cli \
+	--rpm 90 --concurrency 3 --timeout 30 \
+	scan-all --max-iterations 0 \
+	--search-names --limit 20 --pages 1 --until-empty \
+	--sweep-queries a,b,c --sweep-pages 10 --sweep-until-empty --sweep-into-frontier \
+	--max-no-progress-pages 3 \
+	--auto-embed --auto-index --index-out data/bot_store/pdb_faiss.index \
+	--scrape-v1 --v1-base-url https://api.personality-database.com/api/v1 \
+	--v1-headers "$(tr -d '\n' < .secrets/pdb_headers.json)" \
+	--use-state
+ 
+# or use the helper script
+./scripts/pdb_scan_all_stateful.sh
+```
+See [`docs/pdb_pipeline.md`](docs/pdb_pipeline.md) for full pipeline details and `scan-all` behavior.
 
 ## Documentation Index
-- Intro / Conceptual Overview: `docs/intro_socionics_research.md`
-- Data Schema Draft: `docs/data_schema.md`
-- Operational Indicators (behavior-first): `docs/operational_indicators.md`
-- Literature Review Matrix: `docs/literature_review_matrix.md`
-- Annotation & Typing Protocol: `docs/annotation_protocol.md`
-- Ethics & Consent Outline: `docs/ethics_consent_outline.md`
+- **Intro / Conceptual Overview**: [`docs/intro_socionics_research.md`](docs/intro_socionics_research.md) - Academic introduction to socionics theory and research framework
+- **Data Schema**: [`docs/data_schema.md`](docs/data_schema.md) - Structured data formats for research storage and analysis
+- **Operational Indicators**: [`docs/operational_indicators.md`](docs/operational_indicators.md) - Behavior-first observable indicators and measurement protocols
+- **Literature Review Matrix**: [`docs/literature_review_matrix.md`](docs/literature_review_matrix.md) - Comprehensive review and quality assessment of relevant research
+- **Annotation Protocol**: [`docs/annotation_protocol.md`](docs/annotation_protocol.md) - Standardized procedures for data annotation and typing judgments
+- **Ethics & Consent**: [`docs/ethics_consent_outline.md`](docs/ethics_consent_outline.md) - Ethical framework and participant consent procedures
+- **PDB Pipeline**: [`docs/pdb_pipeline.md`](docs/pdb_pipeline.md) - Personality Database integration and processing pipeline
+- **Bot Documentation**: [`bot/README.md`](bot/README.md) - Discord bot implementation and usage guide
+ - **Data Artifacts (PDB)**: See Appendix A in [`docs/data_schema.md`](docs/data_schema.md#appendix-a-pdb-storage-artifacts) for parquet schemas and FAISS index mapping
 
-## Current Focus (Milestone M0 → Foundation)
-1. Finalize v0.1 JSON Schemas for person/session/annotation/typing.
-2. Expand indicator catalogue (target: 120 definitions; current: seed subset).
-3. Stand up Discord community plan + governance draft.
-4. Specify LLM chatbot guardrails & evaluation harness.
-5. Seed reliability calibration dataset (50 segments × 3 raters).
+## Current Status & Focus (Milestone M0 → Foundation)
+
+**Version**: 0.2.0 (Updated: 2025-08-16)
+
+### Completed ✓
+1. ✓ Discord bot v0.2 core implementation with privacy-first design
+2. ✓ Basic JSON schemas for person/session/annotation/typing entities
+3. ✓ Operational indicators framework and seed definitions (20+ indicators)
+4. ✓ Literature review matrix with quality scoring methodology
+5. ✓ Ethics and consent framework draft
+
+### In Progress 🔄
+1. 🔄 Finalize v0.2 JSON schemas with enhanced validation rules
+2. 🔄 Expand indicator catalogue (target: 120 definitions; current: ~25 seed definitions)
+3. 🔄 Discord community governance plan and moderation guidelines
+4. 🔄 LLM chatbot guardrails testing and evaluation harness
+5. 🔄 Reliability calibration dataset preparation (target: 50 segments × 3 raters)
+
+### Next Steps 📋
+1. 📋 Deploy Discord server with initial community guidelines
+2. 📋 Implement annotation interface prototype
+3. 📋 Establish inter-rater reliability benchmarks
+4. 📋 Begin pilot data collection with consented participants
 
 ## Community & LLM Integration (Summary)
 We will use a moderated Discord server as an opt-in ecological data source and participant engagement hub. A purpose-built LLM chatbot will:
@@ -28,39 +107,84 @@ We will use a moderated Discord server as an opt-in ecological data source and p
 
 Safeguards: explicit tagging for research-use messages; PII scrubbing pipeline; guardrail tests blocking typing/diagnostic claims; audit logs linking each data row to consent tier & pipeline version.
 
-## Bot & Research Infrastructure (Implemented v0.1 Core)
-Current bot features (privacy-first):
-- Vector ingestion (/ingest_channel) storing ONLY embeddings + hashed user & token hashes.
-- Hybrid search (keyword hashed token pre-filter + semantic vector ranking).
-- Guardrails preventing type assignment & diagnostic claims.
-- Retrieval-augmented theory summaries (/theory) with doc embedding store.
-- Rate limiting (command + search categories).
-- Purge (/purge_message) and salt rotation CLI resetting hashed stores.
-- LLM context assembly (/llm_context) returns metadata JSON only.
-- Structured JSON logging (opt-in via SOCIONICS_JSON_LOGS=true).
-- Metrics endpoint (Prometheus scrape) optional.
+## Bot & Research Infrastructure (Implemented v0.2 Core)
 
-Planned service layers (future roadmap):
-- API layer (FastAPI) for external tool integration.
-- Postgres metadata + object storage for richer multimodal datasets.
-- Advanced diarization & acoustic features (pyannote.audio) integration.
-- Orchestration (Prefect or custom) for scheduled embeddings & audits.
+**Status**: Production-ready core features with ongoing enhancements
+
+### Current Bot Features (Privacy-First Design)
+- **Vector Ingestion** (`/ingest_channel`): Stores ONLY embeddings + hashed user & token hashes
+- **Hybrid Search**: Keyword hashed token pre-filter + semantic vector ranking
+- **Content Guardrails**: Prevents type assignment & diagnostic claims with red-team testing
+- **Theory Explanations** (`/theory`): Retrieval-augmented summaries with document embedding store
+- **Rate Limiting**: Command-specific and search category limits for fair usage
+- **Data Management**: Message purge (`/purge_message`) and salt rotation CLI for privacy resets
+- **Context Assembly** (`/llm_context`): Returns metadata JSON only (no raw content exposure)
+- **Structured Logging**: Optional JSON logs with privacy controls (`SOCIONICS_JSON_LOGS=true`)
+- **Metrics Endpoint**: Prometheus scrape endpoint (optional) for operational monitoring
+
+### Planned Service Enhancements (Roadmap)
+- **API Layer**: FastAPI integration for external tool compatibility
+- **Enhanced Storage**: PostgreSQL metadata + object storage for multimodal datasets
+- **Advanced Audio**: Diarization & acoustic feature extraction (pyannote.audio integration)
+- **Orchestration**: Scheduled embeddings & audit processes (Prefect or custom)
 
 ## Open Science Practices
-- Preregistration on OSF for confirmatory phases.
-- Public release of derived, de-identified feature matrices (Tier 2) under permissive license.
-- Versioned protocols & prompt libraries (semantic versioning).
-- Quarterly bias & performance audits published in repository.
+
+### Research Transparency
+- **Preregistration**: All confirmatory studies preregistered on OSF before data collection
+- **Open Data**: Derived, de-identified feature matrices (Tier 2) released under permissive license
+- **Version Control**: All protocols & prompt libraries use semantic versioning for reproducibility
+- **Audit Reports**: Quarterly bias & performance audits published in this repository
+
+### Reproducibility Standards
+- **Code Availability**: All analysis scripts and data processing pipelines openly available
+- **Environment Specification**: Containerized environments for computational reproducibility
+- **Data Lineage**: Complete provenance tracking from raw data to final results
+- **Model Transparency**: LLM prompts, hyperparameters, and evaluation metrics fully documented
 
 ## Contributing
-Early phase; please open an issue to discuss additions (indicator proposals, methodological critiques, translation offers). Provide citations & rationale for new constructs.
+
+**Current Status**: Early-stage development - structured contributions welcome
+
+### How to Contribute
+- **Issues & Discussions**: Open an issue to discuss proposals before implementation
+- **Indicator Proposals**: Provide operational definitions with empirical rationale and citations
+- **Methodological Critiques**: Identify potential biases, confounds, or methodological improvements
+- **Translation Offers**: Help translate key regional sources (Russian/Lithuanian priority)
+
+### Contribution Guidelines
+- All new constructs must include literature citations and empirical justification
+- Follow existing code style and documentation patterns
+- Include tests for any code contributions
+- Respect privacy-first design principles in all data handling
 
 ## Roadmap (High-Level)
-- Phase 1: Corpus assembly, reliability benchmarks.
-- Phase 2: Measurement model development (IRT, factor analysis).
-- Phase 3: Structural validation & predictive modeling.
-- Phase 4: Network & dyadic relation tests.
-- Phase 5: Longitudinal stability & intervention RCT.
+
+### Phase 1: Foundation & Corpus Assembly (Q4 2025)
+- ✓ Core infrastructure and bot implementation
+- 🔄 Discord community establishment and initial recruitment
+- 🔄 Reliability benchmarks for annotation protocols
+- 📋 Initial linguistic corpus collection (target: 100 participants)
+
+### Phase 2: Measurement Model Development (Q1-Q2 2026)
+- 📋 Item Response Theory (IRT) analysis of indicators
+- 📋 Exploratory and Confirmatory Factor Analysis
+- 📋 Cross-validation with established personality measures
+
+### Phase 3: Structural Validation (Q3-Q4 2026)
+- 📋 Predictive modeling of interpersonal outcomes
+- 📋 Network analysis of intertype relations
+- 📋 Replication studies with independent samples
+
+### Phase 4: Dyadic & Network Effects (2027)
+- 📋 Controlled interaction studies
+- 📋 Longitudinal relationship tracking
+- 📋 Group dynamics and team composition effects
+
+### Phase 5: Applied Research (2028+)
+- 📋 Intervention studies and applications
+- 📋 Longitudinal stability assessment
+- 📋 Cross-cultural validation studies
 
 ## License
 See `LICENSE`.
@@ -98,37 +222,60 @@ docker run --rm -e SOCIONICS_DISCORD_TOKEN=your_token -e SOCIONICS_HASH_SALT=you
 ### Metrics
 If enabled (default), a Prometheus scrape endpoint is exposed on `:9108/metrics` inside the container.
 
-### Environment Variables (Prefix SOCIONICS_)
-Essential:
-- DISCORD_TOKEN (required)
-- HASH_SALT (required)
+### Environment Variables (SOCIONICS_ Prefix)
 
-Behavior / Performance:
-- EMBED_MODEL (default sentence-transformers/all-MiniLM-L6-v2)
-- LIGHTWEIGHT_EMBEDDINGS=true (hash-based 64-dim test embedder)
-- RATE_LIMIT_PER_MIN (default 15)
-- SEARCH_RATE_LIMIT_PER_MIN (default 30)
-- RETRIEVAL_TOP_K (default 4)
-- MAX_CONTEXT_RESULTS (default 20)
+**Essential Configuration**
+- `DISCORD_TOKEN` (required): Bot authentication token
+- `HASH_SALT` (required): Salt for privacy-preserving hash functions
 
-Privacy / Ops:
-- JSON_LOGS=true (structured logs)
-- ENABLE_METRICS=true
-- ADMIN_ROLE_IDS=comma_separated_ids (enforces role check; else manage_messages fallback)
-- DATA_DIR=custom_data_path (default data/bot_store)
+**Performance & Behavior Settings**
+- `EMBED_MODEL` (default: `sentence-transformers/all-MiniLM-L6-v2`): Embedding model selection
+- `LIGHTWEIGHT_EMBEDDINGS=true`: Use hash-based 64-dim test embedder for development
+- `RATE_LIMIT_PER_MIN` (default: 15): General command rate limit per user
+- `SEARCH_RATE_LIMIT_PER_MIN` (default: 30): Search-specific rate limit
+- `RETRIEVAL_TOP_K` (default: 4): Number of top results for semantic search
+- `MAX_CONTEXT_RESULTS` (default: 20): Maximum results in context assembly
 
-Salt Rotation Procedure:
-1. Choose new random salt (>=16 chars recommended).
-2. Run: `python -m bot.maintenance NEW_SALT -y`
-3. Update deployment secret ENV (HASH_SALT) to NEW_SALT.
-4. Restart bot (old hashed store archived under backup_<ts>/).
+**Privacy & Operations**
+- `JSON_LOGS=true`: Enable structured JSON logging (default: false)
+- `ENABLE_METRICS=true`: Enable Prometheus metrics endpoint (default: true)
+- `ADMIN_ROLE_IDS=id1,id2,id3`: Comma-separated Discord role IDs for admin commands
+- `DATA_DIR=custom_path` (default: `data/bot_store`): Custom data storage location
 
-### Security & Privacy Notes
-- No raw message text stored: only embeddings, hashed user IDs (salted SHA256), hashed tokens (first 100 per message).
-- Salt rotation implemented (see procedure) for forward-secrecy style reset; historic re-identification impossible post-rotation.
-- Purge command supports right-to-be-forgotten by message ID (removes vector + token hashes).
-- Audit log (JSONL) records minimal event metadata (timestamp, event, counts).
-- Structured JSON logging optional; disable or route to secure sink in production.
+### Salt Rotation Procedure (Privacy Reset)
+
+**When to Rotate**: 
+- Quarterly for production deployments
+- After any potential security incident
+- When participants request data deletion
+
+**Steps**:
+1. **Generate New Salt**: Choose cryptographically random salt (≥16 chars recommended)
+2. **Run Rotation Script**: `python -m bot.maintenance NEW_SALT -y`
+3. **Update Environment**: Set `SOCIONICS_HASH_SALT=NEW_SALT` in deployment configuration
+4. **Restart Service**: Bot restart required (old hashed store archived under `backup_<timestamp>/`)
+
+**Important**: Historic data cannot be re-identified after rotation, ensuring forward secrecy.
+
+### Security & Privacy Implementation
+
+**Data Minimization Principles**
+- **No Raw Storage**: No message text stored - only embeddings and salted hashes
+- **Hash-Based Identity**: User IDs protected with salted SHA256 (rotation supported)
+- **Token Hashing**: Only first 100 tokens per message hashed for search indexing
+- **Forward Secrecy**: Salt rotation makes historic re-identification impossible
+
+**Privacy Controls**
+- **Right to Deletion**: Purge command removes all traces by message ID
+- **Audit Transparency**: JSONL logs record minimal metadata (timestamp, event, counts)
+- **Consent Tiers**: Multi-level consent system with granular data usage controls
+- **Secure Storage**: Structured JSON logging optional; route to secure sink in production
+
+**Security Architecture**
+- **Environment Isolation**: All secrets via environment variables only
+- **Minimal Attack Surface**: Stateless bot design with containerized deployment
+- **Regular Rotation**: Quarterly salt rotation recommended for production
 
 ---
-Status: Foundation draft (Updated: 2025-08-11, features synced with bot v0.1 core)
+**Project Status**: Foundation phase (v0.2.0) - Updated: 2025-08-16  
+**Bot Implementation**: Core features stable, community deployment in progress

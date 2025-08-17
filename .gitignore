@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build & dist
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+nohup.out
+scan_all_run.log
+scan_all_queue.log
+scan_all_v1_queue.log
+post_scan_report.log
+post_scan_report.nohup.log
+
+# Data artifacts
+data/bot_store/*.parquet
+data/bot_store/**/*.parquet
+data/bot_store/*.index
+data/bot_store/*.cids
+data/bot_store/pdb_api_cache/
+data/bot_store/scan_state.json
+data/bot_store/backup_*/
+
+# Secrets
+.secrets/
+*.env
+
+.venv
+.pytest_cache
+__pycache__
+.secrets
+
+node_modules/
