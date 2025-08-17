@@ -23,3 +23,7 @@ result = result.astype(str)
 # Save as a new Parquet file with only string columns
 result.to_parquet('/home/devel/socionics_research/data/bot_store/pdb_profiles_flat.parquet', index=False)
 print('Wrote /home/devel/socionics_research/data/bot_store/pdb_profiles_flat.parquet')
+
+# Also save as CSV for Node.js compatibility
+result.to_csv('/home/devel/socionics_research/data/bot_store/pdb_profiles_flat.csv', index=False)
+print('Wrote /home/devel/socionics_research/data/bot_store/pdb_profiles_flat.csv')
