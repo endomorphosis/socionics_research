@@ -52,3 +52,5 @@ data/bot_store/backup_*/
 .pytest_cache
 __pycache__
 .secrets
+
+node_modules/

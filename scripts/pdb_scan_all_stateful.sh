@@ -13,6 +13,11 @@ SWEEP_QUERIES=${SWEEP_QUERIES:-a,b,c,d,e,f,g,h}
 MAX_NO_PROGRESS_PAGES=${MAX_NO_PROGRESS_PAGES:-3}
 INITIAL_FRONTIER_SIZE=${INITIAL_FRONTIER_SIZE:-1000}
 
+# Optional feature toggles
+EXPAND_SUBCATEGORIES=${EXPAND_SUBCATEGORIES:-}
+FILTER_CHARACTERS=${FILTER_CHARACTERS:-}
+EXPAND_MAX=${EXPAND_MAX:-}
+
 V2_BASE_URL=${PDB_API_BASE_URL:-https://api.personality-database.com/api/v2}
 V1_BASE_URL=${PDB_V1_BASE_URL:-https://api.personality-database.com/api/v1}
 
@@ -41,6 +46,9 @@ PYTHONPATH=bot/src python -u -m bot.pdb_cli \
   --search-names --limit 20 --pages "$PAGES" --until-empty \
   --sweep-queries "$SWEEP_QUERIES" --sweep-pages "$SWEEP_PAGES" --sweep-until-empty --sweep-into-frontier \
   --max-no-progress-pages "$MAX_NO_PROGRESS_PAGES" \
+  ${EXPAND_SUBCATEGORIES:+--expand-subcategories} \
+  ${FILTER_CHARACTERS:+--filter-characters} \
+  ${EXPAND_MAX:+--expand-max "$EXPAND_MAX"} \
   --auto-embed --auto-index --index-out "$INDEX_OUT" \
   --scrape-v1 --v1-base-url "$V1_BASE_URL" --v1-headers "$(tr -d '\n' < "$HEADERS_FILE")" \
   --use-state "$@"

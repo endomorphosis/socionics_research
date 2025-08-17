@@ -117,6 +117,9 @@ class PdbClient:
                     "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
                 ),
                 "Accept-Language": os.getenv("PDB_DEFAULT_ACCEPT_LANGUAGE", "en-US,en;q=0.9"),
+                # Many v2 endpoints respond more richly when these are present
+                "Origin": os.getenv("PDB_DEFAULT_ORIGIN", "https://www.personality-database.com"),
+                "Referer": os.getenv("PDB_DEFAULT_REFERER", "https://www.personality-database.com/"),
             }
             base_headers.update(self._extra_headers)
             async with httpx.AsyncClient(timeout=self.timeout_s, headers=base_headers) as client:

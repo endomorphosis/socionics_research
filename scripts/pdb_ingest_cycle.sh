@@ -13,6 +13,9 @@ set -euo pipefail
 : "${INDEX_OUT:=data/bot_store/pdb_faiss.index}"
 : "${ONLY_PROFILES:=}"
 : "${LISTS:=}"
+: "${EXPAND_SUBCATEGORIES:=}"
+: "${FILTER_CHARACTERS:=}"
+: "${EXPAND_MAX:=}"
 : "${DRY_RUN:=}"
 : "${UNTIL_EMPTY:=}"
 
@@ -50,6 +53,9 @@ python -m bot.pdb_cli hot-queries || true
 EXTRA_FLAGS=()
 if [[ -n "$ONLY_PROFILES" ]]; then EXTRA_FLAGS+=(--only-profiles); fi
 if [[ -n "$LISTS" ]]; then EXTRA_FLAGS+=(--lists "$LISTS"); fi
+if [[ -n "$EXPAND_SUBCATEGORIES" ]]; then EXTRA_FLAGS+=(--expand-subcategories); fi
+if [[ -n "$FILTER_CHARACTERS" ]]; then EXTRA_FLAGS+=(--filter-characters); fi
+if [[ -n "$EXPAND_MAX" ]]; then EXTRA_FLAGS+=(--expand-max "$EXPAND_MAX"); fi
 if [[ -n "$DRY_RUN" ]]; then EXTRA_FLAGS+=(--dry-run); fi
 if [[ -n "$UNTIL_EMPTY" ]]; then EXTRA_FLAGS+=(--until-empty); fi
 

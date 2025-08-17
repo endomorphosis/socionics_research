@@ -92,7 +92,7 @@ def cmd_search(query: str, top_k: int = 5) -> None:
         print("No data.")
         return
     rows = df.dropna(subset=["vector"]).reset_index(drop=True)
-    if rows.empty:
+    if rows.empty: 
         print("No vectors found. Run embed first.")
         return
     mat = np.vstack(rows["vector"].to_list())
@@ -157,7 +157,7 @@ def main():
     p_dump_any.add_argument("--start-offset", type=int, default=0, help="start offset for pagination")
 
     p_search = sub.add_parser("search", help="Search vectors and show top matches")
-    p_search.add_argument("query", type=str)
+    p_search.add_argument("query", type=str) 
     p_search.add_argument("--top", type=int, default=5)
 
     p_idx = sub.add_parser("index", help="Build a FAISS index for fast search")
@@ -167,6 +167,18 @@ def main():
     p_sfaiss.add_argument("query", type=str)
     p_sfaiss.add_argument("--top", type=int, default=5)
     p_sfaiss.add_argument("--index", type=str, default="data/bot_store/pdb_faiss.index")
+
+    # Pretty FAISS search: print names
+    p_sfp = sub.add_parser("search-faiss-pretty", help="Search FAISS index and show names for top results")
+    p_sfp.add_argument("query", type=str)
+    p_sfp.add_argument("--top", type=int, default=5)
+    p_sfp.add_argument("--index", type=str, default="data/bot_store/pdb_faiss.index")
+
+    # Character-only search shortcut
+    p_schar = sub.add_parser("search-characters", help="Search the character-only FAISS index and print names")
+    p_schar.add_argument("query", type=str)
+    p_schar.add_argument("--top", type=int, default=5)
+    p_schar.add_argument("--index", type=str, default="data/bot_store/pdb_faiss_char.index")
 
     p_sum = sub.add_parser("summarize", help="Summarize current dataset sizes and type distributions")
     p_sum.add_argument("--normalized", type=str, default="data/bot_store/pdb_profiles_normalized.parquet")
@@ -232,6 +244,11 @@ def main():
     p_fh.add_argument("--index-out", type=str, default="data/bot_store/pdb_faiss.index", help="Index output path for --auto-index")
     p_fh.add_argument("--lists", type=str, default=None, help="Comma-separated list names to upsert (e.g., profiles,boards)")
     p_fh.add_argument("--only-profiles", action="store_true", help="Shortcut for --lists profiles")
+    p_fh.add_argument("--verbose", action="store_true", help="Print entity names per page per key")
+    p_fh.add_argument("--filter-characters", action="store_true", help="Only include items where isCharacter==True when present")
+    p_fh.add_argument("--characters-relaxed", action="store_true", help="When filtering characters, allow expanded related items even if isCharacter flag is missing")
+    p_fh.add_argument("--expand-subcategories", action="store_true", help="Expand 'subcategories' via profiles/{id}/related to surface profiles")
+    p_fh.add_argument("--expand-max", type=int, default=5, help="Max subcategories to expand per page when --expand-subcategories")
     p_fh.add_argument("--dry-run", action="store_true", help="Preview results without writing/upserting or embedding/indexing")
 
     p_st = sub.add_parser("search-top", help="Call v2 search/top and upsert list results")
@@ -248,7 +265,95 @@ def main():
     p_st.add_argument("--index-out", type=str, default="data/bot_store/pdb_faiss.index", help="Index output path for --auto-index")
     p_st.add_argument("--lists", type=str, default=None, help="Comma-separated list names to upsert (e.g., profiles,boards)")
     p_st.add_argument("--only-profiles", action="store_true", help="Shortcut for --lists profiles")
+    p_st.add_argument("--verbose", action="store_true", help="Print the actual entity names per page")
+    p_st.add_argument("--filter-characters", action="store_true", help="Only include items where isCharacter==True when present")
+    p_st.add_argument("--characters-relaxed", action="store_true", help="When filtering characters, allow expanded results from subcategories even if isCharacter flag is missing")
+    p_st.add_argument("--expand-subcategories", action="store_true", help="Expand search/top 'subcategories' via profiles/{id}/related to surface profiles")
+    p_st.add_argument("--expand-max", type=int, default=5, help="Max subcategories to expand per page when --expand-subcategories")
     p_st.add_argument("--dry-run", action="store_true", help="Preview results without writing/upserting or embedding/indexing")
+
+    # Bulk keyword search: expand over many queries and ingest results
+    p_sb = sub.add_parser(
+        "search-keywords",
+        help="Call v2 search/top for multiple queries (from --queries/--query-file) and upsert results",
+    )
+    p_sb.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print the actual entity names per page (instead of only counts)"
+    )
+    p_sb.add_argument("--queries", type=str, default=None, help="Comma-separated list of keywords to search (aliases: --keywords, --keyword)")
+    # Aliases for ergonomics
+    p_sb.add_argument("--keywords", dest="queries", type=str, default=None, help=argparse.SUPPRESS)
+    p_sb.add_argument("--keyword", dest="queries", type=str, default=None, help=argparse.SUPPRESS)
+    p_sb.add_argument(
+        "--query-file",
+        type=str,
+        default=None,
+        help="Path to file containing keywords (comma/newline/space separated)",
+    )
+    p_sb.add_argument("--limit", type=int, default=20, help="Limit per page")
+    p_sb.add_argument("--pages", type=int, default=1, help="Pages to fetch per query (unless --until-empty)")
+    p_sb.add_argument("--until-empty", action="store_true", help="Keep paging per query until empty page")
+    p_sb.add_argument(
+        "--max-no-progress-pages",
+        type=int,
+        default=3,
+        help="Stop paging after N consecutive pages with no new items (0 to disable)",
+    )
+    p_sb.add_argument("--lists", type=str, default=None, help="Comma-separated list names to upsert (e.g., profiles,boards)")
+    p_sb.add_argument("--only-profiles", action="store_true", help="Shortcut for --lists profiles")
+    p_sb.add_argument("--auto-embed", action="store_true", help="Run embedding after ingestion")
+    p_sb.add_argument(
+        "--auto-index",
+        action="store_true",
+        help="Rebuild FAISS index after ingestion (implies --auto-embed)",
+    )
+    p_sb.add_argument(
+        "--index-out",
+        type=str,
+        default="data/bot_store/pdb_faiss.index",
+        help="Index output path for --auto-index",
+    )
+    p_sb.add_argument("--dry-run", action="store_true", help="Preview without writing/upserting or embedding/indexing")
+    p_sb.add_argument(
+        "--filter-characters",
+        action="store_true",
+        help="Only include items where isCharacter==True when present"
+    )
+    p_sb.add_argument(
+        "--characters-relaxed",
+        action="store_true",
+        help="When filtering characters, allow expanded results from subcategories even if isCharacter flag is missing",
+    )
+    p_sb.add_argument(
+        "--expand-subcategories",
+        action="store_true",
+        help="For subcategory hits, call profiles/{id}/related and include those results (helps surface characters)"
+    )
+    p_sb.add_argument(
+        "--expand-max",
+        type=int,
+        default=5,
+        help="Max subcategories per page to expand when --expand-subcategories is set"
+    )
+    p_sb.add_argument(
+        "--expand-characters",
+        action="store_true",
+        help="For each keyword, sweep appended A-Z/0-9 tokens to discover character profiles"
+    )
+    p_sb.add_argument(
+        "--expand-pages",
+        type=int,
+        default=1,
+        help="Pages per expanded token (used with --expand-characters)"
+    )
+    p_sb.add_argument(
+        "--append-terms",
+        type=str,
+        default=None,
+        help="Comma-separated suffix terms to append to each keyword (e.g., 'characters,cast')",
+    )
 
     p_dc = sub.add_parser("discover-cidpid", help="Probe cid/pid or cat_id/property_id pairs for non-empty results")
     p_dc.add_argument("--path", type=str, default="profiles", help="API path to probe (default: profiles)")
@@ -287,6 +392,33 @@ def main():
     p_ir = sub.add_parser("ingest-report", help="Summarize ingested v2 search/top and follow-hot items")
     p_ir.add_argument("--top-queries", type=int, default=5, help="Top N queries per list to show")
 
+    # Expand related for explicit IDs (helper when known subcategory/board IDs are available)
+    p_xrel = sub.add_parser(
+        "expand-related",
+        help="Fetch profiles/{id}/related for provided IDs and upsert items with optional character filtering",
+    )
+    p_xrel.add_argument("--ids", type=str, required=False, help="Comma-separated IDs to expand via profiles/{id}/related")
+    p_xrel.add_argument(
+        "--id-file",
+        type=str,
+        default=None,
+        help="Optional path to a file containing IDs (comma/newline/space separated)",
+    )
+    p_xrel.add_argument("--lists", type=str, default=None, help="Comma-separated list names to upsert (e.g., profiles,boards)")
+    p_xrel.add_argument("--only-profiles", action="store_true", help="Shortcut for --lists profiles")
+    p_xrel.add_argument("--filter-characters", action="store_true", help="Only include items where isCharacter==True when present")
+    p_xrel.add_argument(
+        "--characters-relaxed",
+        action="store_true",
+        help="When filtering characters, accept items inferred from character-group provenance",
+    )
+    p_xrel.add_argument(
+        "--force-character-group",
+        action="store_true",
+        help="Treat each seed ID as a character-group source for relaxed filtering",
+    )
+    p_xrel.add_argument("--dry-run", action="store_true", help="Preview without writing/upserting")
+
     # Maintenance: compact raw parquet by recomputing CID without ephemeral fields
     p_comp = sub.add_parser(
         "compact-raw",
@@ -317,6 +449,42 @@ def main():
     )
     p_cov.add_argument("--sample", type=int, default=10, help="Number of sample IDs to print per missing category")
 
+    # Characters export: filter raw payloads for character-like items into a separate parquet
+    p_xc = sub.add_parser(
+        "export-characters",
+        help="Extract rows likely representing characters (isCharacter True or provenance from character group)",
+    )
+    p_xc.add_argument(
+        "--out",
+        type=str,
+        default="data/bot_store/pdb_characters.parquet",
+        help="Output Parquet path for character-only rows",
+    )
+    p_xc.add_argument("--sample", type=int, default=20, help="Print first N names as a sample")
+
+    # Character-only index
+    p_xci = sub.add_parser(
+        "index-characters",
+        help="Build a FAISS index from vectors of character-only rows exported by export-characters",
+    )
+    p_xci.add_argument(
+        "--char-parquet",
+        type=str,
+        default="data/bot_store/pdb_characters.parquet",
+        help="Path to characters parquet produced by export-characters",
+    )
+    p_xci.add_argument("--out", type=str, default="data/bot_store/pdb_faiss_char.index", help="Index output path")
+
+    # Helper: find subcategories by keyword (to discover character groups)
+    p_fsc = sub.add_parser(
+        "find-subcats",
+        help="List subcategories from v2 search/top for a keyword; useful to find character groups",
+    )
+    p_fsc.add_argument("--keyword", type=str, required=True, help="Keyword to query in search/top")
+    p_fsc.add_argument("--limit", type=int, default=40, help="Limit per page")
+    p_fsc.add_argument("--pages", type=int, default=1, help="Pages to fetch (via nextCursor)")
+    p_fsc.add_argument("--until-empty", action="store_true", help="Keep paging until an empty page")
+
     # Diagnostics: analyze collected results for a given query/substring
     p_diag = sub.add_parser("diagnose-query", help="Analyze collected search/top results for a keyword")
     p_diag.add_argument("--contains", type=str, default=None, help="Substring match on _query to include rows (case-insensitive)")
@@ -327,6 +495,12 @@ def main():
     # New: scan-related orchestrates v2 related → optional search-top by names → v1 profile scrape
     p_scan = sub.add_parser("scan-related", help="Scan seeds, fetch v2 related, optionally search names, and scrape v1 profiles")
     p_scan.add_argument("--seed-ids", type=str, default=None, help="Comma-separated seed profile IDs; if omitted, seeds are inferred from raw parquet")
+    p_scan.add_argument(
+        "--seed-file",
+        type=str,
+        default=None,
+        help="Path to a file containing seed profile IDs (comma/newline/space separated)",
+    )
     p_scan.add_argument("--max-seeds", type=int, default=100, help="Max number of seeds to process when inferred")
     p_scan.add_argument("--depth", type=int, default=1, help="Traversal depth for related expansion (currently supports 1)")
     p_scan.add_argument("--v1-base-url", type=str, default="https://api.personality-database.com/api/v1", help="Base URL for v1 profile fetches")
@@ -338,6 +512,10 @@ def main():
     p_scan.add_argument("--max-no-progress-pages", type=int, default=3, help="Stop name paging after N no-progress pages (0 to disable)")
     p_scan.add_argument("--lists", type=str, default=None, help="Comma-separated list names to upsert from search-top (e.g., profiles)")
     p_scan.add_argument("--only-profiles", action="store_true", help="Shortcut for --lists profiles for search-top")
+    p_scan.add_argument("--filter-characters", action="store_true", help="Only include items where isCharacter==True when present")
+    p_scan.add_argument("--characters-relaxed", action="store_true", help="When filtering characters, allow expanded results from subcategories even if isCharacter flag is missing")
+    p_scan.add_argument("--expand-subcategories", action="store_true", help="Expand search/top 'subcategories' via profiles/{id}/related to surface profiles")
+    p_scan.add_argument("--expand-max", type=int, default=5, help="Max subcategories to expand per page when --expand-subcategories")
     p_scan.add_argument("--auto-embed", action="store_true", help="Run embedding after scraping")
     p_scan.add_argument("--auto-index", action="store_true", help="Rebuild FAISS index after scraping (implies --auto-embed)")
     p_scan.add_argument("--index-out", type=str, default="data/bot_store/pdb_faiss.index", help="Index output path for --auto-index")
@@ -354,6 +532,12 @@ def main():
         default=None,
         help="Comma-separated seed profile IDs; if omitted, seeds are inferred from raw parquet",
     )
+    p_all.add_argument(
+        "--seed-file",
+        type=str,
+        default=None,
+        help="Path to a file containing seed profile IDs (comma/newline/space separated)",
+    )
     p_all.add_argument("--max-iterations", type=int, default=5, help="Maximum BFS iterations across related expansions (0 = until exhaustion)")
     p_all.add_argument("--search-names", action="store_true", help="For related items, call v2 search/top by their names")
     p_all.add_argument(
@@ -367,6 +551,10 @@ def main():
     p_all.add_argument("--max-no-progress-pages", type=int, default=3, help="Stop search paging after N no-progress pages (0 to disable)")
     p_all.add_argument("--lists", type=str, default=None, help="Comma-separated list names to upsert from search-top (e.g., profiles)")
     p_all.add_argument("--only-profiles", action="store_true", help="Shortcut for --lists profiles for search-top")
+    p_all.add_argument("--filter-characters", action="store_true", help="Only include items where isCharacter==True when present")
+    p_all.add_argument("--characters-relaxed", action="store_true", help="When filtering characters, allow expanded results from subcategories even if isCharacter flag is missing")
+    p_all.add_argument("--expand-subcategories", action="store_true", help="Expand search/top 'subcategories' via profiles/{id}/related to surface profiles")
+    p_all.add_argument("--expand-max", type=int, default=5, help="Max subcategories to expand per page when --expand-subcategories")
     p_all.add_argument(
         "--sweep-queries",
         type=str,
@@ -484,6 +672,133 @@ def main():
             if i < 0 or i >= len(cids):
                 continue
             print(f"{rank}. cid={cids[int(i)][:12]} score={float(s):.4f}")
+    elif args.cmd in {"search-faiss-pretty", "search-characters"}:
+        import numpy as np
+        from pathlib import Path
+        import faiss  # type: ignore
+        # load index and cid map
+        idxp = Path(args.index)
+        map_path = idxp.with_suffix(idxp.suffix + ".cids")
+        if not idxp.exists() or not map_path.exists():
+            print(f"Missing index or cid map at {idxp} and {map_path}. Run the corresponding index command first.")
+            return
+        index = faiss.read_index(str(idxp))
+        cids = map_path.read_text(encoding="utf-8").splitlines()
+        # embed and normalize query
+        qv = np.array(embed_texts([args.query])[0], dtype="float32")[None, :]
+        qv = qv / (np.linalg.norm(qv, axis=1, keepdims=True) + 1e-12)
+        scores, I = index.search(qv, args.top)
+        # map cids to names via joined store
+        store = PdbStorage()
+        df = store.load_joined()
+        cid_to_name: dict[str, str] = {}
+        for _, row in df.iterrows():
+            cid = str(row.get("cid"))
+            if not cid:
+                continue
+            pb = row.get("payload_bytes")
+            try:
+                obj = orjson.loads(pb) if isinstance(pb, (bytes, bytearray)) else (json.loads(pb) if isinstance(pb, str) else (pb if isinstance(pb, dict) else None))
+            except Exception:
+                obj = None
+            name = None
+            if isinstance(obj, dict):
+                for k in ("name", "title", "display_name", "username", "subcategory"):
+                    v = obj.get(k)
+                    if isinstance(v, str) and v:
+                        name = v; break
+            cid_to_name[cid] = name or "(unknown)"
+        for rank, (i, s) in enumerate(zip(I[0], scores[0]), start=1):
+            if i < 0 or i >= len(cids):
+                continue
+            cid = cids[int(i)]
+            print(f"{rank}. score={float(s):.4f} name={cid_to_name.get(cid, '(unknown)')} cid={cid[:12]}")
+    elif args.cmd == "export-characters":
+        import pandas as pd
+        from pathlib import Path as _Path
+        store = PdbStorage()
+        raw_path = store.raw_path
+        if not raw_path.exists():
+            print(f"Missing raw parquet: {raw_path}")
+            return
+        df = pd.read_parquet(raw_path)
+        rows: list[dict] = []
+        for _, row in df.iterrows():
+            pb = row.get("payload_bytes")
+            try:
+                obj = orjson.loads(pb) if isinstance(pb, (bytes, bytearray)) else (json.loads(pb) if isinstance(pb, str) else (pb if isinstance(pb, dict) else None))
+            except Exception:
+                obj = None
+            if not isinstance(obj, dict):
+                continue
+            is_char = obj.get("isCharacter") is True or obj.get("_from_character_group") is True
+            if not is_char:
+                continue
+            # avoid obvious MBTI buckets
+            nm = obj.get("name") or obj.get("title") or obj.get("subcategory")
+            if isinstance(nm, str) and nm.strip().upper() in {
+                "INTJ","INTP","ENTJ","ENTP","INFJ","INFP","ENFJ","ENFP",
+                "ISTJ","ISFJ","ESTJ","ESFJ","ISTP","ISFP","ESTP","ESFP",
+            }:
+                continue
+            rec: dict = {"cid": str(row.get("cid")), "_source": obj.get("_source")}
+            # profile id detection
+            pid = None
+            for k in ("id", "profileId", "profileID", "profile_id", "_profile_id"):
+                v = obj.get(k)
+                if isinstance(v, int):
+                    pid = v; break
+                if isinstance(v, str):
+                    try:
+                        pid = int(v); break
+                    except Exception:
+                        pass
+            if pid is not None:
+                rec["pid"] = pid
+            # carry name
+            for k in ("name", "title", "display_name", "username", "subcategory"):
+                v = obj.get(k)
+                if isinstance(v, str) and v:
+                    rec["name"] = v
+                    break
+            rows.append(rec)
+        out = _Path(getattr(args, "out", "data/bot_store/pdb_characters.parquet"))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(rows).drop_duplicates(subset=["cid"]).to_parquet(out, index=False)
+        print(f"Exported {len(rows)} character-like rows to {out}")
+        if rows and args.sample:
+            for r in rows[: args.sample]:
+                print(f"  pid={r.get('pid')} name={r.get('name')}")
+    elif args.cmd == "index-characters":
+        import pandas as pd
+        from pathlib import Path as _Path
+        import faiss  # type: ignore
+        import numpy as _np
+        chars_path = _Path(getattr(args, "char_parquet", "data/bot_store/pdb_characters.parquet"))
+        if not chars_path.exists():
+            print(f"Missing characters parquet: {chars_path}. Run export-characters first.")
+            return
+        store = PdbStorage()
+        df = store.load_joined()
+        try:
+            cdf = pd.read_parquet(chars_path)[["cid"]]
+        except Exception as e:
+            print(f"Failed to read characters parquet: {e}")
+            return
+        merged = df.merge(cdf, on="cid", how="inner").dropna(subset=["vector"]).reset_index(drop=True)
+        if merged.empty:
+            print("No vectors for character rows; run embed first.")
+            return
+        mat = _np.vstack(merged["vector"].to_list()).astype("float32")
+        norms = _np.linalg.norm(mat, axis=1, keepdims=True) + 1e-12
+        mat = mat / norms
+        index = faiss.IndexFlatIP(mat.shape[1])
+        index.add(mat)
+        outp = _Path(args.out)
+        outp.parent.mkdir(parents=True, exist_ok=True)
+        faiss.write_index(index, str(outp))
+        (outp.with_suffix(outp.suffix + ".cids")).write_text("\n".join(merged["cid"].astype(str).tolist()), encoding="utf-8")
+        print(f"Indexed {len(merged)} character vectors to {outp}")
     elif args.cmd == "summarize":
         import pandas as pd
         from pathlib import Path
@@ -848,6 +1163,77 @@ def main():
                 except Exception as e:
                     print(f"Embed failed after get-profiles: {e}")
         asyncio.run(_run())
+    elif args.cmd == "find-subcats":
+        async def _run():
+            client = _make_client(args)
+            q = args.keyword
+            page = 0
+            next_cursor = None
+            seen: set[int] = set()
+            while True:
+                page += 1
+                if not args.until_empty and page > max(getattr(args, "pages", 1), 1):
+                    break
+                params = {"keyword": q, "limit": args.limit}
+                if next_cursor is not None:
+                    params["nextCursor"] = next_cursor
+                try:
+                    data = await client.fetch_json("search/top", params)
+                except Exception as e:
+                    print(f"fetch failed: {e}")
+                    break
+                container = data.get("data") if isinstance(data, dict) else None
+                if not isinstance(container, dict):
+                    print("No data container.")
+                    break
+                # Collect subcategory-like items from 'subcategories' and embedded in 'profiles'
+                found = 0
+                items: list[dict] = []
+                subs = container.get("subcategories")
+                if isinstance(subs, list):
+                    items.extend([it for it in subs if isinstance(it, dict)])
+                profs = container.get("profiles")
+                if isinstance(profs, list):
+                    for it in profs:
+                        if not isinstance(it, dict):
+                            continue
+                        if it.get("subcatID") is not None or it.get("subcategory") is not None:
+                            items.append(it)
+                        # Also consider MBTI bucket items as expansion candidates
+                        nm = it.get("name")
+                        if isinstance(nm, str) and nm in {
+                            "INTJ","INTP","ENTJ","ENTP","INFJ","INFP","ENFJ","ENFP",
+                            "ISTJ","ISFJ","ESTJ","ESFJ","ISTP","ISFP","ESTP","ESFP"
+                        }:
+                            items.append(it)
+                # Print unique candidates with id/subcatID
+                for it in items:
+                    sid = None
+                    for k in ("id", "subcatID"):
+                        v = it.get(k)
+                        if isinstance(v, int):
+                            sid = v; break
+                        if isinstance(v, str):
+                            try:
+                                sid = int(v); break
+                            except Exception:
+                                pass
+                    name = it.get("subcategory") or it.get("name")
+                    is_char = it.get("isCharacter") is True or (isinstance(name, str) and "character" in name.lower())
+                    if isinstance(sid, int) and sid not in seen:
+                        seen.add(sid)
+                        found += 1
+                        print(f"id={sid} | name={name} | isCharacterGroup={bool(is_char)}")
+                if not found:
+                    print(f"page {page}: no subcategories")
+                nc = container.get("nextCursor") if isinstance(container, dict) else None
+                if nc is None and isinstance(data, dict):
+                    nc = data.get("nextCursor")
+                if isinstance(nc, (int, str)):
+                    next_cursor = nc
+                    continue
+                break
+        asyncio.run(_run())
     elif args.cmd == "discover":
         import json as _json
         from collections import Counter
@@ -891,23 +1277,6 @@ def main():
                     print(f"Field '{f}':")
                     for val, cnt in most:
                         print(f"  {val}: {cnt}")
-        asyncio.run(_run())
-    elif args.cmd == "get-profile":
-        async def _run():
-            client = _make_client(args)
-            store = PdbStorage()
-            try:
-                data = await client.get_profile(args.id)
-            except Exception as e:
-                print(f"Get-profile failed: {e}\nHint: Ensure PDB_API_BASE_URL is v1 and headers/cookies are set.")
-                return
-            if not isinstance(data, dict):
-                print("Unexpected response shape; expected a single object.")
-                return
-            # annotate provenance
-            main_obj = {**data, "_source": "v1_profile", "_profile_id": args.id}
-            new, upd = store.upsert_raw([main_obj])
-            total_new, total_upd = new, upd
             # optionally include related_profiles array
             if args.include_related:
                 rel = data.get("related_profiles") if isinstance(data, dict) else None
@@ -1068,6 +1437,29 @@ def main():
                 allowed_lists = {"profiles"}
             elif args.lists:
                 allowed_lists = {s.strip() for s in args.lists.split(',') if s.strip()}
+            # MBTI bucket detection helper to warn when only type buckets appear
+            MBTI_TYPES = {
+                "INTJ", "INTP", "ENTJ", "ENTP",
+                "INFJ", "INFP", "ENFJ", "ENFP",
+                "ISTJ", "ISFJ", "ESTJ", "ESFJ",
+                "ISTP", "ISFP", "ESTP", "ESFP",
+            }
+            def _is_mbti_bucket_item(it: dict) -> bool:
+                if not isinstance(it, dict):
+                    return False
+                name = it.get("name")
+                return isinstance(name, str) and name in MBTI_TYPES
+            MBTI_TYPES = {
+                "INTJ", "INTP", "ENTJ", "ENTP",
+                "INFJ", "INFP", "ENFJ", "ENFP",
+                "ISTJ", "ISFJ", "ESTJ", "ESFJ",
+                "ISTP", "ISFP", "ESTP", "ESFP",
+            }
+            def _is_mbti_bucket_item(it: dict) -> bool:
+                if not isinstance(it, dict):
+                    return False
+                name = it.get("name")
+                return isinstance(name, str) and name in MBTI_TYPES
             for k in keys:
                 next_cursor_token: int | str | None = args.next_cursor if args.next_cursor != 0 else None
                 page = 0
@@ -1088,13 +1480,103 @@ def main():
                         print(f"No data container for key={k!r} on page {page}")
                         break
                     out = []
+                    subcats: list[dict] = []
                     for fname, val in container.items():
+                        if fname == "subcategories":
+                            if isinstance(val, list) and val:
+                                for it in val:
+                                    if isinstance(it, dict):
+                                        subcats.append(it)
+                                        if allowed_lists is None or fname in allowed_lists:
+                                            out.append({**it, "_source": "search_follow_hot_top", "_source_list": fname, "_query": k, "_page": page, "_nextCursor": next_cursor_token})
+                            continue
+                        # Heuristic: capture subcategory-like objects inside 'profiles'
+                        if fname == "profiles" and isinstance(val, list):
+                            for it in val:
+                                if isinstance(it, dict) and (it.get("subcatID") is not None or it.get("subcategory") is not None):
+                                    subcats.append(it)
                         if allowed_lists is not None and fname not in allowed_lists:
                             continue
                         if isinstance(val, list) and val:
                             for it in val:
                                 if isinstance(it, dict):
                                     out.append({**it, "_source": "search_follow_hot_top", "_source_list": fname, "_query": k, "_page": page, "_nextCursor": next_cursor_token})
+                    # Expand subcategories if requested
+                    if args.expand_subcategories and subcats:
+                        def _is_character_group(item: dict) -> bool:
+                            try:
+                                if item.get("isCharacter") is True:
+                                    return True
+                                subn = item.get("subcategory")
+                                if isinstance(subn, str) and ("character" in subn.lower() or "characters" in subn.lower()):
+                                    return True
+                            except Exception:
+                                pass
+                            return False
+                        cand = [it for it in subcats if isinstance(it, dict) and _is_character_group(it)] or [it for it in subcats if isinstance(it, dict)]
+                        cand = cand[: max(getattr(args, "expand_max", 5), 0)]
+                        expanded: list[dict] = []
+                        for sc in cand:
+                            from_char_group = False
+                            try:
+                                subn = sc.get("subcategory") if isinstance(sc, dict) else None
+                                if sc.get("isCharacter") is True or (isinstance(subn, str) and ("character" in subn.lower() or "characters" in subn.lower())):
+                                    from_char_group = True
+                            except Exception:
+                                from_char_group = False
+                            sid = None
+                            try:
+                                v = sc.get("id") if isinstance(sc, dict) else None
+                                if isinstance(v, int):
+                                    sid = v
+                                elif isinstance(v, str):
+                                    sid = int(v)
+                            except Exception:
+                                sid = None
+                            if not isinstance(sid, int):
+                                continue
+                            try:
+                                data_rel = await client.fetch_json(f"profiles/{sid}/related")
+                            except Exception:
+                                continue
+                            rel_items: list[dict] = []
+                            if isinstance(data_rel, dict):
+                                cont2 = data_rel.get("data") or data_rel
+                                if isinstance(cont2, dict):
+                                    rp = cont2.get("relatedProfiles")
+                                    if isinstance(rp, list):
+                                        for it in rp:
+                                            if isinstance(it, dict):
+                                                rel_items.append({**it, "_source_list": "profiles"})
+                                    else:
+                                        for k2, v2 in cont2.items():
+                                            if isinstance(v2, list):
+                                                # allow 'relatedProfiles' even when only 'profiles' requested
+                                                if allowed_lists is not None and (k2 not in allowed_lists and k2 != "relatedProfiles"):
+                                                    continue
+                                                for it in v2:
+                                                    if isinstance(it, dict):
+                                                        rel_items.append({**it, "_source_list": ("profiles" if k2 == "relatedProfiles" else k2)})
+                            # Infer character-group from related result mix
+                            ch_total = sum(1 for it in rel_items if isinstance(it, dict))
+                            ch_count = sum(1 for it in rel_items if isinstance(it, dict) and it.get("isCharacter") is True)
+                            inferred_char_group = False
+                            try:
+                                if ch_total > 0 and ch_count >= 2 and (ch_count / max(ch_total, 1)) >= 0.3:
+                                    inferred_char_group = True
+                            except Exception:
+                                inferred_char_group = False
+                            from_char_group_final = bool(from_char_group or inferred_char_group)
+                            for it in rel_items:
+                                if not isinstance(it, dict):
+                                    continue
+                                if args.filter_characters:
+                                    ch = it.get("isCharacter")
+                                    if not (ch is True or (getattr(args, "characters_relaxed", False) and from_char_group_final is True)):
+                                        continue
+                                expanded.append({**it, "_source": "search_follow_hot_related", "_query": k, "_page": page, "_expanded_from": sid, "_from_character_group": from_char_group_final})
+                        if expanded:
+                            out = out + expanded
                     # compute page identity keys (prefer id/profileId/etc plus source_list)
                     page_keys: list[str] = []
                     for it in out:
@@ -1127,7 +1609,10 @@ def main():
                             grand_new += new
                             grand_upd += upd
                             print(f"key={k!r} page {page}: upserted {new} new, {upd} updated")
+                    # Determine nextCursor (may appear in container or at top-level)
                     nc = container.get("nextCursor") if isinstance(container, dict) else None
+                    if nc is None and isinstance(data, dict):
+                        nc = data.get("nextCursor")
                     if isinstance(nc, (int, str)):
                         if nc == next_cursor_token:
                             # No progress, stop paging
@@ -1209,13 +1694,151 @@ def main():
                     print("No data container in response.")
                     break
                 out = []
+                # collect subcategories for optional expansion
+                subcats: list[dict] = []
+                # Helper for detecting MBTI bucket items so we can warn users
+                MBTI_TYPES = {
+                    "INTJ", "INTP", "ENTJ", "ENTP",
+                    "INFJ", "INFP", "ENFJ", "ENFP",
+                    "ISTJ", "ISFJ", "ESTJ", "ESFJ",
+                    "ISTP", "ISFP", "ESTP", "ESFP",
+                }
+                def _is_mbti_bucket_item(it: dict) -> bool:
+                    if not isinstance(it, dict):
+                        return False
+                    name = it.get("name")
+                    return isinstance(name, str) and name in MBTI_TYPES
+                mbti_count = 0
                 for fname, val in container.items():
+                    if fname == "subcategories":
+                        # Always collect subcategories for potential expansion; only upsert if allowed
+                        if isinstance(val, list) and val:
+                            for it in val:
+                                if isinstance(it, dict):
+                                    subcats.append(it)
+                                    if allowed_lists is None or fname in allowed_lists:
+                                        out.append({**it, "_source": "v2_search_top", "_source_list": fname, "_query": q, "_page": page, "_nextCursor": next_cursor_token})
+                        continue
+                    # Heuristic: sometimes subcategory buckets appear under 'profiles'; detect and collect
+                    if fname == "profiles" and isinstance(val, list):
+                        for it in val:
+                            if isinstance(it, dict) and (it.get("subcatID") is not None or it.get("subcategory") is not None):
+                                subcats.append(it)
+                            if _is_mbti_bucket_item(it):
+                                # MBTI type items are effectively subcategory buckets; expand via related
+                                subcats.append(it)
+                                mbti_count += 1
                     if allowed_lists is not None and fname not in allowed_lists:
+                        # Special-case: map recommendProfiles into profiles when only-profiles is requested
+                        if fname == "recommendProfiles" and "profiles" in allowed_lists and isinstance(val, list) and val:
+                            for it in val:
+                                if isinstance(it, dict):
+                                    out.append({**it, "_source": "v2_search_top", "_source_list": "profiles", "_query": q, "_page": page, "_nextCursor": next_cursor_token})
                         continue
                     if isinstance(val, list) and val:
                         for it in val:
                             if isinstance(it, dict):
                                 out.append({**it, "_source": "v2_search_top", "_source_list": fname, "_query": q, "_page": page, "_nextCursor": next_cursor_token})
+                if (not args.expand_subcategories) and mbti_count >= 12:
+                    print("Note: Detected MBTI type buckets in 'profiles'. Re-run with --expand-subcategories to surface real profiles.")
+                # Expand subcategories via related if requested
+                expanded: list[dict] = []
+                if args.expand_subcategories and subcats:
+                    # heuristic filter to prioritize likely character groups
+                    def _is_character_group(item: dict) -> bool:
+                        try:
+                            if item.get("isCharacter") is True:
+                                return True
+                            subn = item.get("subcategory")
+                            if isinstance(subn, str) and ("character" in subn.lower() or "characters" in subn.lower()):
+                                return True
+                        except Exception:
+                            pass
+                        return False
+                    # limit how many we expand per page
+                    cand = [it for it in subcats if isinstance(it, dict) and _is_character_group(it)] or [it for it in subcats if isinstance(it, dict)]
+                    cand = cand[: max(getattr(args, "expand_max", 5), 0)]
+                    # fetch related for each candidate id
+                    fetched = 0
+                    for sc in cand:
+                        from_char_group = False
+                        try:
+                            from_char_group = _is_character_group(sc)
+                        except Exception:
+                            from_char_group = False
+                        sid = None
+                        try:
+                            v = sc.get("id") if isinstance(sc, dict) else None
+                            if isinstance(v, int):
+                                sid = v
+                            elif isinstance(v, str):
+                                sid = int(v)
+                            elif isinstance(sc, dict) and sc.get("subcatID") is not None:
+                                v2 = sc.get("subcatID")
+                                if isinstance(v2, int):
+                                    sid = v2
+                                elif isinstance(v2, str):
+                                    sid = int(v2)
+                        except Exception:
+                            sid = None
+                        if not isinstance(sid, int):
+                            continue
+                        try:
+                            data_rel = await client.fetch_json(f"profiles/{sid}/related")
+                        except Exception:
+                            continue
+                        rel_items: list[dict] = []
+                        if isinstance(data_rel, dict):
+                            cont2 = data_rel.get("data") or data_rel
+                            if isinstance(cont2, dict):
+                                rp = cont2.get("relatedProfiles")
+                                if isinstance(rp, list):
+                                    for it in rp:
+                                        if isinstance(it, dict):
+                                            # Treat relatedProfiles as profiles for downstream filtering
+                                            rel_items.append({**it, "_source_list": "profiles"})
+                                else:
+                                    for k2, v2 in cont2.items():
+                                        if isinstance(v2, list):
+                                            for it in v2:
+                                                if not isinstance(it, dict):
+                                                    continue
+                                                # If only 'profiles' are allowed, map character-like items to profiles
+                                                if allowed_lists is not None and (k2 not in allowed_lists and k2 != "relatedProfiles"):
+                                                    allow_map = False
+                                                    if "profiles" in allowed_lists:
+                                                        if getattr(args, "filter_characters", False):
+                                                            ch = it.get("isCharacter")
+                                                            if ch is True or from_char_group is True:
+                                                                allow_map = True
+                                                    if not allow_map:
+                                                        continue
+                                                sl = ("profiles" if (k2 == "relatedProfiles" or (allowed_lists is not None and "profiles" in allowed_lists and (getattr(args, "filter_characters", False) and (it.get("isCharacter") is True or from_char_group is True)))) else k2)
+                                                rel_items.append({**it, "_source_list": sl})
+                        # infer char group if mix is character-heavy
+                        ch_total = sum(1 for it in rel_items if isinstance(it, dict))
+                        ch_count = sum(1 for it in rel_items if isinstance(it, dict) and it.get("isCharacter") is True)
+                        inferred_char_group = False
+                        try:
+                            if ch_total > 0 and ch_count >= 2 and (ch_count / max(ch_total, 1)) >= 0.3:
+                                inferred_char_group = True
+                        except Exception:
+                            inferred_char_group = False
+                        from_char_group_final = bool(from_char_group or inferred_char_group)
+                        # annotate and filter
+                        for it in rel_items:
+                            if not isinstance(it, dict):
+                                continue
+                            if args.filter_characters:
+                                ch = it.get("isCharacter")
+                                if not (ch is True or (from_char_group_final is True)):
+                                    if not getattr(args, "characters_relaxed", False):
+                                        continue
+                            expanded.append({**it, "_source": "v2_related_from_subcategory", "_query": q, "_page": page, "_expanded_from": sid, "_from_character_group": from_char_group_final})
+                        fetched += 1
+                    # merge expanded into out for unified handling
+                    if expanded:
+                        out = out + expanded
                 # compute identity keys per item (id/profileId etc + source_list)
                 page_keys: list[str] = []
                 for it in out:
@@ -1239,17 +1862,98 @@ def main():
                     if args.until_empty:
                         break
                 else:
-                    if args.dry_run:
-                        n_items = len(out)
-                        total_would_be += n_items
-                        print(f"Page {page}: would upsert {n_items} items from search/top (dry-run)")
-                    else:
-                        new, upd = store.upsert_raw(out)
-                        total_new += new
-                        total_upd += upd
-                        print(f"Page {page}: upserted {new} new, {upd} updated from search/top")
+                    # Optional verbose listing of entities similar to search-keywords
+                    def _display_name(it: dict) -> str:
+                        for kk in ("name", "title", "display_name", "username"):
+                            v = it.get(kk)
+                            if isinstance(v, str) and v:
+                                return v
+                        for kk in ("subcategory", "boardTitle", "board", "label"):
+                            v = it.get(kk)
+                            if isinstance(v, str) and v:
+                                return v
+                        try:
+                            return json.dumps({k: it.get(k) for k in ("name", "title", "username") if k in it}, ensure_ascii=False)
+                        except Exception:
+                            return "(unknown)"
+                    if args.verbose:
+                        by_list: dict[str, list[str]] = {}
+                        for it in out:
+                            if not isinstance(it, dict):
+                                continue
+                            if args.filter_characters:
+                                if getattr(args, "characters_relaxed", False):
+                                    ch = it.get("isCharacter")
+                                    if not (ch is True or it.get("_from_character_group") is True):
+                                        continue
+                                else:
+                                    ch = it.get("isCharacter")
+                                    if ch is not True:
+                                        continue
+                            lst = str(it.get("_source_list") or "")
+                            nm = _display_name(it)
+                            pid = None
+                            for kk in ("id", "profileId", "profileID", "profile_id"):
+                                vv = it.get(kk)
+                                if isinstance(vv, (int, str)):
+                                    pid = str(vv)
+                                    break
+                            label = f"{nm}" + (f" (id={pid})" if pid is not None else "")
+                            by_list.setdefault(lst or "(list)", []).append(label)
+                        header = f"Page {page}: {sum(len(v) for v in by_list.values())} items"
+                        if args.dry_run:
+                            total_would_be += sum(len(v) for v in by_list.values())
+                            header += " (dry-run)"
+                        print(header)
+                        for lst, names in by_list.items():
+                            print(f"  {lst}: {len(names)}")
+                            for nm in names:
+                                print(f"    - {nm}")
+                        if not args.dry_run:
+                            to_write = out
+                            if args.filter_characters:
+                                if getattr(args, "characters_relaxed", False):
+                                    to_write = [
+                                        it for it in out
+                                        if isinstance(it, dict) and (
+                                            it.get("isCharacter") is True or it.get("_from_character_group") is True
+                                        )
+                                    ]
+                                else:
+                                    to_write = [it for it in out if isinstance(it, dict) and (it.get("isCharacter") is True)]
+                            new, upd = store.upsert_raw(to_write)
+                            total_new += new
+                            total_upd += upd
+                        else:
+                            if args.dry_run:
+                                n_items = len(out)
+                                if args.filter_characters:
+                                    try:
+                                        n_items = sum(1 for it in out if isinstance(it, dict) and (it.get("isCharacter") is True))
+                                    except Exception:
+                                        pass
+                                total_would_be += n_items
+                                print(f"Page {page}: would upsert {n_items} items from search/top (dry-run)")
+                            else:
+                                to_write = out
+                                if args.filter_characters:
+                                    if getattr(args, "characters_relaxed", False):
+                                        to_write = [
+                                            it for it in out
+                                            if isinstance(it, dict) and (
+                                                it.get("isCharacter") is True or it.get("_from_character_group") is True
+                                            )
+                                        ]
+                                    else:
+                                        to_write = [it for it in out if isinstance(it, dict) and (it.get("isCharacter") is True)]
+                                new, upd = store.upsert_raw(to_write)
+                                total_new += new
+                                total_upd += upd
+                                print(f"Page {page}: upserted {new} new, {upd} updated from search/top")
                 # Determine nextCursor if exposed (may be in container or top-level)
                 nc = container.get("nextCursor") if isinstance(container, dict) else None
+                if nc is None and isinstance(data, dict):
+                    nc = data.get("nextCursor")
                 if isinstance(nc, (int, str)):
                     if nc == next_cursor_token:
                         break
@@ -1267,6 +1971,392 @@ def main():
                 print(f"Done (dry-run). Would upsert {total_would_be} items in total.")
                 return
             print(f"Done. Total upserts: {total_new} new, {total_upd} updated")
+        asyncio.run(_run())
+    elif args.cmd == "search-keywords":
+        async def _run():
+            client = _make_client(args)
+            store = PdbStorage()
+            # collect keywords from --queries and --query-file
+            keys: list[str] = []
+            if getattr(args, "queries", None):
+                keys.extend([s.strip() for s in args.queries.split(',') if s.strip()])
+            if getattr(args, "query_file", None):
+                try:
+                    from pathlib import Path as _Path
+                    import csv as _csv
+                    txt = _Path(args.query_file).read_text(encoding="utf-8")
+                    for line in txt.splitlines():
+                        line = line.strip()
+                        # skip empty lines and full-line comments
+                        if not line or line.startswith('#'):
+                            continue
+                        # normalize tabs to commas; DO NOT split on spaces to preserve multi-word phrases
+                        line = line.replace('\t', ',')
+                        for row in _csv.reader([line], delimiter=',', quotechar='"'):
+                            for tok in row:
+                                tok = tok.strip()
+                                if tok:
+                                    keys.append(tok)
+                except Exception as e:
+                    print(f"Failed to read --query-file: {e}")
+                    return
+            # dedupe preserving order
+            seen_k = set()
+            keys = [k for k in keys if (k not in seen_k and not seen_k.add(k))]
+            if not keys:
+                print("No keywords provided. Use --queries and/or --query-file.")
+                return
+            # parse filters
+            allowed_lists = None
+            if args.only_profiles:
+                allowed_lists = {"profiles"}
+            elif args.lists:
+                allowed_lists = {s.strip() for s in args.lists.split(',') if s.strip()}
+            total_new = total_upd = 0
+            total_would = 0
+            # Build per-keyword sweep tokens when expand-characters is enabled
+            alpha_tokens = list("abcdefghijklmnopqrstuvwxyz") + [str(i) for i in range(10)]
+            for q in keys:
+                page = 0
+                next_cursor_token: int | str | None = None
+                seen_ident: set[str] = set()
+                no_progress = 0
+                # Create a list of queries: base keyword + optional expanded tokens
+                q_list = [q]
+                if args.expand_characters:
+                    q_list = [q] + [f"{q} {tok}" for tok in alpha_tokens]
+                # Append custom suffix terms if provided (e.g., 'characters,cast,people')
+                if getattr(args, "append_terms", None):
+                    extra = [s.strip() for s in str(args.append_terms).split(',') if s.strip()]
+                    if extra:
+                        q_list = q_list + [f"{q} {suf}" for suf in extra]
+                for qq in q_list:
+                    page = 0
+                    next_cursor_token = None
+                    seen_ident = set()
+                    no_progress = 0
+                    local_pages_limit = args.pages if not args.expand_characters else max(args.expand_pages, 1)
+                    while True:
+                        page += 1
+                        # Guard: respect per-keyword page limit before fetching next page
+                        if not args.until_empty and page > max(local_pages_limit, 1):
+                            break
+                        params = {"limit": args.limit, "keyword": qq}
+                        if next_cursor_token is not None:
+                            params["nextCursor"] = next_cursor_token
+                        try:
+                            data = await client.fetch_json("search/top", params)
+                        except Exception as e:
+                            print(f"keyword={qq!r} page {page}: fetch failed: {e}")
+                            break
+                        container = data.get("data") if isinstance(data, dict) else None
+                        if not isinstance(container, dict):
+                            print(f"keyword={qq!r} page {page}: no data container")
+                            break
+                        out = []
+                        subcats: list[dict] = []
+                        MBTI_TYPES = {
+                            "INTJ", "INTP", "ENTJ", "ENTP",
+                            "INFJ", "INFP", "ENFJ", "ENFP",
+                            "ISTJ", "ISFJ", "ESTJ", "ESFJ",
+                            "ISTP", "ISFP", "ESTP", "ESFP",
+                        }
+                        def _is_mbti_bucket_item(it: dict) -> bool:
+                            if not isinstance(it, dict):
+                                return False
+                            name = it.get("name")
+                            return isinstance(name, str) and name in MBTI_TYPES
+                        mbti_count = 0
+                        for fname, val in container.items():
+                            if fname == "subcategories":
+                                # Always gather subcategories for potential expansion
+                                if isinstance(val, list) and val:
+                                    for it in val:
+                                        if isinstance(it, dict):
+                                            subcats.append(it)
+                                            # Only upsert raw subcategories when explicitly allowed
+                                            if allowed_lists is None or fname in allowed_lists:
+                                                out.append({**it, "_source": "v2_search_top", "_source_list": fname, "_query": qq, "_page": page, "_nextCursor": next_cursor_token})
+                                continue
+                            # Heuristic: detect subcategory-like objects inside 'profiles'
+                            if fname == "profiles" and isinstance(val, list):
+                                for it in val:
+                                    if isinstance(it, dict) and (it.get("subcatID") is not None or it.get("subcategory") is not None):
+                                        subcats.append(it)
+                                    if _is_mbti_bucket_item(it):
+                                        # Treat MBTI type items as expansion candidates
+                                        subcats.append(it)
+                                        mbti_count += 1
+                            # For other lists, honor allowed_lists filter
+                            if allowed_lists is not None and fname not in allowed_lists:
+                                # Map recommendProfiles to profiles when only-profiles is requested
+                                if fname == "recommendProfiles" and "profiles" in allowed_lists and isinstance(val, list) and val:
+                                    for it in val:
+                                        if isinstance(it, dict):
+                                            out.append({**it, "_source": "v2_search_top", "_source_list": "profiles", "_query": qq, "_page": page, "_nextCursor": next_cursor_token})
+                                continue
+                            if isinstance(val, list) and val:
+                                for it in val:
+                                    if isinstance(it, dict):
+                                        out.append({**it, "_source": "v2_search_top", "_source_list": fname, "_query": qq, "_page": page, "_nextCursor": next_cursor_token})
+                        if (not getattr(args, "expand_subcategories", False)) and mbti_count >= 12:
+                            print(f"keyword={qq!r} page {page}: Detected MBTI type buckets in 'profiles'. Re-run with --expand-subcategories to surface real profiles.")
+                        # Optionally expand subcategory hits via related to surface profiles/characters
+                        if getattr(args, "expand_subcategories", False) and subcats:
+                            def _is_character_group(item: dict) -> bool:
+                                try:
+                                    if item.get("isCharacter") is True:
+                                        return True
+                                    subn = item.get("subcategory")
+                                    if isinstance(subn, str) and ("character" in subn.lower() or "characters" in subn.lower()):
+                                        return True
+                                except Exception:
+                                    pass
+                                return False
+                            candidates = [it for it in subcats if isinstance(it, dict) and _is_character_group(it)] or [it for it in subcats if isinstance(it, dict)]
+                            max_to_expand = max(getattr(args, "expand_max", 5), 0)
+                            candidates = candidates[: max_to_expand]
+                            expanded: list[dict] = []
+                            for sc in candidates:
+                                from_char_group = False
+                                try:
+                                    from_char_group = _is_character_group(sc)
+                                except Exception:
+                                    from_char_group = False
+                                sid = None
+                                try:
+                                    v = sc.get("id") if isinstance(sc, dict) else None
+                                    if isinstance(v, int):
+                                        sid = v
+                                    elif isinstance(v, str):
+                                        sid = int(v)
+                                    elif isinstance(sc, dict) and sc.get("subcatID") is not None:
+                                        v2 = sc.get("subcatID")
+                                        if isinstance(v2, int):
+                                            sid = v2
+                                        elif isinstance(v2, str):
+                                            sid = int(v2)
+                                except Exception:
+                                    sid = None
+                                if not isinstance(sid, int):
+                                    continue
+                                try:
+                                    data_rel = await client.fetch_json(f"profiles/{sid}/related")
+                                except Exception:
+                                    continue
+                                rel_items: list[dict] = []
+                                if isinstance(data_rel, dict):
+                                    cont2 = data_rel.get("data") or data_rel
+                                    if isinstance(cont2, dict):
+                                        rp = cont2.get("relatedProfiles")
+                                        if isinstance(rp, list):
+                                            for it in rp:
+                                                if isinstance(it, dict):
+                                                    # Treat relatedProfiles as profiles for downstream filtering
+                                                    rel_items.append({**it, "_source_list": "profiles"})
+                                        else:
+                                            for k2, v2 in cont2.items():
+                                                if isinstance(v2, list):
+                                                    for it in v2:
+                                                        if not isinstance(it, dict):
+                                                            continue
+                                                        if allowed_lists is not None and (k2 not in allowed_lists and k2 != "relatedProfiles"):
+                                                            allow_map = False
+                                                            if "profiles" in allowed_lists:
+                                                                if getattr(args, "filter_characters", False):
+                                                                    ch = it.get("isCharacter")
+                                                                    if ch is True or from_char_group is True:
+                                                                        allow_map = True
+                                                            if not allow_map:
+                                                                continue
+                                                        sl = ("profiles" if (k2 == "relatedProfiles" or (allowed_lists is not None and "profiles" in allowed_lists and (getattr(args, "filter_characters", False) and (it.get("isCharacter") is True or from_char_group is True)))) else k2)
+                                                        rel_items.append({**it, "_source_list": sl})
+                                # infer from mix
+                                ch_total = sum(1 for it in rel_items if isinstance(it, dict))
+                                ch_count = sum(1 for it in rel_items if isinstance(it, dict) and it.get("isCharacter") is True)
+                                inferred_char_group = False
+                                try:
+                                    if ch_total > 0 and ch_count >= 2 and (ch_count / max(ch_total, 1)) >= 0.3:
+                                        inferred_char_group = True
+                                except Exception:
+                                    inferred_char_group = False
+                                from_char_group_final = bool(from_char_group or inferred_char_group)
+                                for it in rel_items:
+                                    if not isinstance(it, dict):
+                                        continue
+                                    if getattr(args, "filter_characters", False):
+                                        ch = it.get("isCharacter")
+                                        if not (ch is True or (from_char_group_final is True)):
+                                            if not getattr(args, "characters_relaxed", False):
+                                                continue
+                                    expanded.append({**it, "_source": "v2_related_from_subcategory", "_query": qq, "_page": page, "_expanded_from": sid, "_from_character_group": from_char_group_final})
+                            if expanded:
+                                out = out + expanded
+                    # progress tracking
+                    page_keys: list[str] = []
+                    for it in out:
+                        oid = None
+                        if isinstance(it, dict):
+                            for kk in ("id", "profileId", "profileID", "profile_id"):
+                                vv = it.get(kk)
+                                if isinstance(vv, (int, str)):
+                                    oid = str(vv)
+                                    break
+                        sl = it.get("_source_list") if isinstance(it, dict) else None
+                        page_keys.append(f"{sl}:{oid}")
+                    new_keys = [pk for pk in page_keys if pk not in seen_ident]
+                    if new_keys:
+                        seen_ident.update(new_keys)
+                        no_progress = 0
+                    else:
+                        no_progress += 1
+                    if not out:
+                        if args.until_empty:
+                            break
+                    else:
+                        # When verbose, print entity names grouped by list
+                        def _display_name(it: dict) -> str:
+                            for kk in ("name", "title", "display_name", "username"):
+                                v = it.get(kk)
+                                if isinstance(v, str) and v:
+                                    return v
+                            for kk in ("subcategory", "boardTitle", "board", "label"):
+                                v = it.get(kk)
+                                if isinstance(v, str) and v:
+                                    return v
+                            try:
+                                return json.dumps({k: it.get(k) for k in ("name", "title", "username") if k in it}, ensure_ascii=False)
+                            except Exception:
+                                return "(unknown)"
+                        if args.verbose:
+                            by_list: dict[str, list[str]] = {}
+                            for it in out:
+                                if not isinstance(it, dict):
+                                    continue
+                                if args.filter_characters:
+                                    if getattr(args, "characters_relaxed", False):
+                                        ch = it.get("isCharacter")
+                                        if not (ch is True or it.get("_from_character_group") is True):
+                                            continue
+                                    else:
+                                        ch = it.get("isCharacter")
+                                        if ch is not True:
+                                            continue
+                                lst = str(it.get("_source_list") or "")
+                                nm = _display_name(it)
+                                pid = None
+                                for kk in ("id", "profileId", "profileID", "profile_id"):
+                                    vv = it.get(kk)
+                                    if isinstance(vv, (int, str)):
+                                        pid = str(vv)
+                                        break
+                                label = f"{nm}" + (f" (id={pid})" if pid is not None else "")
+                                by_list.setdefault(lst or "(list)", []).append(label)
+                            header = f"keyword={qq!r} page {page}: {sum(len(v) for v in by_list.values())} items"
+                            if args.dry_run:
+                                total_would += sum(len(v) for v in by_list.values())
+                                header += " (dry-run)"
+                            print(header)
+                            for lst, names in by_list.items():
+                                print(f"  {lst}: {len(names)}")
+                                for nm in names:
+                                    print(f"    - {nm}")
+                            # In verbose + dry-run, do not upsert; in verbose + real-run, upsert silently
+                            if not args.dry_run:
+                                to_write = out
+                                if args.filter_characters:
+                                    if getattr(args, "characters_relaxed", False):
+                                        to_write = [
+                                            it for it in out
+                                            if isinstance(it, dict) and (
+                                                it.get("isCharacter") is True or it.get("_from_character_group") is True
+                                            )
+                                        ]
+                                    else:
+                                        to_write = [it for it in out if isinstance(it, dict) and (it.get("isCharacter") is True)]
+                                n, u = store.upsert_raw(to_write)
+                                total_new += n
+                                total_upd += u
+                        else:
+                            if args.dry_run:
+                                n_items = len(out)
+                                if args.filter_characters:
+                                    try:
+                                        if getattr(args, "characters_relaxed", False):
+                                            n_items = sum(1 for it in out if isinstance(it, dict) and (it.get("isCharacter") is True or it.get("_from_character_group") is True))
+                                        else:
+                                            n_items = sum(1 for it in out if isinstance(it, dict) and (it.get("isCharacter") is True))
+                                    except Exception:
+                                        pass
+                                total_would += n_items
+                                print(f"keyword={qq!r} page {page}: would upsert {n_items} items (dry-run)")
+                            else:
+                                # apply filter when persisting
+                                to_write = out
+                                if args.filter_characters:
+                                    if getattr(args, "characters_relaxed", False):
+                                        to_write = [
+                                            it for it in out
+                                            if isinstance(it, dict) and (
+                                                it.get("isCharacter") is True or it.get("_from_character_group") is True
+                                            )
+                                        ]
+                                    else:
+                                        to_write = [it for it in out if isinstance(it, dict) and (it.get("isCharacter") is True)]
+                                n, u = store.upsert_raw(to_write)
+                                total_new += n
+                                total_upd += u
+                                print(f"keyword={qq!r} page {page}: upserted {n} new, {u} updated")
+                    # Respect page limit early to avoid unnecessary paging
+                    if not args.until_empty and page >= max(local_pages_limit, 1):
+                        break
+                    # handle nextCursor
+                    nc = container.get("nextCursor") if isinstance(container, dict) else None
+                    if nc is None and isinstance(data, dict):
+                        nc = data.get("nextCursor")
+                    if isinstance(nc, (int, str)):
+                        if nc == next_cursor_token:
+                            break
+                        next_cursor_token = nc
+                    else:
+                        next_cursor_token = None
+                        if not args.until_empty:
+                            break
+                    if args.max_no_progress_pages > 0 and no_progress >= args.max_no_progress_pages:
+                        print(f"keyword={qq!r}: stopping after {no_progress} no-progress pages")
+                        break
+            if args.dry_run:
+                print(f"Done (dry-run). Would upsert {total_would} items across {len(keys)} keywords.")
+                return
+            print(f"Done. Total upserts: {total_new} new, {total_upd} updated across {len(keys)} keywords")
+            if args.auto_embed or args.auto_index:
+                try:
+                    cmd_embed()
+                except Exception as e:
+                    print(f"Auto-embed failed: {e}")
+            if args.auto_index:
+                try:
+                    import faiss  # type: ignore
+                    import numpy as _np
+                    from pathlib import Path as _Path
+                    store = PdbStorage()
+                    df = store.load_joined()
+                    rows = df.dropna(subset=["vector"]).reset_index(drop=True)
+                    if rows.empty:
+                        print("No vectors found; run embed first.")
+                    else:
+                        mat = _np.vstack(rows["vector"].to_list()).astype("float32")
+                        norms = _np.linalg.norm(mat, axis=1, keepdims=True) + 1e-12
+                        mat = mat / norms
+                        index = faiss.IndexFlatIP(mat.shape[1])
+                        index.add(mat)
+                        outp = _Path(args.index_out)
+                        outp.parent.mkdir(parents=True, exist_ok=True)
+                        faiss.write_index(index, str(outp))
+                        (outp.with_suffix(outp.suffix + ".cids")).write_text("\n".join(rows["cid"].astype(str).tolist()), encoding="utf-8")
+                        print(f"Indexed {len(rows)} vectors to {outp}")
+                except Exception as e:
+                    print(f"Auto-index failed: {e}")
         asyncio.run(_run())
     elif args.cmd == "discover-cidpid":
         import json as _json
@@ -1809,16 +2899,35 @@ def main():
             store = PdbStorage()
             raw_path = store.raw_path
             seeds: list[int] = []
-            # Seed IDs from flag or inferred from raw parquet
+            # Collect seed IDs from flags
             if args.seed_ids:
                 try:
-                    seeds = [int(x.strip()) for x in args.seed_ids.split(',') if x.strip()]
+                    seeds.extend([int(x.strip()) for x in args.seed_ids.split(',') if x.strip()])
                 except Exception:
                     print("Invalid --seed-ids; expected comma-separated integers")
                     return
-            else:
+            if getattr(args, "seed_file", None):
+                try:
+                    txt = _Path(args.seed_file).read_text(encoding="utf-8")
+                    for tok in txt.replace('\n', ',').replace('\t', ',').replace(' ', ',').split(','):
+                        tok = tok.strip()
+                        if not tok:
+                            continue
+                        try:
+                            seeds.append(int(tok))
+                        except Exception:
+                            pass
+                except Exception as e:
+                    print(f"Failed to read --seed-file: {e}")
+                    return
+            # Dedupe preserving order
+            if seeds:
+                seen_tmp = set()
+                seeds = [x for x in seeds if (x not in seen_tmp and not seen_tmp.add(x))]
+            # If still empty, infer from raw parquet
+            if not seeds:
                 if not raw_path.exists():
-                    print(f"Missing raw parquet: {raw_path}. Provide --seed-ids or ingest some data first.")
+                    print(f"Missing raw parquet: {raw_path}. Provide --seed-ids/--seed-file or ingest some data first.")
                     return
                 df = pd.read_parquet(raw_path)
                 seen = set()
@@ -1947,13 +3056,92 @@ def main():
                                 print(f"No data container for name={name!r} page {page}")
                                 break
                             out = []
+                            subcats: list[dict] = []
                             for fname, val in container.items():
+                                if fname == "subcategories":
+                                    if isinstance(val, list) and val:
+                                        for it in val:
+                                            if isinstance(it, dict):
+                                                subcats.append(it)
+                                                if allowed_lists is None or fname in allowed_lists:
+                                                    out.append({**it, "_source": "v2_search_top_by_name", "_source_list": fname, "_query": name, "_page": page, "_nextCursor": next_cursor})
+                                    continue
+                                # Heuristic: capture subcategory-like objects inside 'profiles'
+                                if fname == "profiles" and isinstance(val, list):
+                                    for it in val:
+                                        if isinstance(it, dict) and (it.get("subcatID") is not None or it.get("subcategory") is not None):
+                                            subcats.append(it)
                                 if allowed_lists is not None and fname not in allowed_lists:
                                     continue
                                 if isinstance(val, list) and val:
                                     for it in val:
                                         if isinstance(it, dict):
                                             out.append({**it, "_source": "v2_search_top_by_name", "_source_list": fname, "_query": name, "_page": page, "_nextCursor": next_cursor})
+                            # Optionally expand subcategories via related to surface profiles/characters
+                            if args.expand_subcategories and subcats:
+                                def _is_character_group(item: dict) -> bool:
+                                    try:
+                                        if item.get("isCharacter") is True:
+                                            return True
+                                        subn = item.get("subcategory")
+                                        if isinstance(subn, str) and ("character" in subn.lower() or "characters" in subn.lower()):
+                                            return True
+                                    except Exception:
+                                        pass
+                                    return False
+                                candidates = [it for it in subcats if isinstance(it, dict) and _is_character_group(it)] or [it for it in subcats if isinstance(it, dict)]
+                                candidates = candidates[: max(getattr(args, "expand_max", 5), 0)]
+                                expanded: list[dict] = []
+                                for sc in candidates:
+                                    sid = None
+                                    try:
+                                        v = sc.get("id") if isinstance(sc, dict) else None
+                                        if isinstance(v, int):
+                                            sid = v
+                                        elif isinstance(v, str):
+                                            sid = int(v)
+                                    except Exception:
+                                        sid = None
+                                    if not isinstance(sid, int):
+                                        continue
+                                    try:
+                                        data_rel = await client_v2.fetch_json(f"profiles/{sid}/related")
+                                    except Exception:
+                                        continue
+                                    rel_items: list[dict] = []
+                                    if isinstance(data_rel, dict):
+                                        cont2 = data_rel.get("data") or data_rel
+                                        if isinstance(cont2, dict):
+                                            rp = cont2.get("relatedProfiles")
+                                            if isinstance(rp, list):
+                                                for it in rp:
+                                                    if isinstance(it, dict):
+                                                        rel_items.append({**it, "_source_list": "profiles"})
+                                            else:
+                                                for k2, v2 in cont2.items():
+                                                    if isinstance(v2, list):
+                                                        if allowed_lists is not None and (k2 not in allowed_lists and k2 != "relatedProfiles"):
+                                                            continue
+                                                        for it in v2:
+                                                            if isinstance(it, dict):
+                                                                rel_items.append({**it, "_source_list": ("profiles" if k2 == "relatedProfiles" else k2)})
+                                    from_char_group = False
+                                    try:
+                                        subn = sc.get("subcategory") if isinstance(sc, dict) else None
+                                        if sc.get("isCharacter") is True or (isinstance(subn, str) and ("character" in subn.lower() or "characters" in subn.lower())):
+                                            from_char_group = True
+                                    except Exception:
+                                        from_char_group = False
+                                    for it in rel_items:
+                                        if not isinstance(it, dict):
+                                            continue
+                                        if args.filter_characters:
+                                            ch = it.get("isCharacter")
+                                            if not (ch is True or (getattr(args, "characters_relaxed", False) and from_char_group is True)):
+                                                continue
+                                        expanded.append({**it, "_source": "v2_related_from_subcategory_by_name", "_query": name, "_page": page, "_expanded_from": sid, "_from_character_group": from_char_group})
+                                if expanded:
+                                    out = out + expanded
                             # compute identity keys per item for progress tracking
                             page_keys: list[str] = []
                             for it2 in out:
@@ -1979,7 +3167,18 @@ def main():
                                 if args.dry_run:
                                     print(f"name={name!r} page {page}: would upsert {len(out)} items (dry-run)")
                                 else:
-                                    new, upd = store.upsert_raw(out)
+                                    to_write = out
+                                    if args.filter_characters:
+                                        if getattr(args, "characters_relaxed", False):
+                                            to_write = [
+                                                it for it in out
+                                                if isinstance(it, dict) and (
+                                                    it.get("isCharacter") is True or it.get("_from_character_group") is True
+                                                )
+                                            ]
+                                        else:
+                                            to_write = [it for it in out if isinstance(it, dict) and (it.get("isCharacter") is True)]
+                                    new, upd = store.upsert_raw(to_write)
                                     print(f"name={name!r} page {page}: upserted {new} new, {upd} updated from search/top")
                             nc = container.get("nextCursor") if isinstance(container, dict) else None
                             if isinstance(nc, (int, str)):
@@ -2162,17 +3361,32 @@ def main():
                         seen_ids.add(pid)
             # Seeds
             frontier: list[int] = []
-            if args.seed_ids:
-                try:
-                    frontier = [int(x.strip()) for x in args.seed_ids.split(',') if x.strip()]
-                except Exception:
-                    print("Invalid --seed-ids; expected comma-separated integers")
-                    return
-            else:
+            # Seeds from CLI and/or file
+            try:
+                if args.seed_ids:
+                    frontier.extend([int(x.strip()) for x in args.seed_ids.split(',') if x.strip()])
+                if getattr(args, "seed_file", None):
+                    txt = _Path(args.seed_file).read_text(encoding="utf-8")
+                    for tok in txt.replace('\n', ',').replace('\t', ',').replace(' ', ',').split(','):
+                        tok = tok.strip()
+                        if not tok:
+                            continue
+                        try:
+                            frontier.append(int(tok))
+                        except Exception:
+                            pass
+                # dedupe preserving order
+                if frontier:
+                    seen_tmp = set()
+                    frontier = [x for x in frontier if (x not in seen_tmp and not seen_tmp.add(x))]
+            except Exception:
+                print("Invalid seed inputs; expected integers in --seed-ids/--seed-file")
+                return
+            # Fallback to inferred seeds when none specified
+            if not frontier:
                 if not seen_ids:
-                    print("No seeds found from raw parquet; provide --seed-ids or ingest some data first.")
+                    print("No seeds found from raw parquet; provide --seed-ids/--seed-file or ingest some data first.")
                     return
-                # Use a small slice of seen_ids as starting frontier
                 frontier = list(seen_ids)[: max(args.initial_frontier_size, 1)]
 
             allowed_lists = None
@@ -2229,7 +3443,20 @@ def main():
                     if not isinstance(container, dict):
                         break
                     out = []
+                    subcats: list[dict] = []
                     for fname, val in container.items():
+                        if fname == "subcategories":
+                            if isinstance(val, list) and val:
+                                for it in val:
+                                    if isinstance(it, dict):
+                                        subcats.append(it)
+                                        if allowed_lists is None or fname in allowed_lists:
+                                            out.append({**it, "_source": "v2_search_top_by_name", "_source_list": fname, "_query": name, "_page": page, "_nextCursor": next_token})
+                            continue
+                        if fname == "profiles" and isinstance(val, list):
+                            for it in val:
+                                if isinstance(it, dict) and (it.get("subcatID") is not None or it.get("subcategory") is not None):
+                                    subcats.append(it)
                         if allowed_lists is not None and fname not in allowed_lists:
                             continue
                         if isinstance(val, list) and val:
@@ -2239,6 +3466,86 @@ def main():
                                     vid = _get_pid(it)
                                     if isinstance(vid, int) and vid not in seen_ids:
                                         newids.add(vid)
+                    # Expand subcategories if requested
+                    if args.expand_subcategories and subcats:
+                        def _is_character_group(item: dict) -> bool:
+                            try:
+                                if item.get("isCharacter") is True:
+                                    return True
+                                subn = item.get("subcategory")
+                                if isinstance(subn, str) and ("character" in subn.lower() or "characters" in subn.lower()):
+                                    return True
+                            except Exception:
+                                pass
+                            return False
+                        candidates = [it for it in subcats if isinstance(it, dict) and _is_character_group(it)] or [it for it in subcats if isinstance(it, dict)]
+                        candidates = candidates[: max(getattr(args, "expand_max", 5), 0)]
+                        expanded: list[dict] = []
+                        for sc in candidates:
+                            sid = None
+                            try:
+                                v = sc.get("id") if isinstance(sc, dict) else None
+                                if isinstance(v, int):
+                                    sid = v
+                                elif isinstance(v, str):
+                                    sid = int(v)
+                            except Exception:
+                                sid = None
+                            if not isinstance(sid, int):
+                                continue
+                            try:
+                                data_rel = await client_v2.fetch_json(f"profiles/{sid}/related")
+                            except Exception:
+                                continue
+                            rel_items: list[dict] = []
+                            if isinstance(data_rel, dict):
+                                cont2 = data_rel.get("data") or data_rel
+                                if isinstance(cont2, dict):
+                                    rp = cont2.get("relatedProfiles")
+                                    if isinstance(rp, list):
+                                        for it in rp:
+                                            if isinstance(it, dict):
+                                                rel_items.append({**it, "_source_list": "profiles"})
+                                    else:
+                                        for k2, v2 in cont2.items():
+                                            if isinstance(v2, list):
+                                                if allowed_lists is not None and (k2 not in allowed_lists and k2 != "relatedProfiles"):
+                                                    continue
+                                                for it in v2:
+                                                    if isinstance(it, dict):
+                                                        rel_items.append({**it, "_source_list": ("profiles" if k2 == "relatedProfiles" else k2)})
+                                    # infer character-group from related composition
+                                    ch_total = sum(1 for it in rel_items if isinstance(it, dict))
+                                    ch_count = sum(1 for it in rel_items if isinstance(it, dict) and it.get("isCharacter") is True)
+                                    inferred_char_group = False
+                                    try:
+                                        if ch_total > 0 and ch_count >= 2 and (ch_count / max(ch_total, 1)) >= 0.3:
+                                            inferred_char_group = True
+                                    except Exception:
+                                        inferred_char_group = False
+                                    # label/flag heuristic on the subcategory itself
+                                    from_char_group_label = False
+                                    try:
+                                        subn = sc.get("subcategory") if isinstance(sc, dict) else None
+                                        if sc.get("isCharacter") is True or (isinstance(subn, str) and ("character" in subn.lower() or "characters" in subn.lower())):
+                                            from_char_group_label = True
+                                    except Exception:
+                                        from_char_group_label = False
+                                    from_char_group_final = bool(from_char_group_label or inferred_char_group)
+                                    # annotate and filter expanded items
+                                    for it in rel_items:
+                                        if not isinstance(it, dict):
+                                            continue
+                                        if args.filter_characters:
+                                            ch = it.get("isCharacter")
+                                            if not (ch is True or (getattr(args, "characters_relaxed", False) and from_char_group_final is True)):
+                                                continue
+                                        expanded.append({**it, "_source": "v2_related_from_subcategory_by_name", "_query": name, "_page": page, "_from_character_group": from_char_group_final})
+                                        vid = _get_pid(it)
+                                        if isinstance(vid, int) and vid not in seen_ids:
+                                            newids.add(vid)
+                        if expanded:
+                            out = out + expanded
                     # compute identity keys per item for progress tracking
                     page_keys: list[str] = []
                     for it2 in out:
@@ -2395,8 +3702,21 @@ def main():
                         if not isinstance(container, dict):
                             break
                         out = []
+                        subcats: list[dict] = []
                         prev_new_ids_count = len(sweep_new_ids)
                         for fname, val in container.items():
+                            if fname == "subcategories":
+                                if isinstance(val, list) and val:
+                                    for it in val:
+                                        if isinstance(it, dict):
+                                            subcats.append(it)
+                                            if allowed_lists is None or fname in allowed_lists:
+                                                out.append({**it, "_source": "v2_search_top_sweep", "_source_list": fname, "_query": tok, "_page": page, "_nextCursor": next_token})
+                                continue
+                            if fname == "profiles" and isinstance(val, list):
+                                for it in val:
+                                    if isinstance(it, dict) and (it.get("subcatID") is not None or it.get("subcategory") is not None):
+                                        subcats.append(it)
                             if allowed_lists is not None and fname not in allowed_lists:
                                 continue
                             if isinstance(val, list) and val:
@@ -2406,6 +3726,65 @@ def main():
                                         vid = _get_pid(it)
                                         if isinstance(vid, int) and vid not in seen_ids:
                                             sweep_new_ids.add(vid)
+                        # Expand subcategories if requested
+                        if args.expand_subcategories and subcats:
+                            def _is_character_group(item: dict) -> bool:
+                                try:
+                                    if item.get("isCharacter") is True:
+                                        return True
+                                    subn = item.get("subcategory")
+                                    if isinstance(subn, str) and ("character" in subn.lower() or "characters" in subn.lower()):
+                                        return True
+                                except Exception:
+                                    pass
+                                return False
+                            candidates = [it for it in subcats if isinstance(it, dict) and _is_character_group(it)] or [it for it in subcats if isinstance(it, dict)]
+                            candidates = candidates[: max(getattr(args, "expand_max", 5), 0)]
+                            expanded: list[dict] = []
+                            for sc in candidates:
+                                sid = None
+                                try:
+                                    v = sc.get("id") if isinstance(sc, dict) else None
+                                    if isinstance(v, int):
+                                        sid = v
+                                    elif isinstance(v, str):
+                                        sid = int(v)
+                                except Exception:
+                                    sid = None
+                                if not isinstance(sid, int):
+                                    continue
+                                try:
+                                    data_rel = await client_v2.fetch_json(f"profiles/{sid}/related")
+                                except Exception:
+                                    continue
+                                rel_items: list[dict] = []
+                                if isinstance(data_rel, dict):
+                                    cont2 = data_rel.get("data") or data_rel
+                                    if isinstance(cont2, dict):
+                                        rp = cont2.get("relatedProfiles")
+                                        if isinstance(rp, list):
+                                            for it in rp:
+                                                if isinstance(it, dict):
+                                                    rel_items.append({**it, "_source_list": "profiles"})
+                                        else:
+                                            for k2, v2 in cont2.items():
+                                                if isinstance(v2, list):
+                                                    if allowed_lists is not None and (k2 not in allowed_lists and k2 != "relatedProfiles"):
+                                                        continue
+                                                    for it in v2:
+                                                        if isinstance(it, dict):
+                                                            rel_items.append({**it, "_source_list": ("profiles" if k2 == "relatedProfiles" else k2)})
+                                for it in rel_items:
+                                    if not isinstance(it, dict):
+                                        continue
+                                    if args.filter_characters and (it.get("isCharacter") is False):
+                                        continue
+                                    expanded.append({**it, "_source": "v2_related_from_subcategory_sweep", "_query": tok, "_page": page})
+                                    vid = _get_pid(it)
+                                    if isinstance(vid, int) and vid not in seen_ids:
+                                        sweep_new_ids.add(vid)
+                            if expanded:
+                                out = out + expanded
                         # track progress by actual new IDs discovered this page
                         delta_new_ids = len(sweep_new_ids) - prev_new_ids_count
                         if delta_new_ids > 0:
@@ -2545,6 +3924,110 @@ def main():
                     print(f"Auto-index failed: {e}")
             # Final save of state
             _save_state()
+        asyncio.run(_run())
+    elif args.cmd == "expand-related":
+        async def _run():
+            client = _make_client(args)
+            store = PdbStorage()
+            # parse ids from --ids and optional --id-file
+            id_tokens: list[str] = []
+            if getattr(args, "ids", None):
+                id_tokens.extend([s.strip() for s in str(args.ids).split(',') if s.strip()])
+            if getattr(args, "id_file", None):
+                try:
+                    from pathlib import Path as _Path
+                    txt = _Path(args.id_file).read_text(encoding="utf-8")
+                    import csv as _csv
+                    for line in txt.splitlines():
+                        line = line.strip()
+                        if not line or line.startswith('#'):
+                            continue
+                        line = line.replace('\t', ',')
+                        for row in _csv.reader([line], delimiter=',', quotechar='"'):
+                            for tok in row:
+                                tok = tok.strip()
+                                if tok:
+                                    id_tokens.append(tok)
+                except Exception as e:
+                    print(f"Failed to read --id-file: {e}")
+                    return
+            if not id_tokens:
+                print("No IDs provided. Use --ids or --id-file.")
+                return
+            try:
+                ids = [int(x) for x in id_tokens]
+            except Exception:
+                print("Invalid ID encountered; ensure all IDs are integers in --ids/--id-file")
+                return
+            # dedupe preserve order
+            seen_ids_local = set()
+            ids = [i for i in ids if (i not in seen_ids_local and not seen_ids_local.add(i))]
+            allowed_lists = None
+            if args.only_profiles:
+                allowed_lists = {"profiles"}
+            elif args.lists:
+                allowed_lists = {s.strip() for s in args.lists.split(',') if s.strip()}
+            total_new = total_upd = 0
+            total_would = 0
+            for sid in ids:
+                try:
+                    data = await client.fetch_json(f"profiles/{sid}/related")
+                except Exception as e:
+                    print(f"Fetch failed for id={sid}: {e}")
+                    continue
+                rel_items: list[dict] = []
+                if isinstance(data, dict):
+                    cont = data.get("data") or data
+                    if isinstance(cont, dict):
+                        rp = cont.get("relatedProfiles")
+                        if isinstance(rp, list):
+                            for it in rp:
+                                if isinstance(it, dict):
+                                    rel_items.append({**it, "_source_list": "profiles"})
+                        else:
+                            for k, v in cont.items():
+                                if isinstance(v, list):
+                                    if allowed_lists is not None and (k not in allowed_lists and k != "relatedProfiles"):
+                                        continue
+                                    for it in v:
+                                        if isinstance(it, dict):
+                                            rel_items.append({**it, "_source_list": ("profiles" if k == "relatedProfiles" else k)})
+                if not rel_items:
+                    print(f"id={sid}: no related items")
+                    continue
+                # character-group provenance
+                ch_total = sum(1 for it in rel_items if isinstance(it, dict))
+                ch_count = sum(1 for it in rel_items if isinstance(it, dict) and it.get("isCharacter") is True)
+                inferred_char_group = False
+                try:
+                    if ch_total > 0 and ch_count >= 2 and (ch_count / max(ch_total, 1)) >= 0.3:
+                        inferred_char_group = True
+                except Exception:
+                    inferred_char_group = False
+                from_char_group_final = bool(args.force_character_group or inferred_char_group)
+                out: list[dict] = []
+                for it in rel_items:
+                    if not isinstance(it, dict):
+                        continue
+                    if args.filter_characters:
+                        ch = it.get("isCharacter")
+                        if not (ch is True or (getattr(args, "characters_relaxed", False) and from_char_group_final is True)):
+                            continue
+                    out.append({**it, "_source": "v2_related", "_expanded_from": sid, "_from_character_group": from_char_group_final})
+                if not out:
+                    print(f"id={sid}: nothing to upsert after filtering")
+                    continue
+                if args.dry_run:
+                    total_would += len(out)
+                    print(f"id={sid}: would upsert {len(out)} items (dry-run)")
+                else:
+                    n, u = store.upsert_raw(out)
+                    total_new += n; total_upd += u
+                    print(f"id={sid}: upserted {n} new, {u} updated")
+            if args.dry_run:
+                print(f"Done (dry-run). Would upsert {total_would} items across {len(ids)} IDs")
+                return
+            print(f"Done. Total upserts: {total_new} new, {total_upd} updated across {len(ids)} IDs")
         asyncio.run(_run())
 
 

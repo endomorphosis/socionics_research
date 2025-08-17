@@ -188,6 +188,21 @@ Tip: You can also run without install using the module path:
 PYTHONPATH=bot/src python -m bot.pdb_cli <command> ...
 ```
 
+### PDB API v2 Auth Setup
+
+Most v2 endpoints require browser-like headers and an active cookie. Create `.secrets/pdb_headers.json` with something like:
+
+```
+{
+	"User-Agent": "Mozilla/5.0 ...",
+	"Referer": "https://www.personality-database.com/",
+	"Origin": "https://www.personality-database.com",
+	"Cookie": "X-Lang=en-US; <other session cookies>"
+}
+```
+
+Pass this as `--headers "$(tr -d '\n' < .secrets/pdb_headers.json)"` or export `PDB_API_HEADERS` to the same JSON string. Ensure `PDB_API_BASE_URL=https://api.personality-database.com/api/v2`.
+
 Global flags (override env):
 - `--rpm`: Max requests per minute (overrides `PDB_RPM`)
 - `--concurrency`: Parallel HTTP concurrency (overrides `PDB_CONCURRENCY`)
@@ -209,7 +224,7 @@ PYTHONPATH=bot/src python -m bot.pdb_cli \
 ```
 
 ### follow-hot
-Resolves trending hot queries via v2 `search/top`. Upserts list-valued fields (e.g., `profiles`) and supports pagination.
+Resolves trending hot queries via v2 `search/top`. Upserts list-valued fields (e.g., `profiles`) and supports pagination. When `--expand-subcategories` is used, items from `profiles/{id}/related` treat `relatedProfiles` as `profiles` so `--only-profiles` retains expanded results.
 
 Flags:
 - `--limit`: Max results per page per query (default 10)
@@ -222,6 +237,9 @@ Flags:
 - `--index-out`: Index output path
 - `--lists`: Comma-separated list names to upsert (e.g., `profiles,boards`)
 - `--only-profiles`: Shortcut for `--lists profiles`
+- `--expand-subcategories`, `--expand-max`: Expand `subcategories` via related to surface actual profiles (maps `relatedProfiles` → `profiles`)
+- `--filter-characters`: Keep only character entries when present
+- `--verbose`: Print entity names per page per key
 - `--dry-run`: Preview results without writing/upserting or embedding/indexing
 
 Example:
@@ -238,7 +256,7 @@ PYTHONPATH=bot/src python -m bot.pdb_cli follow-hot --only-profiles --pages 2 --
 ```
 
 ### search-top
-Queries v2 `search/top` directly, with paging and list filtering.
+Queries v2 `search/top` directly, with paging and list filtering. When `--expand-subcategories` is used, items from `profiles/{id}/related` treat `relatedProfiles` as `profiles` so `--only-profiles` retains expanded results.
 
 Flags:
 - `--query` / `--keyword`: Query parameter (use `--encoded` if already URL-encoded)
@@ -246,12 +264,56 @@ Flags:
 - `--limit`, `--next-cursor`, `--pages`, `--until-empty`: Pagination controls
 - `--auto-embed`, `--auto-index`, `--index-out`: Post-ingest vector/index ops
 - `--lists`, `--only-profiles`: Restrict which list arrays to upsert
+- `--verbose`: Print entity names per page (respects `--filter-characters`)
+- `--expand-subcategories`, `--expand-max`: Expand `subcategories` via related to surface actual profiles
+- `--filter-characters`: Keep only character entries when present
 - `--dry-run`: Preview results without writing/upserting or embedding/indexing
 
 Examples:
 ```
 PYTHONPATH=bot/src python -m bot.pdb_cli search-top --query '' --only-profiles --pages 1 --limit 20 --dry-run
 PYTHONPATH=bot/src python -m bot.pdb_cli search-top --query 'Elon%2520Musk' --encoded --only-profiles --pages 1 --limit 20 --dry-run
+PYTHONPATH=bot/src python -m bot.pdb_cli search-top --query 'Elon Musk' --only-profiles --expand-subcategories --expand-max 5 --limit 20 --pages 1 --verbose --dry-run
+```
+
+### search-keywords
+Batch calls v2 `search/top` for many keywords (from `--queries` and/or `--query-file`). Supports optional expansion of `subcategories` into actual profiles via `profiles/{id}/related`. When expanding, `relatedProfiles` are treated as `profiles` so `--only-profiles` retains expanded results.
+
+Flags:
+- `--queries`, `--query-file`: Provide keywords (CSV/newline/tab separated when using file)
+- `--limit`, `--pages`, `--until-empty`: Pagination per keyword
+- `--lists`, `--only-profiles`: Restrict which list arrays to upsert
+- `--expand-subcategories`, `--expand-max`: Expand subcategory buckets via related to surface real profiles (default max 5)
+- `--filter-characters`: Keep only character entries when present
+- `--auto-embed`, `--auto-index`, `--index-out`: Post-ingest vector/index ops
+- `--verbose`: Print entity names by list per page
+- `--dry-run`: Preview without writes
+
+Examples:
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli \
+	search-keywords --queries "Elon Musk,MrBeast,Taylor Swift" \
+	--only-profiles --expand-subcategories --expand-max 5 \
+	--limit 20 --pages 1 --verbose --dry-run
+
+PYTHONPATH=bot/src python -m bot.pdb_cli \
+	search-keywords --query-file data/bot_store/keywords/giant_keywords.txt \
+	--only-profiles --expand-subcategories --expand-max 5 \
+	--limit 20 --pages 1 --dry-run
+```
+
+### find-subcats
+List subcategories returned by `search/top` for a keyword. This helps find character-group buckets to expand via `profiles/{id}/related`.
+
+Usage:
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli find-subcats --keyword "Harry Potter" --pages 1 --limit 40
+# Example output line:
+# id=123456 | name=Harry Potter Characters | isCharacterGroup=True
+```
+Then expand the subcategory id via:
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli related --ids 123456
 ```
 
 ### coverage
@@ -267,6 +329,29 @@ Summarizes items ingested via `search/top` and `follow-hot`, grouped by `_source
 Example:
 ```
 PYTHONPATH=bot/src python -m bot.pdb_cli ingest-report --top-queries 10
+```
+
+### Character Utilities
+
+Use these helpers to isolate character-like rows and build a character-only search index. Rows are considered character-like when either `isCharacter == True` or provenance `_from_character_group == True`, while obvious MBTI buckets are excluded by name.
+
+Export character-like rows:
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli export-characters \
+	--out data/bot_store/pdb_characters.parquet --sample 10
+```
+
+Index only character rows:
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli index-characters \
+	--char-parquet data/bot_store/pdb_characters.parquet \
+	--out data/bot_store/pdb_faiss_char.index
+```
+
+Search character-only index:
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli search-faiss "elon musk" --top 10 \
+	--index data/bot_store/pdb_faiss_char.index
 ```
 
 ### Ingestion Cycle Script
@@ -297,18 +382,26 @@ Flags:
 - `--search-names`: For each related item, call v2 `search/top` using its name.
 - `--limit`, `--pages`, `--until-empty`: Pagination for name search.
 - `--lists`, `--only-profiles`: Restrict list arrays to upsert from name search.
+- `--expand-subcategories`, `--expand-max`: Expand `subcategories` in name-search via related to surface profiles; map `relatedProfiles`→`profiles` so `--only-profiles` keeps them.
+- `--filter-characters`: Keep only character items when present (applies to expansions and writes).
 - `--auto-embed`, `--auto-index`, `--index-out`: Post-scrape vector/index ops.
 - `--dry-run`: Preview without upserts/embedding/indexing.
 
 Examples:
 ```
-PYTHONPATH=bot/src python -m bot.pdb_cli scan-related --seed-ids 498239,12345 --search-names --only-profiles --pages 1 --limit 20 --dry-run
+PYTHONPATH=bot/src python -m bot.pdb_cli scan-related --seed-ids 498239,12345 \
+	--search-names --only-profiles --pages 1 --limit 20 \
+	--expand-subcategories --expand-max 5 --filter-characters \
+	--dry-run
 
 # Infer seeds from parquet, collect related, then scrape v1 profiles and index
 PYTHONPATH=bot/src python -m bot.pdb_cli \
 	--base-url https://api.personality-database.com/api/v2 \
 	--headers '{"User-Agent":"Mozilla/5.0 ...","Referer":"https://www.personality-database.com/","Origin":"https://www.personality-database.com","Cookie":"X-Lang=en-US; ..."}' \
-	scan-related --max-seeds 50 --search-names --only-profiles --pages 1 --limit 20 --auto-embed --auto-index
+	scan-related --max-seeds 50 --search-names --only-profiles \
+	--pages 1 --limit 20 \
+	--expand-subcategories --expand-max 5 --filter-characters \
+	--auto-embed --auto-index
 ```
 
 ### scan-all
@@ -322,6 +415,8 @@ Key flags:
 - `--max-no-progress-pages 3`: Stop paging names/sweeps after N consecutive pages with no new items
 - `--scrape-v1`, `--v1-base-url`, `--v1-headers`: Fetch v1 profiles for discovered IDs
 - `--auto-embed`, `--auto-index`, `--index-out`: Maintain vectors and FAISS index
+- `--expand-subcategories`, `--expand-max`: Expand `subcategories` in name-search and sweeps via related to surface profiles
+- `--filter-characters`: Keep only character items when present (applies to expansions)
 
 Example (stateful + cached):
 ```
@@ -333,6 +428,8 @@ PYTHONPATH=bot/src PDB_CACHE=1 python -m bot.pdb_cli \
 	scan-all --max-iterations 0 \
 	--search-names --limit 20 --pages 1 --until-empty \
 	--sweep-until-empty --sweep-into-frontier \
+	--expand-subcategories --expand-max 5 \
+	--filter-characters \
 	--auto-embed --auto-index --index-out data/bot_store/pdb_faiss.index \
 	--scrape-v1 --v1-base-url https://api.personality-database.com/api/v1 \
 	--v1-headers "$(tr -d '\n' < .secrets/pdb_headers.json)" \
@@ -344,6 +441,11 @@ Or use the helper script with sensible defaults and environment overrides:
 ```
 ./scripts/pdb_scan_all_stateful.sh
 ```
+
+Environment toggles for this script:
+- `EXPAND_SUBCATEGORIES` (non-empty → pass `--expand-subcategories`)
+- `FILTER_CHARACTERS` (non-empty → pass `--filter-characters`)
+- `EXPAND_MAX` (integer → pass `--expand-max <N>`)
 
 Troubleshooting:
 - If name-search or sweeps loop without new IDs, set `--max-no-progress-pages` (default 3) to bound.

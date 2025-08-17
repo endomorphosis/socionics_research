@@ -5,6 +5,9 @@ from pathlib import Path
 from typing import Iterable, List, Tuple
 
 import pandas as pd
+import os
+import time
+import fcntl
 
 from .pdb_cid import cid_from_object, canonical_json_bytes
 
@@ -25,9 +28,43 @@ def _ensure_dir() -> Path:
 
 
 def _load_parquet(path: Path, columns: List[str]) -> pd.DataFrame:
-    if path.exists():
+    if not path.exists():
+        return pd.DataFrame(columns=columns)
+    try:
         return pd.read_parquet(path)
-    return pd.DataFrame(columns=columns)
+    except Exception:
+        try:
+            ts = int(time.time())
+            bad = path.with_suffix(path.suffix + f".corrupt.{ts}")
+            os.replace(path, bad)
+        except Exception:
+            pass
+        return pd.DataFrame(columns=columns)
+
+
+def _atomic_write_parquet(df: pd.DataFrame, path: Path) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    df.to_parquet(tmp, index=False)
+    os.replace(tmp, path)
+
+
+class _FileLock:
+    def __init__(self, lock_path: Path) -> None:
+        self._lock_path = lock_path
+        self._fh = None
+
+    def __enter__(self):
+        self._fh = open(self._lock_path, "w")
+        fcntl.flock(self._fh, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if self._fh is not None:
+                fcntl.flock(self._fh, fcntl.LOCK_UN)
+                self._fh.close()
+        finally:
+            self._fh = None
 
 
 @dataclass
@@ -38,7 +75,9 @@ class PdbStorage:
         self.vec_path = base / VEC_PARQUET
 
     def upsert_raw(self, records: Iterable[dict]) -> Tuple[int, int]:
-        df = _load_parquet(self.raw_path, ["cid", "payload_bytes"])
+        lock = self.raw_path.with_suffix(self.raw_path.suffix + ".lock")
+        with _FileLock(lock):
+            df = _load_parquet(self.raw_path, ["cid", "payload_bytes"])
         existing = set(df["cid"].astype(str)) if not df.empty else set()
         # Build a small lookup for existing payloads to avoid redundant writes
         existing_payload: dict[str, bytes] = {}
@@ -80,11 +119,13 @@ class PdbStorage:
             else:
                 df = pd.concat([df, new_df], ignore_index=True, copy=False)
         if new or updated:
-            df.to_parquet(self.raw_path, index=False)
+            _atomic_write_parquet(df, self.raw_path)
         return new, updated
 
     def upsert_vectors(self, items: Iterable[tuple[str, list[float]]]) -> Tuple[int, int]:
-        df = _load_parquet(self.vec_path, ["cid", "vector"])
+        lock = self.vec_path.with_suffix(self.vec_path.suffix + ".lock")
+        with _FileLock(lock):
+            df = _load_parquet(self.vec_path, ["cid", "vector"])
         existing = set(df["cid"].astype(str)) if not df.empty else set()
         existing_vec: dict[str, list] = {}
         if not df.empty:
@@ -114,7 +155,7 @@ class PdbStorage:
             else:
                 df = pd.concat([df, new_df], ignore_index=True, copy=False)
         if new or updated:
-            df.to_parquet(self.vec_path, index=False)
+            _atomic_write_parquet(df, self.vec_path)
         return new, updated
 
     def load_joined(self) -> pd.DataFrame:
