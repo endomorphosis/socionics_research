@@ -1,13 +1,22 @@
 // Node.js script to search a Parquet file and return results as JSON
 // Usage: node search_parquet.js <query>
 
-const parquet = require('parquetjs-lite');
+let parquet;
+try {
+  parquet = require('parquetjs-lite');
+} catch (e) {
+  console.error('searchParquet: parquetjs-lite is not installed. Install with: npm install parquetjs-lite');
+  parquet = null;
+}
 const path = require('path');
 
 const PARQUET_PATH = path.resolve(__dirname, '../data/bot_store/pdb_profiles_flat.parquet');
 console.log('searchParquet: using PARQUET_PATH =', PARQUET_PATH);
 
 async function searchParquet(query) {
+  if (!parquet) {
+    return [];
+  }
   const results = [];
   const q = query.trim().toLowerCase();
   console.log('searchParquet: query =', q);

@@ -1,13 +1,11 @@
-// Simple Express API to serve RAG search results from the parquet file
+// Deprecated: legacy Express API for CSV search (client-side search replaced it)
 const express = require('express');
-const cors = require('cors');
 const searchCsv = require('./search_csv');
 
 const app = express();
 const PORT = 3030;
 
-app.use(cors());
-
+app.get('/api/search', async (req, res) => {
   const query = req.query.q || '';
   try {
     const results = await searchCsv(query);

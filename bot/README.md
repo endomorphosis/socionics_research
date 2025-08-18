@@ -8,37 +8,16 @@
 ## Bot Commands & Functionality
 
 ### Public Research Commands
-- **`/about_socionics`**: Neutral overview of theory with empirical status caveats
-- **`/theory <topic>`**: Concise, sourced explanations with rate limiting and citation tracking
-- **`/intertype <type1> <type2>`**: Canonical relation descriptions with evidence gaps and falsifiable questions
-- **`/explain_functions`**: High-level function definitions with methodological caveats
-- **`/reflect`**: Randomized structured prompts for self-observation (logged with prompt_id)
-- **`/privacy`**: Comprehensive data handling and logging transparency
 
 ### Participant Interaction  
-- **`/consent`**: Multi-tier consent onboarding with granular data usage controls
-- **`/my_type_help`**: Structured self-observation questionnaire (NO automatic type assignment)
-- **`/search_vectors`**: Semantic similarity search across community knowledge base (rate-limited)
-- **`/keyword_search`**: Hybrid hashed token + semantic search functionality
 
 ### Administrative Commands (Role-Restricted)
-- **`/ingest_channel`**: Vector ingestion storing only embeddings + salted hashes
-- **`/context_window`**: Context snippet metadata assembly for researchers  
-- **`/purge_message`**: Privacy-compliant message deletion by ID
-- **`/llm_context`**: RAG metadata assembly (returns JSON metadata only)
 
 ## Out-of-Scope (Hard Guardrails)
-- Direct assignment of a user's Socionics type.
-- Personalized coaching or psychological advice.
-- Medical or diagnostic claims.
 
 ## Privacy & Research Ethics Framework
 
 ### Core Safeguards
-- **Content Filtering**: Profanity and harassment detection before LLM processing
-- **Red-Team Testing**: Startup validation ensuring blocked outputs for disallowed requests  
-- **Response Provenance**: Clear labeling of empirically unvalidated theoretical claims
-- **Audit Logging**: Comprehensive tracking (hashed user ID, command, timestamp, model version, guardrail flags)
 
 ### Data Architecture (Privacy-First)
 ```
@@ -83,6 +62,41 @@ Discord Gateway → Command Router → Guardrail Pipeline → Intent Classifier 
 - 📋 **Annotation Assistance**: Semi-automated suggestions for internal raters (`/annotator` mode)
 - 📋 **Multilingual Support**: Translation capabilities with quality confidence scoring
 - 📋 **Adaptive Dialogs**: Context-aware clarification questions for complex concepts  
+### Use authenticated headers (recommended)
+
+Personality DB v2 search endpoints often return limited MBTI-only lists unless you pass real browser headers with your logged-in session cookie. To unlock character results (subcategories/boards/recommendProfiles that survive `--only-profiles`), capture your headers and pass them to the CLI.
+
+Steps:
+
+1) In your browser while logged into personality-database.com, open DevTools → Network, load a search page, click a request to `api/v2/search/top`, and copy the Request Headers as JSON.
+
+2) Paste into a file like `bot/headers.json`. Use `bot/headers.example.json` as a template. Ensure it includes at least:
+
+```json
+{
+	"User-Agent": "Mozilla/5.0 ...",
+	"Accept": "application/json, text/plain, */*",
+	"Origin": "https://www.personality-database.com",
+	"Referer": "https://www.personality-database.com/",
+	"Cookie": "REPLACE_WITH_YOUR_SESSION_COOKIE"
+}
+```
+
+Security notes:
+- Do not commit your real headers/cookies. Add to your local `.git/info/exclude` if needed.
+- Rotate the cookie if you suspect exposure.
+
+Then run CLI commands with `--headers-file bot/headers.json`:
+
+```bash
+PYTHONPATH=bot/src python -m bot.pdb_cli search-keywords \
+	--queries "harry potter,superman" \
+	--only-profiles --filter-characters --characters-relaxed \
+	--expand-subcategories --expand-boards --chase-hints \
+	--headers-file bot/headers.json --verbose --dry-run
+```
+
+Remove `--dry-run` to persist and optionally add `--auto-embed --auto-index`.
 - 📋 **Research Integration**: Enhanced integration with data collection workflows
 
 ### Relationship Edges and IO Optimizations
@@ -190,18 +204,18 @@ PYTHONPATH=bot/src python -m bot.pdb_cli <command> ...
 
 ### PDB API v2 Auth Setup
 
-Most v2 endpoints require browser-like headers and an active cookie. Create `.secrets/pdb_headers.json` with something like:
+Most v2 endpoints require browser-like headers and an active cookie.
 
-```
-{
-	"User-Agent": "Mozilla/5.0 ...",
-	"Referer": "https://www.personality-database.com/",
-	"Origin": "https://www.personality-database.com",
-	"Cookie": "X-Lang=en-US; <other session cookies>"
-}
-```
+- Quickstart:
+	```bash
+	cp bot/headers.example.json bot/headers.json
+	# edit bot/headers.json and paste your real Cookie and User-Agent
+	```
+	Then pass it with `--headers-file bot/headers.json`.
 
-Pass this as `--headers "$(tr -d '\n' < .secrets/pdb_headers.json)"` or export `PDB_API_HEADERS` to the same JSON string. Ensure `PDB_API_BASE_URL=https://api.personality-database.com/api/v2`.
+- Alternatively, create `.secrets/pdb_headers.json` and pass with `--headers "$(tr -d '\n' < .secrets/pdb_headers.json)"` or export `PDB_API_HEADERS`.
+
+Ensure `PDB_API_BASE_URL=https://api.personality-database.com/api/v2`.
 
 Global flags (override env):
 - `--rpm`: Max requests per minute (overrides `PDB_RPM`)
@@ -219,9 +233,15 @@ Example overriding base URL + headers:
 ```
 PYTHONPATH=bot/src python -m bot.pdb_cli \
 	--base-url https://api.personality-database.com/api/v2 \
-	--headers '{"User-Agent":"Mozilla/5.0 ...","Referer":"https://www.personality-database.com/","Origin":"https://www.personality-database.com","Cookie":"X-Lang=en-US; ..."}' \
+	--headers-file bot/headers.json \
 	search-top --pages 1 --limit 20 --query ''
 ```
+
+Sanity check your headers quickly:
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli auth-check --keyword "harry potter" --limit 10 --pages 1
+```
+If the output shows only `profiles:16` with `chars_in_profiles=0` and no `subcategories`/`boards`, you likely need to update cookies.
 
 ### follow-hot
 Resolves trending hot queries via v2 `search/top`. Upserts list-valued fields (e.g., `profiles`) and supports pagination. When `--expand-subcategories` is used, items from `profiles/{id}/related` treat `relatedProfiles` as `profiles` so `--only-profiles` retains expanded results.
@@ -238,7 +258,11 @@ Flags:
 - `--lists`: Comma-separated list names to upsert (e.g., `profiles,boards`)
 - `--only-profiles`: Shortcut for `--lists profiles`
 - `--expand-subcategories`, `--expand-max`: Expand `subcategories` via related to surface actual profiles (maps `relatedProfiles` → `profiles`)
+- `--expand-boards`, `--boards-max`: For board hits, run additional `search/top` calls on board names and merge their list results (bounded by `--boards-max` per page)
+- `--chase-hints`, `--hints-max`: If payloads contain hint-like terms, issue `search/top` for those hint terms and merge results (bounded by `--hints-max` per page)
 - `--filter-characters`: Keep only character entries when present
+- `--characters-relaxed`: When filtering characters, allow expanded results marked via provenance
+- `--force-character-group`: Treat expanded subcategories as character groups for relaxed filtering
 - `--verbose`: Print entity names per page per key
 - `--dry-run`: Preview results without writing/upserting or embedding/indexing
 
@@ -252,7 +276,7 @@ python -m bot.pdb_cli --rpm 90 --concurrency 6 --timeout 25 \
 
 Dry-run (no writes):
 ```
-PYTHONPATH=bot/src python -m bot.pdb_cli follow-hot --only-profiles --pages 2 --limit 20 --dry-run
+PYTHONPATH=bot/src python -m bot.pdb_cli follow-hot --only-profiles --pages 2 --limit 20 --expand-boards --boards-max 3 --chase-hints --hints-max 3 --dry-run
 ```
 
 ### search-top
@@ -266,7 +290,11 @@ Flags:
 - `--lists`, `--only-profiles`: Restrict which list arrays to upsert
 - `--verbose`: Print entity names per page (respects `--filter-characters`)
 - `--expand-subcategories`, `--expand-max`: Expand `subcategories` via related to surface actual profiles
+- `--expand-boards`, `--boards-max`: For board hits, expand by searching those board names and merge results
+- `--chase-hints`, `--hints-max`: Chase hint-like payload terms with follow-up searches and merge results
 - `--filter-characters`: Keep only character entries when present
+- `--characters-relaxed`: When filtering characters, allow expanded results marked via provenance
+- `--force-character-group`: Treat expanded subcategories as character groups for relaxed filtering
 - `--dry-run`: Preview results without writing/upserting or embedding/indexing
 
 Examples:
@@ -274,6 +302,7 @@ Examples:
 PYTHONPATH=bot/src python -m bot.pdb_cli search-top --query '' --only-profiles --pages 1 --limit 20 --dry-run
 PYTHONPATH=bot/src python -m bot.pdb_cli search-top --query 'Elon%2520Musk' --encoded --only-profiles --pages 1 --limit 20 --dry-run
 PYTHONPATH=bot/src python -m bot.pdb_cli search-top --query 'Elon Musk' --only-profiles --expand-subcategories --expand-max 5 --limit 20 --pages 1 --verbose --dry-run
+PYTHONPATH=bot/src python -m bot.pdb_cli search-top --query 'Harry Potter' --only-profiles --expand-boards --boards-max 3 --chase-hints --hints-max 3 --pages 1 --limit 20 --verbose --dry-run
 ```
 
 ### search-keywords
@@ -281,10 +310,17 @@ Batch calls v2 `search/top` for many keywords (from `--queries` and/or `--query-
 
 Flags:
 - `--queries`, `--query-file`: Provide keywords (CSV/newline/tab separated when using file)
-- `--limit`, `--pages`, `--until-empty`: Pagination per keyword
+- `--limit`, `--pages`, `--until-empty`, `--next-cursor`: Pagination per keyword
 - `--lists`, `--only-profiles`: Restrict which list arrays to upsert
 - `--expand-subcategories`, `--expand-max`: Expand subcategory buckets via related to surface real profiles (default max 5)
+- `--expand-boards`, `--boards-max`: For board hits, run follow-up searches on board names and merge results
+- `--chase-hints`, `--hints-max`: Follow hint-like terms with additional searches and merge results
 - `--filter-characters`: Keep only character entries when present
+- `--characters-relaxed`: When filtering characters, allow expanded results marked via provenance
+- `--force-character-group`: Treat expanded subcategories as character groups for relaxed filtering
+- `--append-terms`: Comma-separated suffixes appended to each keyword (e.g., `characters,cast`)
+- `--expand-characters`: Sweep A–Z and 0–9 suffix tokens for discovery
+- `--expand-pages`: Pages per expanded token when `--expand-characters` is set
 - `--auto-embed`, `--auto-index`, `--index-out`: Post-ingest vector/index ops
 - `--verbose`: Print entity names by list per page
 - `--dry-run`: Preview without writes
@@ -300,6 +336,42 @@ PYTHONPATH=bot/src python -m bot.pdb_cli \
 	search-keywords --query-file data/bot_store/keywords/giant_keywords.txt \
 	--only-profiles --expand-subcategories --expand-max 5 \
 	--limit 20 --pages 1 --dry-run
+
+# Expanded discovery examples
+PYTHONPATH=bot/src python -m bot.pdb_cli \
+		--headers-file data/bot_store/headers.json \
+		search-keywords --queries "Harry Potter" \
+		--only-profiles --expand-subcategories --force-character-group \
+		--filter-characters --characters-relaxed \
+		--append-terms "characters,cast" --limit 20 --pages 1 --dry-run
+
+PYTHONPATH=bot/src python -m bot.pdb_cli \
+		--headers-file data/bot_store/headers.json \
+		search-keywords --queries "Harry Potter" \
+		--only-profiles --expand-subcategories --force-character-group \
+		--filter-characters --characters-relaxed \
+		--expand-characters --expand-pages 1 --limit 20 --pages 1 --dry-run
+
+# Boards/hints expansion example
+PYTHONPATH=bot/src python -m bot.pdb_cli \
+		--headers-file data/bot_store/headers.json \
+		search-keywords --queries "superman,harry potter" \
+		--only-profiles --expand-boards --boards-max 3 --chase-hints --hints-max 3 \
+		--limit 15 --pages 1 --verbose --dry-run
+
+### hot-queries
+Fetch trending search hot queries (v2) and optionally store raw items.
+
+Flags:
+- `--dry-run`: Preview without writing/upserting
+
+Examples:
+```
+PYTHONPATH=bot/src python -m bot.pdb_cli \
+	--base-url https://api.personality-database.com/api/v2 \
+	--headers-file data/bot_store/headers.json \
+	hot-queries --dry-run
+```
 ```
 
 ### find-subcats
