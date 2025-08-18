@@ -13,9 +13,11 @@ const VEC = (() => {
   let WORKER = null; // web worker for heavy tasks
   let BUILDING = false; // whether PCA/HNSW is building
   let EF_SEARCH = 64; // tunable efSearch for HNSW queries
+  let EF_CONSTRUCTION = 200; // tunable efConstruction for HNSW build
   const PENDING = new Set(); // pending worker promise rejectors
   let VEC_URL = null; // dataset url for signature
   let CACHE_STATE = 'none'; // 'none' | 'loaded' | 'saved' | 'error'
+  let USE_CACHE = true; // whether to attempt to load/save from IndexedDB
 
   function emit(name, detail){ try { window.dispatchEvent(new CustomEvent(name, { detail })); } catch {} }
 
@@ -71,7 +73,8 @@ const VEC = (() => {
       }
       try {
         // Try loading index from cache first; fall back to building
-        const ok = await loadHnswFromCache();
+        let ok = false;
+        if (USE_CACHE) ok = await loadHnswFromCache();
         if (!ok) await buildHnswIndexWorkerFirst();
       } catch (e) {
         console.warn('HNSW init failed (fallback to brute force):', e);
@@ -144,18 +147,20 @@ const VEC = (() => {
   async function buildHnswIndex() {
     try { emit('vec:hnsw:build:start', { count: V.length, dim: V[0].length }); } catch {}
     // lazy load wasm lib and build index
-    const { loadHnswlib } = await import('hnswlib-wasm');
+  const { loadHnswlib } = await import('./hnswlib_loader.js');
     HNSW = await loadHnswlib();
     const dim = V[0].length;
-    // cosine metric
-    const index = new HNSW.HierarchicalNSW('cosine', dim);
+  // cosine metric; pass max elements as 3rd arg for ctor
+  const index = new HNSW.HierarchicalNSW('cosine', dim);
     // parameters: max elements, M, efConstruction, random seed
-    index.initIndex(V.length, 36, 200, 100);
+  index.initIndex(V.length, 36, EF_CONSTRUCTION, 100);
   index.setEfSearch(EF_SEARCH);
-    // add items: pass explicit labels [0..N-1]
-    const labels = new Int32Array(V.length);
-    for (let i = 0; i < V.length; i++) labels[i] = i;
-    index.addItems(V, false, labels);
+  // add items using array-of-rows to align with documented API (addPoints)
+  const n = V.length, d = dim;
+  const rows = V.map((row) => row);
+  const labels = new Array(n);
+  for (let i = 0; i < n; i++) labels[i] = i;
+  index.addPoints(rows, labels, false);
     INDEX_HNSW = index;
     console.log('HNSW index built');
     try { emit('vec:hnsw:build:end', {}); } catch {}
@@ -178,11 +183,11 @@ const VEC = (() => {
     try {
   BUILDING = true;
   const w = getWorker();
-      const bytes = await postWorker('hnsw:build', { buf: flat.buffer, n, d }, [flat.buffer]);
+  const bytes = await postWorker('hnsw:build', { buf: flat.buffer, n, d, efC: EF_CONSTRUCTION }, [flat.buffer]);
       // Create an empty index and read bytes
-      const { loadHnswlib } = await import('hnswlib-wasm');
+  const { loadHnswlib } = await import('./hnswlib_loader.js');
       HNSW = await loadHnswlib();
-      const index = new HNSW.HierarchicalNSW('cosine', d);
+  const index = new HNSW.HierarchicalNSW('cosine', d);
       index.readIndex(new Uint8Array(bytes));
   index.setEfSearch(EF_SEARCH);
       INDEX_HNSW = index;
@@ -312,7 +317,8 @@ const VEC = (() => {
   function getWorker() {
     if (WORKER) return WORKER;
     // Vite will handle bundling worker when referenced via new URL(..., import.meta.url)
-    const url = new URL('./vec_worker.js', import.meta.url);
+  // Add a tiny cache-buster to avoid stale worker code after updates
+  const url = new URL('./vec_worker.js?v=2', import.meta.url);
   WORKER = new Worker(url, { type: 'module' });
     return WORKER;
   }
@@ -333,16 +339,19 @@ const VEC = (() => {
         if (m.type === 'error') {
           w.removeEventListener('message', onMsg);
           w.removeEventListener('error', onErr);
+          w.removeEventListener('messageerror', onMsgErr);
           PENDING.delete(ticket);
           reject(new Error(m.message || 'worker error'));
         } else if (type === 'pca' && m.type === 'pca:done') {
           w.removeEventListener('message', onMsg);
           w.removeEventListener('error', onErr);
+          w.removeEventListener('messageerror', onMsgErr);
           PENDING.delete(ticket);
           resolve(m);
         } else if (type === 'hnsw:build' && m.type === 'hnsw:built') {
           w.removeEventListener('message', onMsg);
           w.removeEventListener('error', onErr);
+          w.removeEventListener('messageerror', onMsgErr);
           PENDING.delete(ticket);
           resolve(m.bytes);
         }
@@ -350,11 +359,32 @@ const VEC = (() => {
       const onErr = (e) => {
         w.removeEventListener('message', onMsg);
         w.removeEventListener('error', onErr);
+        w.removeEventListener('messageerror', onMsgErr);
         PENDING.delete(ticket);
-        reject(e instanceof Error ? e : new Error(String(e && e.message || e)));
+        // Try to extract useful info from WorkerErrorEvent
+        if (e instanceof Error) return reject(e);
+        let msg = '';
+        try {
+          msg = e && e.message ? e.message : '';
+          if (!msg && e && typeof e === 'object') {
+            const fn = e.filename || e.fileName;
+            const ln = e.lineno || e.lineNo;
+            const cn = e.colno || e.columnNo;
+            if (fn) msg = `Worker error at ${fn}${ln ? `:${ln}` : ''}${cn ? `:${cn}` : ''}`;
+          }
+        } catch {}
+        reject(new Error(msg || 'worker error'));
+      };
+      const onMsgErr = (e) => {
+        w.removeEventListener('message', onMsg);
+        w.removeEventListener('error', onErr);
+        w.removeEventListener('messageerror', onMsgErr);
+        PENDING.delete(ticket);
+        reject(new Error('worker messageerror (structured clone failed)'));
       };
       w.addEventListener('message', onMsg);
       w.addEventListener('error', onErr);
+      w.addEventListener('messageerror', onMsgErr);
       w.postMessage({ type, ...payload }, transfer);
     });
   }
@@ -454,15 +484,15 @@ const VEC = (() => {
       const key = `hnsw:${sig}`;
       const entry = await idbGet(key);
       if (!entry) return false;
-      const { loadHnswlib } = await import('hnswlib-wasm');
+  const { loadHnswlib } = await import('./hnswlib_loader.js');
       HNSW = await loadHnswlib();
       const dim = V[0].length;
-      const index = new HNSW.HierarchicalNSW('cosine', dim);
+  const index = new HNSW.HierarchicalNSW('cosine', dim);
       if (!entry || !entry.data) return false;
       const bytes = entry.data instanceof Uint8Array ? entry.data : new Uint8Array(entry.data);
       if (!bytes || !bytes.length) return false;
       index.readIndex(bytes);
-      index.setEfSearch(64);
+    index.setEfSearch(EF_SEARCH);
       INDEX_HNSW = index;
       CACHE_STATE = 'loaded';
       console.log('HNSW index loaded from cache');
@@ -476,7 +506,7 @@ const VEC = (() => {
   }
 
   async function saveHnswToCache() {
-    if (!INDEX_HNSW) return false;
+  if (!INDEX_HNSW || !USE_CACHE) return false;
     try {
       const sig = datasetSignature();
       const key = `hnsw:${sig}`;
@@ -509,12 +539,12 @@ const VEC = (() => {
     if (!bytes || !V.length) throw new Error('No vectors or bytes');
     try {
       const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-      const { loadHnswlib } = await import('hnswlib-wasm');
+  const { loadHnswlib } = await import('./hnswlib_loader.js');
       HNSW = await loadHnswlib();
       const dim = V[0].length;
-      const index = new HNSW.HierarchicalNSW('cosine', dim);
+  const index = new HNSW.HierarchicalNSW('cosine', dim);
       index.readIndex(arr);
-      index.setEfSearch(64);
+  index.setEfSearch(EF_SEARCH);
       INDEX_HNSW = index;
       await saveHnswToCache();
       try { emit('vec:hnsw:build:end', {}); emit('vec:hnsw:cache:saved', {}); } catch {}
@@ -526,6 +556,8 @@ const VEC = (() => {
   }
 
   function getCacheState() { return CACHE_STATE; }
+  function setUseCache(v){ USE_CACHE = !!v; }
+  function getUseCache(){ return USE_CACHE; }
 
   async function clearHnswCache() {
     try {
@@ -565,8 +597,12 @@ const VEC = (() => {
   function isLoaded() { return V.length > 0; }
   function getSource() { return VEC_URL || ''; }
   function isBuilding() { return !!BUILDING; }
+  function setEfSearch(v){ try{ EF_SEARCH = Math.max(4, Math.min(1024, v|0)); if (INDEX_HNSW) INDEX_HNSW.setEfSearch(EF_SEARCH); }catch{} }
+  function getEfSearch(){ return EF_SEARCH; }
+  function setEfConstruction(v){ try{ EF_CONSTRUCTION = Math.max(8, Math.min(2048, v|0)); }catch{} }
+  function getEfConstruction(){ return EF_CONSTRUCTION; }
 
-  return { load, loadFromParquet, loadFromRows, similarByCid, getVector, projectCid, size, isHnswReady, isLoaded, getCacheState, clearHnswCache, rebuildIndex, getSource, exportIndex, importIndex, cancelBuild, isBuilding };
+  return { load, loadFromParquet, loadFromRows, similarByCid, getVector, projectCid, size, isHnswReady, isLoaded, getCacheState, clearHnswCache, rebuildIndex, getSource, exportIndex, importIndex, cancelBuild, isBuilding, setEfSearch, getEfSearch, setEfConstruction, getEfConstruction, setUseCache, getUseCache };
 })();
 
 window.VEC = VEC;

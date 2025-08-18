@@ -24,10 +24,12 @@ window.addEventListener('DOMContentLoaded', () => {
     <div id="search-status" style="color:#666;margin:0.25em 0 0.25em 0;font-size:0.85em;"></div>
     <div id="search-progress" style="color:#888;margin:0 0 0.5em 0;font-size:0.8em;height:1.2em;"></div>
     <div id="search-actions" style="display:flex;gap:0.5em;margin-bottom:0.5em;flex-wrap:wrap;align-items:center;">
-      <button id="btn-rebuild-index" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Rebuild index</button>
+  <button id="btn-rebuild-index" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Rebuild index</button>
+  <button id="btn-rebuild-force" title="Rebuild without using cache (one-shot)" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Force rebuild</button>
       <button id="btn-cancel-build" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;" disabled>Cancel</button>
-  <button id="btn-cancel-build" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;" disabled>Cancel</button>
       <button id="btn-clear-cache" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Clear cache</button>
+  <label title="HNSW efSearch (higher=more recall)">ef <input id="num-efsearch" type="number" min="4" max="1024" step="1" value="64" style="width:72px;padding:0.25em 0.4em;border:1px solid #bbb;border-radius:6px;" /></label>
+  <label title="HNSW efConstruction (build-time quality)">efC <input id="num-efc" type="number" min="8" max="2048" step="1" value="200" style="width:76px;padding:0.25em 0.4em;border:1px solid #bbb;border-radius:6px;" /></label>
       <select id="sel-vectors" title="Choose vectors parquet" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;min-width:200px;"></select>
       <button id="btn-load-parquet" title="Load vectors via DuckDB-Wasm" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Load Parquet</button>
       <select id="sel-profiles" title="Choose profiles parquet" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;min-width:200px;"></select>
@@ -38,6 +40,9 @@ window.addEventListener('DOMContentLoaded', () => {
       </label>
       <label style="display:flex;align-items:center;gap:0.3em;color:#444;font-size:0.9em;">
         <input type="checkbox" id="chk-auto-parquet" /> Auto Parquet
+      </label>
+      <label style="display:flex;align-items:center;gap:0.3em;color:#444;font-size:0.9em;" title="Skip load/save HNSW index to IndexedDB">
+        <input type="checkbox" id="chk-no-cache" /> No cache
       </label>
     </div>
   <div id="progress-bar" style="height:6px;background:#eee;border-radius:4px;overflow:hidden;margin:-0.25em 0 0.5em 0;">
@@ -55,24 +60,46 @@ window.addEventListener('DOMContentLoaded', () => {
   const btnRebuild = searchDiv.querySelector('#btn-rebuild-index');
   const btnCancel = searchDiv.querySelector('#btn-cancel-build');
   const btnClear = searchDiv.querySelector('#btn-clear-cache');
+  const btnRebuildForce = searchDiv.querySelector('#btn-rebuild-force');
   const btnParquet = searchDiv.querySelector('#btn-load-parquet');
   const btnProfiles = searchDiv.querySelector('#btn-load-profiles');
   const btnExportIdx = searchDiv.querySelector('#btn-export-index');
+  const numEf = searchDiv.querySelector('#num-efsearch');
+  const numEfc = searchDiv.querySelector('#num-efc');
   const fileImportIdx = searchDiv.querySelector('#file-import-index');
   const selVectors = searchDiv.querySelector('#sel-vectors');
   const selProfiles = searchDiv.querySelector('#sel-profiles');
   const chkAuto = searchDiv.querySelector('#chk-auto-parquet');
+  const chkNoCache = searchDiv.querySelector('#chk-no-cache');
   const progressFill = searchDiv.querySelector('#progress-bar-fill');
   const toastEl = searchDiv.querySelector('#toast');
   let currentResults = [];
   let selectedIndex = -1;
+
+  // Small helper to show a busy state on buttons consistently
+  function setBusy(btn, text = 'Working…') {
+    if (!btn) return () => {};
+    if (!btn.dataset) btn.dataset = {};
+    if (!btn.dataset.originalText) btn.dataset.originalText = btn.textContent || '';
+    btn.disabled = true;
+    btn.textContent = text;
+    btn.style.opacity = '0.8';
+    return () => {
+      btn.disabled = false;
+      btn.textContent = btn.dataset.originalText || '';
+      btn.style.opacity = '1';
+    };
+  }
 
   function savePrefs() {
     try {
       const prefs = {
         vectors: selVectors && selVectors.value || '',
         profiles: selProfiles && selProfiles.value || '',
-        autoParquet: !!(chkAuto && chkAuto.checked)
+  autoParquet: !!(chkAuto && chkAuto.checked),
+  noCache: !!(chkNoCache && chkNoCache.checked),
+  efSearch: numEf ? (parseInt(numEf.value, 10) || 64) : 64,
+  efConstruction: numEfc ? (parseInt(numEfc.value, 10) || 200) : 200
       };
       localStorage.setItem('compass_parquet_prefs', JSON.stringify(prefs));
     } catch {}
@@ -126,7 +153,10 @@ window.addEventListener('DOMContentLoaded', () => {
         const prefProf = Array.from(selProfiles.options).find(o => /pdb_profiles_normalized\.parquet$/i.test(o.value));
         if (prefProf) selProfiles.value = prefProf.value;
       }
-      if (chkAuto) chkAuto.checked = !!(prefs && prefs.autoParquet);
+  if (chkAuto) chkAuto.checked = !!(prefs && prefs.autoParquet);
+  if (chkNoCache) chkNoCache.checked = !!(prefs && prefs.noCache);
+  if (numEf && prefs && typeof prefs.efSearch === 'number') numEf.value = String(prefs.efSearch);
+  if (numEfc && prefs && typeof prefs.efConstruction === 'number') numEfc.value = String(prefs.efConstruction);
       // If first run (no prefs) and we have valid options, default-enable auto parquet
       if (!prefs && selVectors.options.length && selProfiles.options.length) {
         if (chkAuto) chkAuto.checked = true;
@@ -321,7 +351,18 @@ window.addEventListener('DOMContentLoaded', () => {
     try {
       resultsDiv.innerHTML = '<div style="color:#888;padding:0.5em;">Loading dataset…</div>';
       await populateDatasetSelectors();
-      const n = await window.KNN.load('/pdb_profiles.json');
+      // Apply ef on boot if available
+      const prefs0 = loadPrefs();
+      if (numEf && prefs0 && typeof prefs0.efSearch === 'number' && window.VEC && window.VEC.setEfSearch) {
+        window.VEC.setEfSearch(prefs0.efSearch);
+        numEf.value = String(prefs0.efSearch);
+      }
+      if (numEfc && prefs0 && typeof prefs0.efConstruction === 'number' && window.VEC && window.VEC.setEfConstruction) {
+        window.VEC.setEfConstruction(prefs0.efConstruction);
+        numEfc.value = String(prefs0.efConstruction);
+      }
+  if (chkNoCache && window.VEC && window.VEC.setUseCache) window.VEC.setUseCache(!(chkNoCache.checked));
+  const n = await window.KNN.load('/pdb_profiles.json');
       try { await window.VEC.load('/pdb_profile_vectors.json'); } catch {}
       // Auto-load parquet replacements if enabled
       const prefs = loadPrefs();
@@ -369,7 +410,9 @@ window.addEventListener('DOMContentLoaded', () => {
   const psrc = (window.KNN && window.KNN.getSource ? window.KNN.getSource() : '/pdb_profiles.json');
   const pShort = psrc.startsWith('/dataset') ? `parquet:${baseName(psrc)}` : 'json';
   const building = (window.VEC && window.VEC.isBuilding && window.VEC.isBuilding());
-  if (statusDiv) statusDiv.textContent = `Profiles: ${nProfiles} (${pShort}) · Vectors: ${vecN} (${srcShort}) · HNSW: ${hnsw ? 'ready' : 'off'} · Cache: ${cache}${building ? ' · Building…' : ''}`;
+  const ef = (window.VEC && window.VEC.getEfSearch) ? window.VEC.getEfSearch() : 64;
+  const useCache = (window.VEC && window.VEC.getUseCache) ? window.VEC.getUseCache() : true;
+  if (statusDiv) statusDiv.textContent = `Profiles: ${nProfiles} (${pShort}) · Vectors: ${vecN} (${srcShort}) · HNSW: ${hnsw ? 'ready' : 'off'} · ef ${ef} · Cache: ${cache}${useCache ? '' : ' (disabled)'}${building ? ' · Building…' : ''}`;
   }
 
   function setProgress(msg) { if (progressDiv) progressDiv.textContent = msg || ''; }
@@ -381,6 +424,14 @@ window.addEventListener('DOMContentLoaded', () => {
     try{
       if (btnRebuild) btnRebuild.disabled = !!on;
       if (btnCancel) btnCancel.disabled = !on;
+  if (btnRebuildForce) btnRebuildForce.disabled = !!on;
+  if (btnClear) btnClear.disabled = !!on;
+  if (btnParquet) btnParquet.disabled = !!on;
+  if (btnProfiles) btnProfiles.disabled = !!on;
+  if (numEf) numEf.disabled = !!on;
+  if (numEfc) numEfc.disabled = !!on;
+  if (selVectors) selVectors.disabled = !!on;
+  if (selProfiles) selProfiles.disabled = !!on;
     }catch{}
   }
 
@@ -398,7 +449,7 @@ window.addEventListener('DOMContentLoaded', () => {
     setBuildingUI(true);
   });
   window.addEventListener('vec:pca:end', () => { setProgress('PCA: done.'); resetProgressSoon(); });
-  window.addEventListener('vec:pca:error', () => { setProgress('PCA: failed.'); resetProgressSoon(); setBuildingUI(false); });
+  window.addEventListener('vec:pca:error', () => { setProgress('PCA: failed.'); resetProgressSoon(); setBuildingUI(false); toast('PCA failed', false); });
   window.addEventListener('vec:hnsw:build:start', (e) => {
     const d = e.detail || {};
     if (typeof d.added === 'number' && typeof d.count === 'number') {
@@ -411,19 +462,24 @@ window.addEventListener('DOMContentLoaded', () => {
     setBuildingUI(true);
   });
   window.addEventListener('vec:hnsw:build:end', () => { setProgress('HNSW: built.'); resetProgressSoon(); setBuildingUI(false); updateStatus(window.KNN && window.KNN.size ? window.KNN.size() : 0); });
-  window.addEventListener('vec:hnsw:cache:loaded', () => { setProgress('HNSW: loaded from cache.'); resetProgressSoon(); });
+  window.addEventListener('vec:hnsw:cache:loaded', () => { setProgress('HNSW: loaded from cache.'); resetProgressSoon(); toast('HNSW cache loaded'); });
   window.addEventListener('vec:hnsw:cache:saved', () => { setProgress('HNSW: cached.'); resetProgressSoon(); });
-  window.addEventListener('vec:hnsw:error', () => { setProgress('HNSW: error (fallback).'); resetProgressSoon(); setBuildingUI(false); updateStatus(window.KNN && window.KNN.size ? window.KNN.size() : 0); });
+  window.addEventListener('vec:hnsw:error', () => { setProgress('HNSW: error (fallback).'); resetProgressSoon(); setBuildingUI(false); updateStatus(window.KNN && window.KNN.size ? window.KNN.size() : 0); toast('HNSW error; using fallback', false); });
 
   if (btnRebuild) btnRebuild.onclick = async () => {
     if (window.VEC && window.VEC.rebuildIndex) {
       resultsDiv.innerHTML = '<div style="color:#888;padding:0.5em;">Rebuilding index…</div>';
       setProgress('HNSW: rebuilding…');
       setBuildingUI(true);
-      await window.VEC.rebuildIndex();
-      updateStatus(window.KNN && window.KNN.size ? window.KNN.size() : 0);
-      resultsDiv.innerHTML = '<div style="color:#2ca02c;padding:0.5em;">Index rebuilt.</div>';
-      setBuildingUI(false);
+      const done = setBusy(btnRebuild, 'Rebuilding…');
+      try {
+        await window.VEC.rebuildIndex();
+        updateStatus(window.KNN && window.KNN.size ? window.KNN.size() : 0);
+        resultsDiv.innerHTML = '<div style="color:#2ca02c;padding:0.5em;">Index rebuilt.</div>';
+      } finally {
+        setBuildingUI(false);
+        done();
+      }
     }
   };
 
@@ -440,25 +496,53 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  if (btnRebuildForce) btnRebuildForce.onclick = async () => {
+    if (!window.VEC || !window.VEC.rebuildIndex) return;
+    resultsDiv.innerHTML = '<div style="color:#888;padding:0.5em;">Force rebuilding index (no cache)…</div>';
+    setProgress('HNSW: rebuilding (force)…');
+    setBuildingUI(true);
+    const done = setBusy(btnRebuildForce, 'Rebuilding…');
+    const prev = (window.VEC.getUseCache && window.VEC.getUseCache());
+    try {
+      if (window.VEC.setUseCache) window.VEC.setUseCache(false);
+      await window.VEC.rebuildIndex();
+      updateStatus(window.KNN && window.KNN.size ? window.KNN.size() : 0);
+      resultsDiv.innerHTML = '<div style="color:#2ca02c;padding:0.5em;">Index rebuilt (force, no cache).</div>';
+    } catch (e) {
+      resultsDiv.innerHTML = `<div style='color:#c00;padding:0.5em;'>Force rebuild failed: ${e && e.message || e}</div>`;
+    } finally {
+      if (window.VEC.setUseCache) window.VEC.setUseCache(!!prev);
+      setBuildingUI(false);
+      done();
+    }
+  };
+
   if (btnClear) btnClear.onclick = async () => {
     if (window.VEC && window.VEC.clearHnswCache) {
-      const ok = await window.VEC.clearHnswCache();
-      updateStatus(window.KNN && window.KNN.size ? window.KNN.size() : 0);
-      resultsDiv.innerHTML = ok ? '<div style="color:#2ca02c;padding:0.5em;">Cache cleared.</div>' : '<div style="color:#c00;padding:0.5em;">Failed to clear cache.</div>';
+      const done = setBusy(btnClear, 'Clearing…');
+      try {
+        const ok = await window.VEC.clearHnswCache();
+        updateStatus(window.KNN && window.KNN.size ? window.KNN.size() : 0);
+        resultsDiv.innerHTML = ok ? '<div style="color:#2ca02c;padding:0.5em;">Cache cleared.</div>' : '<div style="color:#c00;padding:0.5em;">Failed to clear cache.</div>';
+        toast(ok ? 'Cache cleared' : 'Failed to clear cache', !!ok);
+      } finally { done(); }
     }
   };
 
   if (btnExportIdx) btnExportIdx.onclick = async () => {
     if (!window.VEC || !window.VEC.exportIndex) return;
-    const bytes = await window.VEC.exportIndex();
-    if (!bytes) { toast('Export failed', false); return; }
-    const blob = new Blob([bytes], { type: 'application/octet-stream' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'hnsw_index.bin';
-    a.click();
-    URL.revokeObjectURL(a.href);
-    toast('Index exported');
+    const done = setBusy(btnExportIdx, 'Exporting…');
+    try {
+      const bytes = await window.VEC.exportIndex();
+      if (!bytes) { toast('Export failed', false); return; }
+      const blob = new Blob([bytes], { type: 'application/octet-stream' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'hnsw_index.bin';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast('Index exported');
+    } finally { done(); }
   };
 
   if (fileImportIdx) fileImportIdx.addEventListener('change', async (ev) => {
@@ -474,7 +558,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const url = selVectors && selVectors.value ? selVectors.value : '/dataset/pdb_profile_vectors.parquet';
     resultsDiv.innerHTML = `<div style=\"color:#888;padding:0.5em;\">Loading vectors from ${baseName(url)}…</div>`;
     try {
-      btnParquet.disabled = true;
+      const done = setBusy(btnParquet, 'Loading…');
       if (/\.parquet$/i.test(url)) {
         if (!window.VEC || !window.VEC.loadFromParquet) throw new Error('Parquet loader unavailable');
         await window.VEC.loadFromParquet(url);
@@ -488,14 +572,14 @@ window.addEventListener('DOMContentLoaded', () => {
     } catch (e) {
       resultsDiv.innerHTML = `<div style='color:#c00;padding:0.5em;'>Vectors load failed: ${e.message}</div>`;
       toast('Vectors load failed', false);
-    } finally { btnParquet.disabled = false; }
+    } finally { if (typeof done === 'function') done(); }
   };
 
   if (btnProfiles) btnProfiles.onclick = async () => {
     const url = selProfiles && selProfiles.value ? selProfiles.value : '/dataset/pdb_profiles_normalized.parquet';
     resultsDiv.innerHTML = `<div style=\"color:#888;padding:0.5em;\">Loading profiles from ${baseName(url)}…</div>`;
     try {
-      btnProfiles.disabled = true;
+      const done = setBusy(btnProfiles, 'Loading…');
       let n;
       if (/\.parquet$/i.test(url)) {
         if (!window.KNN || !window.KNN.loadFromParquet) throw new Error('Profiles parquet loader unavailable');
@@ -510,8 +594,26 @@ window.addEventListener('DOMContentLoaded', () => {
     } catch (e) {
       resultsDiv.innerHTML = `<div style='color:#c00;padding:0.5em;'>Profiles load failed: ${e.message}</div>`;
       toast('Profiles load failed', false);
-    } finally { btnProfiles.disabled = false; }
+    } finally { if (typeof done === 'function') done(); }
   };
   if (selVectors) selVectors.addEventListener('change', savePrefs);
   if (selProfiles) selProfiles.addEventListener('change', savePrefs);
+  if (chkNoCache) chkNoCache.addEventListener('change', () => {
+    if (window.VEC && window.VEC.setUseCache) window.VEC.setUseCache(!(chkNoCache.checked));
+    savePrefs();
+    updateStatus(window.KNN && window.KNN.size ? window.KNN.size() : 0);
+  });
+  if (numEfc) numEfc.addEventListener('change', () => {
+    const v = parseInt(numEfc.value, 10) || 200;
+    if (window.VEC && window.VEC.setEfConstruction) window.VEC.setEfConstruction(v);
+    savePrefs();
+    toast(`efC set to ${v}`);
+  });
+  if (numEf) numEf.addEventListener('change', () => {
+    const v = parseInt(numEf.value, 10) || 64;
+    if (window.VEC && window.VEC.setEfSearch) window.VEC.setEfSearch(v);
+    savePrefs();
+    updateStatus(window.KNN && window.KNN.size ? window.KNN.size() : 0);
+    toast(`ef set to ${v}`);
+  });
 });

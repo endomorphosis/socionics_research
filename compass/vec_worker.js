@@ -1,4 +1,5 @@
 // Web Worker: performs heavy PCA and HNSW index building off the main thread
+import { loadHnswlib } from './hnswlib_loader.js';
 // Receives messages with { type: 'pca' | 'hnsw:build', payload }
 // PCA input: { buf: ArrayBuffer (Float32), n: number, d: number, ids: string[] }
 // PCA output: { type: 'pca:done', proj: Array<[number,number,number]>, ids: string[] }
@@ -17,9 +18,9 @@ self.onmessage = async (ev) => {
       // Send back projections aligned with ids index order
       self.postMessage({ type: 'pca:done', proj, ids }, { transfer: [] });
     } else if (msg.type === 'hnsw:build') {
-      const { buf, n, d } = msg;
+      const { buf, n, d, efC } = msg;
       const V = new Float32Array(buf);
-      const bytes = await buildHnswBytes(V, n, d);
+      const bytes = await buildHnswBytes(V, n, d, efC);
       self.postMessage({ type: 'hnsw:built', bytes }, { transfer: [bytes.buffer] });
     }
   } catch (e) {
@@ -135,27 +136,26 @@ function projSubtract(x, pc) {
   for (let i = 0; i < x.length; i++) x[i] -= dot * pc[i];
 }
 
-async function buildHnswBytes(V, n, d) {
-  const { loadHnswlib } = await import('hnswlib-wasm');
+async function buildHnswBytes(V, n, d, efC = 200) {
+  // Use statically imported loader so Vite rewrites the path for worker builds
   const HNSW = await loadHnswlib();
+  // Use 2-arg ctor: (space, dim). Max elements is set via initIndex.
   const index = new HNSW.HierarchicalNSW('cosine', d);
-  index.initIndex(n, 36, 200, 100);
+  index.initIndex(n, 36, efC, 100);
   index.setEfSearch(64);
-  // slice V into float32 arrays row-wise; pass as an array of Float32Array
+  // Add in chunks using array-of-rows views to match API addPoints(items[], labels[], replaceDeleted)
   const CHUNK = 1024;
-  const labels = new Int32Array(n);
-  for (let i = 0; i < n; i++) labels[i] = i;
   for (let start = 0; start < n; start += CHUNK) {
     const end = Math.min(n, start + CHUNK);
     const count = end - start;
-    const items = new Array(count);
+    const rows = new Array(count);
     const l = new Int32Array(count);
     for (let i = 0; i < count; i++) {
-      const off = (start + i) * d;
-      items[i] = new Float32Array(V.buffer, V.byteOffset + off * 4, d);
-      l[i] = labels[start + i];
+      const srcOff = (start + i) * d;
+      rows[i] = new Float32Array(V.buffer, V.byteOffset + srcOff * 4, d);
+      l[i] = start + i;
     }
-    index.addItems(items, false, l);
+    index.addPoints(rows, Array.from(l), false);
     self.postMessage({ type: 'hnsw:progress', added: end, total: n });
   }
   const bytes = index.writeIndex(); // Uint8Array

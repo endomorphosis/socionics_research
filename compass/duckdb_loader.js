@@ -29,8 +29,8 @@ const DuckVec = (() => {
   async function loadVectors(parquetUrl = '/dataset/pdb_profile_vectors.parquet') {
     await init();
     // Try common column names for id and vector fields
-    const idCols = ['cid', 'profile_cid', 'id', 'profile_id'];
-    const vecCols = ['vector', 'embedding', 'embeddings', 'vec', 'values'];
+    const idCols = ['cid', 'profile_cid', 'id', 'profile_id', 'uuid', 'uid', 'profile_uuid', 'profile_uid'];
+    const vecCols = ['vector', 'embedding', 'embeddings', 'vec', 'values', 'vectors', 'features', 'feat', 'embedding_vector', 'vector_64', 'embedding_64'];
     let res;
     let used = null;
     let lastErr = null;
@@ -51,8 +51,9 @@ const DuckVec = (() => {
     }
     if (!res || !used) {
       console.error('DuckDB vectors autodetect failed:', lastErr);
-      throw new Error(`DuckDB could not locate id/vector columns in Parquet (${parquetUrl}). Tried ids=${idCols.join(', ')}; vectors=${vecCols.join(', ')}.`);
+      throw new Error(`DuckDB could not locate id/vector columns in Parquet (${parquetUrl}). Tried ids=[${idCols.join(', ')}]; vectors=[${vecCols.join(', ')}]. Ensure the file is reachable under /dataset and contains one id column plus an array-like vector column.`);
     }
+    console.info(`DuckDB vectors: using id='${used.idc}', vector='${used.vc}' from ${parquetUrl}`);
     const out = [];
     for (let i = 0; i < res.numRows; i++) {
       const row = res.get(i);
@@ -69,13 +70,14 @@ const DuckVec = (() => {
   async function loadProfiles(parquetUrl = '/dataset/pdb_profiles_normalized.parquet') {
     await init();
     // Autodetect typical columns
-    const idCols = ['cid', 'profile_cid', 'id', 'profile_id'];
-    const nameCols = ['name', 'profile_name'];
-    const mbtiCols = ['mbti', 'mbti_type'];
+    const idCols = ['cid', 'profile_cid', 'id', 'profile_id', 'uuid', 'uid', 'profile_uuid', 'profile_uid'];
+    const nameCols = ['name', 'profile_name', 'display_name', 'title', 'profile_title'];
+    const mbtiCols = ['mbti', 'mbti_type', 'mbti_code'];
     const socCols = ['socionics', 'socionics_type', 'socionics_code'];
     const big5Cols = ['big5', 'bigfive', 'big_five', 'big5_code'];
+    const descCols = ['description', 'bio', 'about', 'summary'];
 
-    function coalesceExpr(cols) { return cols.map(c => `TRY_CAST(${c} AS VARCHAR)`).join(' , '); }
+  function coalesceExpr(cols) { return cols.map(c => `TRY_CAST(${c} AS VARCHAR)`).join(' , '); }
 
     let res;
     let lastErr = null;
@@ -93,8 +95,9 @@ const DuckVec = (() => {
           ${mbtiExpr} AS mbti,
           ${socExpr} AS socionics,
           ${big5Expr} AS big5,
+          COALESCE(${coalesceExpr(descCols)}, '') AS description,
           TRIM(
-            CONCAT_WS(' ', ${nameExpr}, ${mbtiExpr}, ${socExpr}, ${big5Expr})
+            CONCAT_WS(' ', ${nameExpr}, ${mbtiExpr}, ${socExpr}, ${big5Expr}, COALESCE(${coalesceExpr(descCols)}, ''))
           ) AS text
         FROM read_parquet('${parquetUrl}')
       `;
@@ -110,8 +113,9 @@ const DuckVec = (() => {
     }
     if (!res || !chosen) {
       console.error('DuckDB profiles autodetect failed:', lastErr);
-      throw new Error(`DuckDB could not locate id column in profiles Parquet (${parquetUrl}). Tried ids=${idCols.join(', ')}.`);
+      throw new Error(`DuckDB could not locate id column in profiles Parquet (${parquetUrl}). Tried ids=[${idCols.join(', ')}]. Ensure the file is reachable under /dataset and contains a unique profile id column.`);
     }
+    console.info(`DuckDB profiles: using id='${chosen.idc}' from ${parquetUrl}`);
     const out = [];
     for (let i = 0; i < res.numRows; i++) {
       const r = res.get(i);
@@ -121,6 +125,7 @@ const DuckVec = (() => {
         mbti: r.mbti || undefined,
         socionics: r.socionics || undefined,
         big5: r.big5 || undefined,
+        description: r.description || undefined,
         text: r.text || ''
       });
     }

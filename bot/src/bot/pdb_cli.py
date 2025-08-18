@@ -228,6 +228,15 @@ def main():
     )
     p_sn.add_argument("--limit", type=int, default=50, help="Print up to N matches")
 
+    # New: ids-by-name helper to extract profile IDs by name match from raw parquet
+    p_ibn = sub.add_parser(
+        "ids-by-name",
+        help="Scan raw parquet payloads for names matching a substring/regex and print their profile IDs",
+    )
+    p_ibn.add_argument("--contains", type=str, default=None, help="Case-insensitive substring to match")
+    p_ibn.add_argument("--regex", type=str, default=None, help="Regex to match against names")
+    p_ibn.add_argument("--limit", type=int, default=50, help="Print up to N matches")
+
     p_sum = sub.add_parser("summarize", help="Summarize current dataset sizes and type distributions")
     p_sum.add_argument("--normalized", type=str, default="data/bot_store/pdb_profiles_normalized.parquet")
 
@@ -517,6 +526,54 @@ def main():
     )
     p_xrel.add_argument("--dry-run", action="store_true", help="Preview without writing/upserting")
 
+    # Expand starting from one or more PDB profile URLs
+    p_xurl = sub.add_parser(
+        "expand-from-url",
+        help="Parse PDB profile URLs, extract sub_cat_id via meta, then expand profiles/{sub_cat_id}/related",
+    )
+    p_xurl.add_argument(
+        "--urls",
+        type=str,
+        default=None,
+        help="Comma-separated PDB profile URLs (e.g., https://www.personality-database.com/profile/1061891/...)",
+    )
+    p_xurl.add_argument(
+        "--url-file",
+        type=str,
+        default=None,
+        help="File containing URLs (comma/newline/space separated). Use '-' for stdin.",
+    )
+    p_xurl.add_argument("--lists", type=str, default=None, help="Comma-separated list names to upsert (e.g., profiles,boards)")
+    p_xurl.add_argument("--only-profiles", action="store_true", help="Shortcut for --lists profiles")
+    p_xurl.add_argument("--filter-characters", action="store_true", help="Only include items where isCharacter==True when present")
+    p_xurl.add_argument(
+        "--characters-relaxed",
+        action="store_true",
+        help="When filtering characters, accept items inferred from character-group provenance",
+    )
+    p_xurl.add_argument(
+        "--force-character-group",
+        action="store_true",
+        help="Treat discovered sub_cat_id groups as character-group sources for relaxed filtering",
+    )
+    p_xurl.add_argument("--dry-run", action="store_true", help="Preview without writing/upserting")
+    p_xurl.add_argument(
+        "--set-keyword",
+        type=str,
+        default=None,
+        help="Force a keyword to attach to upserted rows (as _search_keyword) when expanding from URLs",
+    )
+
+    # Diagnostics: peek meta payload for given ID(s)
+    p_pkm = sub.add_parser(
+        "peek-meta",
+        help="Fetch https://meta.personality-database.com/api/v2/meta/profile/{id} and print list keys/counts",
+    )
+    p_pkm.add_argument("--id", type=int, default=None, help="Single profile ID to peek")
+    p_pkm.add_argument("--ids", type=str, default=None, help="Comma-separated IDs to peek (in addition to --id)")
+    p_pkm.add_argument("--sample", type=int, default=10, help="Print up to N example names from discovered lists")
+    p_pkm.add_argument("--raw", action="store_true", help="Print raw JSON payload as well (pretty-printed)")
+
     # Maintenance: compact raw parquet by recomputing CID without ephemeral fields
     p_comp = sub.add_parser(
         "compact-raw",
@@ -687,6 +744,22 @@ def main():
     p_all.add_argument("--scrape-v1", action="store_true", help="Fetch v1 profile/{id} for newly discovered profile IDs")
     p_all.add_argument("--v1-base-url", type=str, default="https://api.personality-database.com/api/v1", help="Base URL for v1 profile fetches")
     p_all.add_argument("--v1-headers", type=str, default=None, help="Headers JSON for v1 requests (merged last)")
+
+    # Maintenance: retroactively tag rows with a keyword for alias enrichment
+    p_tag = sub.add_parser(
+        "tag-keyword",
+        help="Set _search_keyword on existing raw rows filtered by seed pid/subcategory/source; then re-export to surface aliases",
+    )
+    p_tag.add_argument("--keyword", type=str, required=True, help="Keyword to set (e.g., 'superman')")
+    p_tag.add_argument("--seed-pids", type=str, default=None, help="Comma-separated seed profile IDs to match (_seed_pid)")
+    p_tag.add_argument("--subcat-ids", type=str, default=None, help="Comma-separated subcategory IDs to match (_seed_sub_cat_id)")
+    p_tag.add_argument(
+        "--sources",
+        type=str,
+        default="v2_related_from_url:profiles",
+        help="Comma-separated _source values to include (default: v2_related_from_url:profiles)",
+    )
+    p_tag.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
     p_all.add_argument("--dry-run", action="store_true", help="Preview without upserts/embedding/indexing")
     # State and efficiency
     p_all.add_argument("--use-state", action="store_true", help="Persist and reuse skip-state to avoid reprocessing items across runs")
@@ -892,12 +965,19 @@ def main():
                 if nm:
                     names.append((cid, nm))
         else:
-            # characters parquet already has names
+            # characters parquet may have name and alt_names
             for _, row in df.iterrows():
                 cid = str(row.get("cid"))
                 nm = row.get("name")
+                alt = row.get("alt_names")
                 if isinstance(nm, str) and nm:
                     names.append((cid, nm))
+                if isinstance(alt, str) and alt:
+                    # Split alternates by ' | '
+                    for part in alt.split(" | "):
+                        p = part.strip()
+                        if p:
+                            names.append((cid, p))
         contains = (args.contains or "").strip().lower()
         pattern = None
         if args.regex:
@@ -907,13 +987,18 @@ def main():
                 print(f"Invalid regex: {e}")
                 return
         out = []
+        seen_pairs = set()
         for cid, nm in names:
+            key = (cid, nm)
+            if key in seen_pairs:
+                continue
             low = nm.lower()
             if contains and contains not in low:
                 continue
             if pattern and not pattern.search(nm):
                 continue
             out.append((cid, nm))
+            seen_pairs.add(key)
             if len(out) >= args.limit:
                 break
         if not out:
@@ -921,6 +1006,61 @@ def main():
             return
         for cid, nm in out:
             print(f"name={nm} cid={cid[:12]}")
+    elif args.cmd == "ids-by-name":
+        import pandas as pd
+        import re as _re
+        store = PdbStorage()
+        raw_path = store.raw_path
+        if not raw_path.exists():
+            print(f"Missing raw parquet: {raw_path}")
+            return
+        df = pd.read_parquet(raw_path)
+        contains = (args.contains or "").strip().lower()
+        pattern = None
+        if args.regex:
+            try:
+                pattern = _re.compile(args.regex, _re.IGNORECASE)
+            except Exception as e:
+                print(f"Invalid regex: {e}")
+                return
+        count = 0
+        for _, row in df.iterrows():
+            pb = row.get("payload_bytes")
+            try:
+                obj = orjson.loads(pb) if isinstance(pb, (bytes, bytearray)) else None
+            except Exception:
+                obj = None
+            if not isinstance(obj, dict):
+                continue
+            # name
+            nm = None
+            for k in ("name","title","display_name","username","subcategory"):
+                v = obj.get(k)
+                if isinstance(v, str) and v:
+                    nm = v; break
+            if not nm:
+                continue
+            low = nm.lower()
+            if contains and contains not in low:
+                continue
+            if pattern and not pattern.search(nm):
+                continue
+            # profile id
+            pid = None
+            for k in ("id","profileId","profile_id","profileID"):
+                v = obj.get(k)
+                if isinstance(v, int):
+                    pid = v; break
+                if isinstance(v, str) and v.isdigit():
+                    pid = int(v); break
+            if pid is None:
+                continue
+            print(f"name={nm} pid={pid}")
+            count += 1
+            if count >= args.limit:
+                break
+        if count == 0:
+            print("No matches.")
     elif args.cmd == "search-keywords":
         import sys as _sys
         from pathlib import Path as _Path
@@ -1313,7 +1453,71 @@ def main():
             is_char = obj.get("isCharacter") is True or obj.get("_from_character_group") is True
             if not is_char:
                 continue
-            nm = obj.get("name") or obj.get("title") or obj.get("subcategory")
+            # Build candidate names and pick the most descriptive
+            candidates: list[str] = []
+            for k in ("name", "title", "display_name", "username", "subcategory"):
+                v = obj.get(k)
+                if isinstance(v, str):
+                    s = v.strip()
+                    if s:
+                        candidates.append(s)
+            # Add search keyword from seed URL as alias when present
+            try:
+                seed_url = obj.get("_seed_url")
+                if isinstance(seed_url, str) and "search?" in seed_url:
+                    from urllib.parse import urlparse as _urlparse, parse_qs as _parse_qs, unquote as _unquote
+                    parsed = _urlparse(seed_url)
+                    q = _parse_qs(parsed.query)
+                    kws = q.get("keyword") or q.get("q") or []
+                    for kw in kws:
+                        if isinstance(kw, str) and kw:
+                            s = _unquote(kw).strip()
+                            if s:
+                                candidates.append(s)
+                # direct kw propagation from expand-from-url
+                kw2 = obj.get("_search_keyword")
+                if isinstance(kw2, str) and kw2.strip():
+                    candidates.append(kw2.strip())
+                # also include seed profile's title/name if present
+                stitle = obj.get("_seed_profile_title")
+                if isinstance(stitle, str) and stitle.strip():
+                    candidates.append(stitle.strip())
+            except Exception:
+                pass
+            # Derive aliases from quoted segments, parentheses, and slashes
+            try:
+                import re as _re
+                base_strs = []
+                if candidates:
+                    base_strs = candidates[:]
+                for s in base_strs:
+                    # Straight quotes and curly quotes
+                    for pat in [r'"([^"]+)"', r'“([^”]+)”', r'‘([^’]+)’']:
+                        for m in _re.finditer(pat, s):
+                            al = m.group(1).strip()
+                            if al:
+                                candidates.append(al)
+                    # Parenthetical nicknames
+                    for m in _re.finditer(r'\(([^)]+)\)', s):
+                        al = m.group(1).strip()
+                        if al:
+                            candidates.append(al)
+                    # Slashes indicating alternative names
+                    if "/" in s:
+                        for part in s.split("/"):
+                            al = part.strip()
+                            if al:
+                                candidates.append(al)
+            except Exception:
+                pass
+            # Deduplicate while preserving order
+            seen_c = set()
+            uniq_candidates: list[str] = []
+            for c in candidates:
+                if c not in seen_c:
+                    seen_c.add(c)
+                    uniq_candidates.append(c)
+            nm = uniq_candidates[0] if uniq_candidates else None
             if isinstance(nm, str) and nm.strip().upper() in {
                 "INTJ","INTP","ENTJ","ENTP","INFJ","INFP","ENFJ","ENFP",
                 "ISTJ","ISFJ","ESTJ","ESFJ","ISTP","ISFP","ESTP","ESFP",
@@ -1332,11 +1536,11 @@ def main():
                         pass
             if pid is not None:
                 rec["pid"] = pid
-            for k in ("name", "title", "display_name", "username", "subcategory"):
-                v = obj.get(k)
-                if isinstance(v, str) and v:
-                    rec["name"] = v
-                    break
+            # Choose the best label and always store alternates (even if single) for schema stability
+            if uniq_candidates:
+                best = max(uniq_candidates, key=lambda s: len(s))
+                rec["name"] = best
+                rec["alt_names"] = " | ".join(uniq_candidates)
             rows.append(rec)
         out = _Path(getattr(args, "out", "data/bot_store/pdb_characters.parquet"))
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -1666,6 +1870,85 @@ def main():
                 print(f"Upserted hot queries: new={n} updated={u}")
         asyncio.run(_run())
         return
+    elif args.cmd == "tag-keyword":
+        import pandas as pd
+        from pathlib import Path as _Path
+        store = PdbStorage()
+        raw_path = store.raw_path
+        if not raw_path.exists():
+            print(f"Missing raw parquet: {raw_path}")
+            return
+        df = pd.read_parquet(raw_path)
+        if df.empty:
+            print("No rows in raw parquet.")
+            return
+        kw = getattr(args, "keyword", "").strip()
+        if not kw:
+            print("Keyword is required")
+            return
+        srcs = {s.strip() for s in str(getattr(args, "sources", "")).split(",") if s.strip()}
+        if not srcs:
+            srcs = set()
+        seed_pids = set()
+        if getattr(args, "seed_pids", None):
+            for tok in str(args.seed_pids).split(","):
+                t = tok.strip()
+                if t.isdigit():
+                    seed_pids.add(int(t))
+        subcats = set()
+        if getattr(args, "subcat_ids", None):
+            for tok in str(args.subcat_ids).split(","):
+                t = tok.strip()
+                if t.isdigit():
+                    subcats.add(int(t))
+        to_update: list[dict] = []
+        matched = 0
+        updated = 0
+        for _, row in df.iterrows():
+            pb = row.get("payload_bytes")
+            try:
+                obj = orjson.loads(pb) if isinstance(pb, (bytes, bytearray)) else (json.loads(pb) if isinstance(pb, str) else (pb if isinstance(pb, dict) else None))
+            except Exception:
+                obj = None
+            if not isinstance(obj, dict):
+                continue
+            s = obj.get("_source")
+            if srcs and s not in srcs:
+                continue
+            ok_seed = True
+            if seed_pids:
+                sp = obj.get("_seed_pid")
+                try:
+                    spv = int(sp)
+                except Exception:
+                    spv = None
+                ok_seed = spv in seed_pids if spv is not None else False
+            ok_sub = True
+            if subcats:
+                sc = obj.get("_seed_sub_cat_id")
+                try:
+                    scv = int(sc)
+                except Exception:
+                    scv = None
+                ok_sub = scv in subcats if scv is not None else False
+            if not (ok_seed and ok_sub):
+                continue
+            matched += 1
+            prev_kw = obj.get("_search_keyword")
+            if isinstance(prev_kw, str) and prev_kw.strip() == kw:
+                continue
+            obj = {**obj, "_search_keyword": kw}
+            to_update.append(obj)
+        if not to_update:
+            print(f"No rows matched for update (matched={matched}, to_update=0)")
+            return
+        if getattr(args, "dry_run", False):
+            print(f"Would update {len(to_update)} rows (matched={matched}) with _search_keyword='{kw}'")
+            return
+        n, u = store.upsert_raw(to_update)
+        updated = u + n
+        print(f"Updated rows: {updated} (matched={matched})")
+        return
     elif args.cmd == "find-subcats":
         async def _run():
             client = _make_client(args)
@@ -1841,6 +2124,21 @@ def main():
         from pathlib import Path as _Path
         async def _run():
             client = _make_client(args)
+            # Prepare optional meta-client for richer related data when available
+            meta_client = None
+            try:
+                from .pdb_client import PdbClient as _PdbClient
+                # Reuse current client's settings/headers if possible
+                # Fallback to a known meta base URL
+                meta_client = _PdbClient(
+                    base_url="https://meta.personality-database.com/api/v2",
+                    concurrency=getattr(client, "concurrency", 4),
+                    rate_per_minute=getattr(client, "rate_per_minute", 60),
+                    timeout_s=getattr(client, "timeout_s", 20.0),
+                    headers=getattr(client, "_extra_headers", None),
+                )
+            except Exception:
+                meta_client = None
             store = PdbStorage()
             # collect seed IDs
             seeds: list[int] = []
@@ -1890,21 +2188,69 @@ def main():
                 target_lists = {s.strip() for s in args.lists.split(",") if s.strip()}
             total = 0
             for sid in uniq:
+                lists: dict[str, list] = {}
+                # Helper to merge list-like fields into canonical keys
+                def _merge_lists_from_payload(pl: dict) -> None:
+                    if not isinstance(pl, dict):
+                        return
+                    for k in (
+                        "relatedProfiles",
+                        "profiles",
+                        "characters",
+                        "recommendProfiles",
+                        "boards",
+                        "subcategories",
+                    ):
+                        v = pl.get(k)
+                        if isinstance(v, list) and v:
+                            key = "profiles" if k in {"relatedProfiles", "characters", "recommendProfiles"} else k
+                            base = lists.get(key) or []
+                            lists[key] = base + v
+                # 1) Try standard v2 related endpoint first
                 try:
                     data = await client.fetch_json(f"profiles/{sid}/related")
+                    payload = data.get("data") if isinstance(data, dict) else data
+                    if isinstance(payload, dict):
+                        _merge_lists_from_payload(payload)
                 except Exception as e:
                     print(f"related fetch failed for id={sid}: {e}")
-                    continue
-                payload = data.get("data") if isinstance(data, dict) else data
-                lists: dict[str, list] = {}
-                if isinstance(payload, dict):
-                    # normalize list keys
-                    for k in ("relatedProfiles", "profiles", "boards", "subcategories"):
-                        v = payload.get(k)
-                        if isinstance(v, list):
-                            # map relatedProfiles to profiles for survivability and filtering
-                            key = "profiles" if k == "relatedProfiles" else k
-                            lists[key] = v
+                # 2) Augment via meta endpoint if available
+                if meta_client is not None:
+                    try:
+                        mdata = await meta_client.fetch_json(f"meta/profile/{sid}")
+                        mpayload = mdata.get("data") if isinstance(mdata, dict) else mdata
+                        if isinstance(mpayload, dict):
+                            _merge_lists_from_payload(mpayload)
+                            # As a fallback, recursively scan for profile-like dicts
+                            prof_like: list[dict] = []
+                            def _walk(x):
+                                try:
+                                    if isinstance(x, dict):
+                                        # Heuristic: looks like a profile if it has a name/title and an id-ish field
+                                        has_name = any(isinstance(x.get(k), str) and x.get(k) for k in ("name","title","subcategory","display_name","username"))
+                                        id_val = None
+                                        for kk in ("id","profileId","profile_id","profileID"):
+                                            v = x.get(kk)
+                                            if isinstance(v, int):
+                                                id_val = v; break
+                                            if isinstance(v, str) and v.isdigit():
+                                                id_val = int(v); break
+                                        is_char_flag = x.get("isCharacter") is True
+                                        if (has_name and id_val is not None) or is_char_flag:
+                                            prof_like.append(x)
+                                        for v in x.values():
+                                            _walk(v)
+                                    elif isinstance(x, list):
+                                        for v in x:
+                                            _walk(v)
+                                except Exception:
+                                    return
+                            _walk(mpayload)
+                            if prof_like:
+                                base = lists.get("profiles") or []
+                                lists["profiles"] = base + prof_like
+                    except Exception:
+                        pass
                 selected = set(lists.keys()) if target_lists is None else (set(lists.keys()) & set(target_lists))
                 batch: list[dict] = []
                 for key in sorted(selected):
@@ -1936,6 +2282,333 @@ def main():
                     print(f"id={sid}: upserted new={n} updated={u}")
             if not args.dry_run:
                 print(f"Done. Upserted total rows: {total}")
+        asyncio.run(_run())
+        return
+    elif args.cmd == "expand-from-url":
+        import re as _re
+        import sys as _sys
+        from pathlib import Path as _Path
+        from urllib.parse import urlparse as _urlparse, parse_qs as _parse_qs
+        async def _run():
+            base_client = _make_client(args)
+            # Build meta client reusing headers/limits
+            meta_client = None
+            try:
+                from .pdb_client import PdbClient as _PdbClient
+                meta_client = _PdbClient(
+                    base_url="https://meta.personality-database.com/api/v2",
+                    concurrency=getattr(base_client, "concurrency", 4),
+                    rate_per_minute=getattr(base_client, "rate_per_minute", 60),
+                    timeout_s=getattr(base_client, "timeout_s", 20.0),
+                    headers=getattr(base_client, "_extra_headers", None),
+                )
+            except Exception:
+                meta_client = None
+            if meta_client is None:
+                print("Meta client unavailable; cannot extract sub_cat_id from URLs.")
+                return
+            # Collect URLs
+            urls: list[str] = []
+            if getattr(args, "urls", None):
+                urls.extend([u.strip() for u in str(args.urls).split(",") if u.strip()])
+            if getattr(args, "url_file", None):
+                try:
+                    if args.url_file.strip() == "-":
+                        txt = _sys.stdin.read()
+                    else:
+                        txt = _Path(args.url_file).read_text(encoding="utf-8")
+                    for tok in _re.split(r"[\s,]+", txt):
+                        t = tok.strip()
+                        if t:
+                            urls.append(t)
+                except Exception:
+                    pass
+            # If any URLs are PDB search pages, expand them into profile/group links, keeping keyword context
+            from urllib.parse import unquote as _unquote
+            expanded_pairs: list[tuple[str, str | None]] = []  # (url, search_keyword)
+            for u in urls:
+                try:
+                    parsed = _urlparse(u)
+                    if parsed.netloc.endswith("personality-database.com") and parsed.path == "/search":
+                        # Fetch HTML and extract links to profile pages
+                        import urllib.request as _ur
+                        req = _ur.Request(u, headers={"User-Agent": "Mozilla/5.0"})
+                        with _ur.urlopen(req, timeout=15) as resp:
+                            html = resp.read().decode("utf-8", errors="ignore")
+                        q = _parse_qs(parsed.query)
+                        kw = None
+                        try:
+                            kws = q.get("keyword") or q.get("q") or []
+                            for kk in kws:
+                                if isinstance(kk, str) and kk:
+                                    kw = _unquote(kk).strip() or None
+                                    if kw:
+                                        break
+                        except Exception:
+                            kw = None
+                        # Match '/profile/...' and '/profile?pid=...&...sub_cat_id=...'
+                        for m in _re.finditer(r'href="(/profile/[^"]+)"', html):
+                            href = m.group(1)
+                            expanded_pairs.append((f"https://www.personality-database.com{href}", kw))
+                        for m in _re.finditer(r'href="(/profile\?[^\"]*sub_cat_id=\d+[^\"]*)"', html):
+                            href = m.group(1)
+                            expanded_pairs.append((f"https://www.personality-database.com{href}", kw))
+                    else:
+                        expanded_pairs.append((u, None))
+                except Exception:
+                    expanded_pairs.append((u, None))
+            # De-duplicate expanded list (prefer keeping a non-None keyword)
+            seen_map: dict[str, str | None] = {}
+            for u, kw in expanded_pairs:
+                if u not in seen_map or (kw and not seen_map.get(u)):
+                    seen_map[u] = kw
+            url_list = [(u, seen_map[u]) for u in seen_map.keys()]
+            if not url_list:
+                print("No URLs provided. Use --urls or --url-file (or '-' for stdin).")
+                return
+            # Helper: extract numeric profile id from URL path
+            def _extract_pid(u: str) -> int | None:
+                try:
+                    m = _re.search(r"/profile/(\d+)", u)
+                    if m:
+                        return int(m.group(1))
+                except Exception:
+                    return None
+                return None
+            # Lists selection
+            target_lists: set[str] | None = None
+            if args.only_profiles:
+                target_lists = {"profiles"}
+            elif isinstance(args.lists, str) and args.lists:
+                target_lists = {s.strip() for s in args.lists.split(",") if s.strip()}
+            store = PdbStorage()
+            total = 0
+            forced_kw = getattr(args, "set_keyword", None)
+            for u, search_kw in url_list:
+                pid = _extract_pid(u)
+                seed_title: str | None = None
+                if not isinstance(pid, int):
+                    # No PID in path; still try to read sub_cat_id directly from query
+                    pass
+                else:
+                    # Try to fetch and upsert the profile itself (v2)
+                    try:
+                        prof = await base_client.fetch_json(f"profiles/{pid}")
+                    except Exception:
+                        prof = None
+                    pobj = prof.get("data") if isinstance(prof, dict) else prof
+                    if isinstance(pobj, dict):
+                        # capture a human-readable seed title/name
+                        for kk in ("name","title","display_name","username","subcategory"):
+                            vv = pobj.get(kk)
+                            if isinstance(vv, str) and vv.strip():
+                                seed_title = vv.strip()
+                                break
+                        main_obj = {**pobj, "_source": "v2_profile", "_profile_id": pid, "_seed_url": u}
+                        kw_to_use = (forced_kw or search_kw)
+                        if isinstance(kw_to_use, str) and kw_to_use:
+                            main_obj["_search_keyword"] = kw_to_use
+                        if args.force_character_group:
+                            try:
+                                main_obj.setdefault("_from_character_group", True)
+                            except Exception:
+                                pass
+                        if args.filter_characters:
+                            is_char0 = main_obj.get("isCharacter") is True
+                            if not is_char0 and args.characters_relaxed:
+                                is_char0 = main_obj.get("_from_character_group") is True
+                            if is_char0:
+                                if not args.dry_run:
+                                    n0, u0 = store.upsert_raw([main_obj])
+                                    total += (n0 + u0)
+                                    print(f"url={u} pid={pid}: upserted profile new={n0} updated={u0}")
+                            # if filtered out, skip silently
+                        else:
+                            if not args.dry_run:
+                                n0, u0 = store.upsert_raw([main_obj])
+                                total += (n0 + u0)
+                                print(f"url={u} pid={pid}: upserted profile new={n0} updated={u0}")
+                # Attempt to extract sub_cat_id directly from URL query
+                sub_ids: list[int] = []
+                try:
+                    _parsed = _urlparse(u)
+                    q = _parse_qs(_parsed.query)
+                    for key in ("sub_cat_id", "subCatId"):
+                        vals = q.get(key) or []
+                        for vv in vals:
+                            if isinstance(vv, str) and vv.isdigit():
+                                sub_ids.append(int(vv))
+                except Exception:
+                    pass
+                # If not present in query, fetch meta to discover sub_cat_id from BreadcrumbList JSON-LD
+                if not sub_ids and isinstance(pid, int):
+                    try:
+                        mdata = await meta_client.fetch_json(f"meta/profile/{pid}")
+                    except Exception as e:
+                        print(f"meta fetch failed for pid={pid}: {e}")
+                        mdata = None
+                    payload = mdata.get("data") if isinstance(mdata, dict) else mdata
+                    if isinstance(payload, dict):
+                        # payload from meta has key 'data' containing tag entries (see peek-meta)
+                        entries = payload.get("data") if isinstance(payload.get("data"), list) else []
+                        for ent in entries:
+                            if not isinstance(ent, dict):
+                                continue
+                            if ent.get("tag") != "script":
+                                continue
+                            val = ent.get("value")
+                            if isinstance(val, str) and "sub_cat_id" in val:
+                                for mm in _re.finditer(r"sub_cat_id=(\d+)", val):
+                                    try:
+                                        sid = int(mm.group(1))
+                                        sub_ids.append(sid)
+                                    except Exception:
+                                        pass
+                # De-dup subcategory ids
+                sub_ids = list(dict.fromkeys([s for s in sub_ids if isinstance(s, int)]))
+                if not sub_ids:
+                    print(f"url={u}: no sub_cat_id found (query or meta); skipping")
+                    continue
+                # For each subcategory id, call profiles/{sid}/related and upsert
+                for sid in sub_ids:
+                    lists: dict[str, list] = {}
+                    try:
+                        data = await base_client.fetch_json(f"profiles/{sid}/related")
+                    except Exception as e:
+                        print(f"related fetch failed for sub_cat_id={sid}: {e}")
+                        continue
+                    rel_payload = data.get("data") if isinstance(data, dict) else data
+                    if isinstance(rel_payload, dict):
+                        rel_list = (
+                            rel_payload.get("relatedProfiles")
+                            or rel_payload.get("profiles")
+                            or rel_payload.get("characters")
+                            or []
+                        )
+                        if isinstance(rel_list, list) and rel_list:
+                            lists["profiles"] = rel_list
+                    selected = set(lists.keys()) if target_lists is None else (set(lists.keys()) & set(target_lists))
+                    batch: list[dict] = []
+                    for key in sorted(selected):
+                        for it in lists.get(key, []) or []:
+                            if not isinstance(it, dict):
+                                continue
+                            obj = {**it, "_source": f"v2_related_from_url:{key}", "_seed_url": u, "_seed_pid": pid, "_seed_sub_cat_id": sid}
+                            kw_to_use = (forced_kw or search_kw)
+                            if isinstance(kw_to_use, str) and kw_to_use:
+                                obj["_search_keyword"] = kw_to_use
+                            if isinstance(seed_title, str) and seed_title:
+                                obj["_seed_profile_title"] = seed_title
+                            if args.force_character_group:
+                                try:
+                                    obj.setdefault("_from_character_group", True)
+                                except Exception:
+                                    pass
+                            if args.filter_characters:
+                                is_char = obj.get("isCharacter") is True
+                                if not is_char and args.characters_relaxed:
+                                    is_char = obj.get("_from_character_group") is True
+                                if not is_char:
+                                    continue
+                            batch.append(obj)
+                    if not batch:
+                        print(f"url={u} sid={sid}: no items after filtering.")
+                        continue
+                    if args.dry_run:
+                        print(f"url={u} sid={sid}: would upsert {len(batch)} items (dry-run)")
+                    else:
+                        n, u2 = store.upsert_raw(batch)
+                        total += (n + u2)
+                        print(f"url={u} sid={sid}: upserted new={n} updated={u2}")
+            if not args.dry_run:
+                print(f"Done. Upserted total rows: {total}")
+        asyncio.run(_run())
+        return
+    elif args.cmd == "peek-meta":
+        import re as _re
+        async def _run():
+            base_client = _make_client(args)
+            # Build meta client reusing headers/limits
+            meta_client = None
+            try:
+                from .pdb_client import PdbClient as _PdbClient
+                meta_client = _PdbClient(
+                    base_url="https://meta.personality-database.com/api/v2",
+                    concurrency=getattr(base_client, "concurrency", 4),
+                    rate_per_minute=getattr(base_client, "rate_per_minute", 60),
+                    timeout_s=getattr(base_client, "timeout_s", 20.0),
+                    headers=getattr(base_client, "_extra_headers", None),
+                )
+            except Exception as e:
+                print(f"Failed to build meta client: {e}")
+                return
+            # Collect IDs
+            ids: list[int] = []
+            if getattr(args, "id", None):
+                try:
+                    ids.append(int(args.id))
+                except Exception:
+                    pass
+            if getattr(args, "ids", None):
+                for tok in str(args.ids).split(","):
+                    tok = tok.strip()
+                    if tok.isdigit():
+                        ids.append(int(tok))
+            # De-duplicate
+            seen = set()
+            uniq: list[int] = []
+            for i in ids:
+                if i not in seen:
+                    seen.add(i)
+                    uniq.append(i)
+            if not uniq:
+                print("No IDs provided. Use --id or --ids.")
+                return
+            def _pick_name(obj: dict) -> str:
+                for k in ("name", "title", "display_name", "username", "subcategory"):
+                    v = obj.get(k)
+                    if isinstance(v, str) and v:
+                        return v
+                return "(unknown)"
+            for pid in uniq:
+                try:
+                    data = await meta_client.fetch_json(f"meta/profile/{pid}")
+                except Exception as e:
+                    print(f"id={pid}: meta fetch failed: {e}")
+                    continue
+                payload = data.get("data") if isinstance(data, dict) else data
+                if not isinstance(payload, dict):
+                    print(f"id={pid}: unexpected payload shape")
+                    continue
+                # Summarize list keys and counts
+                list_keys = {k: v for k, v in payload.items() if isinstance(v, list)}
+                if not list_keys:
+                    print(f"id={pid}: no list keys found in meta payload")
+                else:
+                    key_counts = ", ".join(f"{k}:{len(v or [])}" for k, v in sorted(list_keys.items()))
+                    print(f"id={pid}: keys={{ {key_counts} }}")
+                    # Print sample names from recognized profile-like lists
+                    samples: list[str] = []
+                    for k in ("profiles", "relatedProfiles", "characters", "recommendProfiles"):
+                        arr = list_keys.get(k) or []
+                        for it in arr[: max(int(getattr(args, "sample", 0)), 0)]:
+                            if isinstance(it, dict):
+                                samples.append(_pick_name(it))
+                        if samples:
+                            break
+                    if samples:
+                        more = max((sum(len(list_keys.get(k) or []) for k in list_keys) - len(samples)), 0)
+                        tail = f" (+{more} more)" if more else ""
+                        print("  "+", ".join(samples) + tail)
+                if getattr(args, "raw", False):
+                    try:
+                        print(json.dumps(payload, ensure_ascii=False, indent=2))
+                    except Exception:
+                        try:
+                            import pprint as _pp
+                            _pp.pprint(payload)
+                        except Exception:
+                            pass
         asyncio.run(_run())
         return
     elif args.cmd == "search-top":

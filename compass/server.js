@@ -21,6 +21,12 @@ app.get('/dataset/:name', (req, res) => {
       res.status(404).send(`Not found: ${safe}`);
       return;
     }
+    // Set explicit content-type for certain binary formats
+    if (/\.parquet$/i.test(safe)) {
+      res.setHeader('Content-Type', 'application/octet-stream');
+    } else if (/\.(index|bin)$/i.test(safe)) {
+      res.setHeader('Content-Type', 'application/octet-stream');
+    }
     res.sendFile(filePath, (sendErr) => {
       if (sendErr) res.status(sendErr.statusCode || 404).end();
     });

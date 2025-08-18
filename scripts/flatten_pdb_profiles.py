@@ -1,4 +1,5 @@
-node compass/search_csv.js elonimport pandas as pd
+#!/usr/bin/env python3
+import pandas as pd
 import json
 
 # Load the original file
