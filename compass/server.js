@@ -1,28 +1,54 @@
 // Combined Express server for static frontend and RAG API
 const express = require('express');
 const path = require('path');
-const searchParquet = require('./search_parquet');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
-// Serve static files from Vite build (dist)
-app.use(express.static(path.join(__dirname, 'dist')));
+// Expose raw dataset directory for optional in-browser DuckDB/Parquet loading
+const fs = require('fs');
+const DATASET_DIR = path.join(__dirname, '..', 'data', 'bot_store');
 
-// RAG search API endpoint
-app.get('/api/search', async (req, res) => {
-  const query = req.query.q || '';
-  try {
-    const results = await searchParquet(query);
-    res.json(results);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+// Place dataset routes BEFORE static middleware so SPA fallback doesn't catch them
+app.get('/dataset/:name', (req, res) => {
+  // Strip any path separators and keep simple filenames only
+  const raw = String(req.params.name || '');
+  const safe = raw.replace(/[^a-zA-Z0-9_.-]/g, '');
+  const filePath = path.join(DATASET_DIR, safe);
+  console.log(`[dataset] GET ${raw} -> ${filePath}`);
+  fs.stat(filePath, (err, stat) => {
+    if (err || !stat || !stat.isFile()) {
+      res.status(404).send(`Not found: ${safe}`);
+      return;
+    }
+    res.sendFile(filePath, (sendErr) => {
+      if (sendErr) res.status(sendErr.statusCode || 404).end();
+    });
+  });
 });
+
+app.get('/dataset', (req, res) => {
+  fs.readdir(DATASET_DIR, (err, files) => {
+    if (err) return res.status(500).json({ error: String(err) });
+    res.json({ dir: DATASET_DIR, files });
+  });
+});
+
+// Also serve dataset files statically for direct file access
+app.use('/dataset', express.static(DATASET_DIR));
+
+// Serve static files from Vite build (dist) and public assets
+app.use(express.static(path.join(__dirname, 'dist')));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Fallback to index.html for SPA routing (only for non-API, non-static requests)
 app.use((req, res, next) => {
-  if (req.method === 'GET' && !req.path.startsWith('/api/') && !req.path.includes('.')) {
+  if (
+    req.method === 'GET' &&
+    !req.path.startsWith('/api/') &&
+    !req.path.startsWith('/dataset') &&
+    !req.path.includes('.')
+  ) {
     res.sendFile(path.join(__dirname, 'dist', 'index.html'));
   } else {
     next();
@@ -31,5 +57,6 @@ app.use((req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}/`);
-  console.log(`RAG search API at http://localhost:${PORT}/api/search?q=your_query`);
+  console.log(`Static dataset at http://localhost:${PORT}/pdb_profiles.json`);
+  console.log(`Dataset directory mapped: ${DATASET_DIR} -> /dataset/:name`);
 });

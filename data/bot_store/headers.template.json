@@ -1,0 +1,11 @@
+{
+  "Cookie": "paste your browser Cookie header here",
+  "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/XX Safari/537.36",
+  "Accept": "application/json, text/plain, */*",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Origin": "https://personality-database.com",
+  "Referer": "https://personality-database.com/",
+  "Sec-Fetch-Site": "same-site",
+  "Sec-Fetch-Mode": "cors",
+  "Sec-Fetch-Dest": "empty"
+}
