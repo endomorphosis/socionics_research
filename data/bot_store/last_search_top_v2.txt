@@ -1,6 +1,0 @@
-usage: pdb_cli [-h] [--rpm RPM] [--concurrency CONCURRENCY]
-               [--timeout TIMEOUT] [--base-url BASE_URL] [--headers HEADERS]
-               [--headers-file HEADERS_FILE]
-               {dump,embed,dump-any,search,index,search-faiss,search-faiss-pretty,search-characters,summarize,cache-clear,analyze,export,peek,get-profile,get-profiles,scrape-v1-missing,discover,related,hot-queries,follow-hot,search-top,search-keywords,discover-cidpid,edges-report,edges-analyze,edges-export,ingest-report,expand-related,compact-raw,coverage,export-characters,index-characters,find-subcats,diagnose-query,scan-related,scan-all}
-               ...
-pdb_cli: error: unrecognized arguments: --headers-file data/bot_store/headers.json --base-url https://api.personality-database.com/api/v2

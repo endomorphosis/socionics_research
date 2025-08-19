@@ -9,6 +9,7 @@ Single-port Express + Vite app hosting a Three.js 3D compass with client-side RA
 - Dataset selectors and "Auto Parquet" with persisted preferences.
 - HNSW controls: rebuild, clear cache, export/import index.
 - Progress UI with percentages, status line, bar, and toasts.
+- Debug panel (toggle in UI): shows HNSW ctor variant, keys, build steps, cache events, and errors; includes Clear/Copy and auto-scroll.
 
 ## Development
 
@@ -27,6 +28,12 @@ npm start
 ```
 Open http://localhost:3000/.
 
+Health check:
+
+```bash
+curl -s http://localhost:3000/health
+```
+
 ## Data
 - Default JSON endpoints: `/pdb_profiles.json`, `/pdb_profile_vectors.json` (served from `public/`).
 - Dataset directory mapped to `/dataset` (see server log for host path). Place Parquet files (e.g., `pdb_profile_vectors.parquet`, `pdb_profiles_normalized.parquet`) in `../data/bot_store`.
@@ -36,12 +43,14 @@ Open http://localhost:3000/.
 - Index: use Rebuild to rebuild HNSW, Clear cache to remove the current dataset’s cached index.
 - Import/Export: export index to a `.bin` file; import to restore without rebuilding.
 - Progress: watch both the text and percentage bar for PCA/HNSW phases.
+- Debug panel: enable "Debug" to view live logs (ctor variant, keys, cache: loaded/saved, errors). Use Clear to reset and Copy to share logs.
 
 ## Troubleshooting
 - Parquet read errors: ensure `/dataset/...` paths are reachable and schema matches expected columns.
 - DuckDB-Wasm CSP/CDN: if blocked, JSON fallback remains usable; disable Auto Parquet.
 - Large bundles: Vite warns on wasm-related chunk sizes; acceptable for local use.
 - HNSW cache key: based on dataset signature (url|N|D|firstId). Clear cache if switching datasets dramatically.
+- ctor variant not showing: click Force rebuild, or ensure cache is loaded; the UI emits ctor details on build, cache load, and import.
 
 ## Internals
 - Worker: `vec_worker.js` handles PCA and HNSW building off-thread.

@@ -9,6 +9,11 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const fs = require('fs');
 const DATASET_DIR = path.join(__dirname, '..', 'data', 'bot_store');
 
+// Lightweight liveness endpoint for smoke tests and monitoring
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, status: 'ok', time: Date.now() });
+});
+
 // Place dataset routes BEFORE static middleware so SPA fallback doesn't catch them
 app.get('/dataset/:name', (req, res) => {
   // Strip any path separators and keep simple filenames only

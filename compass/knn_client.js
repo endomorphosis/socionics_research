@@ -42,7 +42,8 @@ const KNN = (() => {
   }
 
   function loadFromRows(rows) {
-    DATA = rows;
+    // Normalize and enrich rows with a canonical displayName
+    DATA = rows.map(normalizeRecord);
     VECTORS = DATA.map(r => embed(r.text));
     CIDX = new Map();
     for (const r of DATA) if (r.cid) CIDX.set(r.cid, r);
@@ -66,7 +67,7 @@ const KNN = (() => {
     for (let j = 0; j < Math.min(k, scores.length); j++) {
       const [score, idx] = scores[j];
       const r = DATA[idx];
-      out.push({ ...r, _score: score });
+  out.push({ ...r, name: r.displayName || r.name || r.cid || '', _score: score });
     }
     return out;
   }
@@ -76,6 +77,66 @@ const KNN = (() => {
   }
   function size() { return DATA.length; }
   function getSource() { return SRC || ''; }
+
+  // --------- Helpers ---------
+  function normalizeRecord(r0) {
+    const r = { ...r0 };
+    const cid = r.cid ? String(r.cid) : undefined;
+    const maybeNameFields = [
+      r.display_name, r.displayName, r.name, r.full_name, r.profile_name, r.title, r.profile_title,
+      r.given_name, r.first_name, r.family_name, r.last_name, r.handle, r.username, r.alias, r.primary_alias
+    ].map(x => (typeof x === 'string' ? x : '')).filter(Boolean);
+    const ipfsLike = (s) => /^(Qm|bafy)[a-zA-Z0-9]{20,}$/i.test(s || '');
+    let best = '';
+    for (const cand of maybeNameFields) {
+      if (!cand) continue;
+      if (ipfsLike(cand)) continue;
+      best = cand;
+      break;
+    }
+    // If still empty, try to build from parts (first + last)
+    if (!best) {
+      const first = [r.given_name, r.first_name].find(v => typeof v === 'string' && v.trim());
+      const last = [r.family_name, r.last_name].find(v => typeof v === 'string' && v.trim());
+      if (first || last) best = [first || '', last || ''].join(' ').trim();
+    }
+    // If name like "Last, First" convert to "First Last"
+    if (/^[^,]+,\s*[^,]+$/.test(best)) {
+      const [a, b] = best.split(',');
+      best = `${b.trim()} ${a.trim()}`.trim();
+    }
+    best = cleanName(best);
+    // Title-case only if it looks all upper or all lower
+    if (best && (best === best.toUpperCase() || best === best.toLowerCase())) {
+      best = smartTitleCase(best);
+    }
+    r.displayName = best || (cid || '');
+    // Ensure text field has at least the chosen name
+    const desc = typeof r.description === 'string' ? r.description : '';
+    const tags = [r.mbti, r.socionics, r.big5].filter(Boolean).join(' ');
+    const baseText = typeof r.text === 'string' && r.text.trim() ? r.text : '';
+    r.text = [r.displayName, tags, desc, baseText].filter(Boolean).join(' ').trim();
+    r.cid = cid; // normalize to string
+    return r;
+  }
+
+  function cleanName(s) {
+    if (!s) return '';
+    let t = String(s).normalize('NFC');
+    t = t.replace(/^['"\s]+|['"\s]+$/g, ''); // trim quotes/spaces
+    t = t.replace(/\s+/g, ' '); // collapse whitespace
+    return t;
+  }
+
+  function smartTitleCase(s) {
+    return s.split(' ').map(part => {
+      if (!part) return '';
+      // Preserve all-uppercase acronyms <= 4 chars
+      if (part.length <= 4 && part === part.toUpperCase()) return part;
+      const lower = part.toLowerCase();
+      return lower.replace(/^[\p{L}]/u, c => c.toUpperCase());
+    }).join(' ');
+  }
 
   return { load, loadFromRows, loadFromParquet, search, getByCid, size, getSource };
 })();

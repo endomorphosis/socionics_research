@@ -98,7 +98,21 @@ const VEC = (() => {
       // Use HNSW index (cosine metric). Distances are (1 - cosine).
       let res;
       try {
-        res = INDEX_HNSW.searchKnn(vec, k);
+        if (typeof INDEX_HNSW.searchKnn === 'function') {
+          res = INDEX_HNSW.searchKnn(vec, k);
+        } else if (typeof INDEX_HNSW.knnQuery === 'function') {
+          // Some builds expose knnQuery returning arrays
+          const out = INDEX_HNSW.knnQuery([vec], k);
+          // Normalize to { neighbors, distances }
+          if (out && Array.isArray(out) && out.length > 0) {
+            const row = out[0];
+            if (row && row.neighbors && row.distances) {
+              res = row;
+            } else if (Array.isArray(row)) {
+              res = { neighbors: row.map((r) => r[0] | 0), distances: row.map((r) => r[1] ?? 0) };
+            }
+          }
+        }
       } catch (e) {
         console.warn('HNSW search failed, falling back:', e);
         res = null;
@@ -150,17 +164,30 @@ const VEC = (() => {
   const { loadHnswlib } = await import('./hnswlib_loader.js');
     HNSW = await loadHnswlib();
     const dim = V[0].length;
-  // cosine metric; pass max elements as 3rd arg for ctor
-  const index = new HNSW.HierarchicalNSW('cosine', dim);
-    // parameters: max elements, M, efConstruction, random seed
-  index.initIndex(V.length, 36, EF_CONSTRUCTION, 100);
-  index.setEfSearch(EF_SEARCH);
+  // Create index using 3-arg ctor when required, fallback to 2-arg
+  let index;
+  try {
+    index = createHnswIndex(HNSW, dim, V.length);
+  } catch (e) {
+    throw new Error('HNSW ctor failed on main thread: ' + (e && e.message || e));
+  }
+  try { emit('vec:hnsw:ctor', { which: (index && index._ctorWhich) || ((index && index.maxElements) ? '3-arg' : '2-arg') }); } catch {}
+    // Initialize if available; try multiple signatures
+  try { if (typeof index.initIndex === 'function') initIndexCompat(index, dim, V.length, EF_CONSTRUCTION); } catch {}
+  try { setEf(index, EF_SEARCH); } catch {}
   // add items using array-of-rows to align with documented API (addPoints)
   const n = V.length, d = dim;
   const rows = V.map((row) => row);
   const labels = new Array(n);
   for (let i = 0; i < n; i++) labels[i] = i;
-  index.addPoints(rows, labels, false);
+  if (typeof index.addPoints === 'function') {
+    index.addPoints(rows, labels, false);
+  } else if (typeof index.addItems === 'function') {
+    try { index.addItems(rows, false, labels); }
+    catch (e1) { try { index.addItems(rows, false); } catch (e2) { index.addItems(rows); } }
+  } else {
+    throw new Error('HNSW index missing addPoints/addItems');
+  }
     INDEX_HNSW = index;
     console.log('HNSW index built');
     try { emit('vec:hnsw:build:end', {}); } catch {}
@@ -184,12 +211,13 @@ const VEC = (() => {
   BUILDING = true;
   const w = getWorker();
   const bytes = await postWorker('hnsw:build', { buf: flat.buffer, n, d, efC: EF_CONSTRUCTION }, [flat.buffer]);
-      // Create an empty index and read bytes
+  // Create an empty index and read bytes
   const { loadHnswlib } = await import('./hnswlib_loader.js');
       HNSW = await loadHnswlib();
-  const index = new HNSW.HierarchicalNSW('cosine', d);
-      index.readIndex(new Uint8Array(bytes));
-  index.setEfSearch(EF_SEARCH);
+  const index = createHnswIndex(HNSW, d, n);
+      try { emit('vec:hnsw:ctor', { which: (index && index._ctorWhich) || ((index && index.maxElements) ? '3-arg' : '2-arg') }); } catch {}
+  readIndexCompat(index, new Uint8Array(bytes), HNSW);
+  try { setEf(index, EF_SEARCH); } catch {}
       INDEX_HNSW = index;
       try { emit('vec:hnsw:build:end', {}); } catch {}
       try { await saveHnswToCache(); emit('vec:hnsw:cache:saved', {}); } catch {}
@@ -197,7 +225,8 @@ const VEC = (() => {
       return;
     } catch (e) {
       console.warn('HNSW worker build failed, building on main thread:', e);
-  try { await buildHnswIndex(); } finally { BUILDING = false; }
+      try { emit('vec:hnsw:debug', { message: 'worker failed; building on main thread' }); } catch {}
+      try { await buildHnswIndex(); } finally { BUILDING = false; }
     }
   }
 
@@ -229,6 +258,7 @@ const VEC = (() => {
     // mirror upper to lower and scale
     for (let a = 0; a < d; a++) {
       for (let b = a; b < d; b++) {
+        // scale covariance values
         const val = C[a * d + b] * inv;
         C[a * d + b] = val;
         if (a !== b) C[b * d + a] = val;
@@ -318,8 +348,18 @@ const VEC = (() => {
     if (WORKER) return WORKER;
     // Vite will handle bundling worker when referenced via new URL(..., import.meta.url)
   // Add a tiny cache-buster to avoid stale worker code after updates
-  const url = new URL('./vec_worker.js?v=2', import.meta.url);
+  const url = new URL('./vec_worker.js?v=10', import.meta.url);
   WORKER = new Worker(url, { type: 'module' });
+    try {
+      WORKER.addEventListener('message', (ev) => {
+        const m = ev.data || {};
+        if (m && m.type === 'hnsw:ctor') {
+          try { emit('vec:hnsw:ctor', { which: m.which || '?' }); } catch {}
+        } else if (m && m.type === 'debug') {
+          try { emit('vec:hnsw:debug', { message: m.which || m.message || '' }); } catch {}
+        }
+      });
+    } catch {}
     return WORKER;
   }
 
@@ -335,6 +375,9 @@ const VEC = (() => {
           try { emit('vec:pca:start', { phase: m.phase, i: m.i, n: m.n }); } catch {}
         } else if (m.type === 'hnsw:progress') {
           try { emit('vec:hnsw:build:start', { count: m.total, added: m.added }); } catch {}
+        } else if (m.type === 'debug') {
+          // Avoid console spam; UI listens to vec:hnsw:debug
+          try { emit('vec:hnsw:debug', { message: m.which || m.message || '' }); } catch {}
         }
         if (m.type === 'error') {
           w.removeEventListener('message', onMsg);
@@ -434,6 +477,25 @@ const VEC = (() => {
     return PROJ.get(cid) || null;
   }
 
+  function setEf(index, v){
+    try {
+      if (typeof index.setEfSearch === 'function') return index.setEfSearch(v);
+      if (typeof index.setEf === 'function') return index.setEf(v);
+      if ('ef' in index) { try { index.ef = v; } catch {} }
+    } catch {}
+  }
+
+  function initIndexCompat(index, dim, maxE, efC){
+    const tries = [
+      () => index.initIndex(maxE, 36, efC, 100),
+      () => index.initIndex(dim, maxE, 36, efC),
+      () => index.initIndex(dim, 36, efC),
+      () => index.initIndex(maxE, 36, efC)
+    ];
+    for (const t of tries) { try { t(); return true; } catch {} }
+    return false;
+  }
+
   // ---------- IndexedDB cache helpers ----------
   function datasetSignature() {
     const d = V && V[0] ? V[0].length : 0;
@@ -487,12 +549,13 @@ const VEC = (() => {
   const { loadHnswlib } = await import('./hnswlib_loader.js');
       HNSW = await loadHnswlib();
       const dim = V[0].length;
-  const index = new HNSW.HierarchicalNSW('cosine', dim);
+  const index = createHnswIndex(HNSW, dim, IDS.length || 0);
       if (!entry || !entry.data) return false;
-      const bytes = entry.data instanceof Uint8Array ? entry.data : new Uint8Array(entry.data);
-      if (!bytes || !bytes.length) return false;
-      index.readIndex(bytes);
-    index.setEfSearch(EF_SEARCH);
+  const bytes = entry.data instanceof Uint8Array ? entry.data : new Uint8Array(entry.data);
+  if (!bytes || !bytes.length) return false;
+  readIndexCompat(index, bytes, HNSW);
+    try { emit('vec:hnsw:ctor', { which: (index && index._ctorWhich) || ((index && index.maxElements) ? '3-arg' : '2-arg') }); emit('vec:hnsw:debug', { message: 'loaded from cache' }); } catch {}
+    try { setEf(index, EF_SEARCH); } catch {}
       INDEX_HNSW = index;
       CACHE_STATE = 'loaded';
       console.log('HNSW index loaded from cache');
@@ -511,7 +574,7 @@ const VEC = (() => {
       const sig = datasetSignature();
       const key = `hnsw:${sig}`;
       // writeIndex may return Uint8Array
-      const bytes = INDEX_HNSW.writeIndex();
+  const bytes = writeIndexCompat(INDEX_HNSW, HNSW);
       const payload = { sig, data: bytes, createdAt: Date.now() };
       await idbSet(key, payload);
       CACHE_STATE = 'saved';
@@ -527,7 +590,7 @@ const VEC = (() => {
   async function exportIndex() {
     if (!INDEX_HNSW) return null;
     try {
-      const bytes = INDEX_HNSW.writeIndex();
+  const bytes = writeIndexCompat(INDEX_HNSW, HNSW);
       return bytes; // Uint8Array
     } catch (e) {
       console.warn('Export HNSW failed:', e);
@@ -541,10 +604,11 @@ const VEC = (() => {
       const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   const { loadHnswlib } = await import('./hnswlib_loader.js');
       HNSW = await loadHnswlib();
-      const dim = V[0].length;
-  const index = new HNSW.HierarchicalNSW('cosine', dim);
-      index.readIndex(arr);
-  index.setEfSearch(EF_SEARCH);
+    const dim = V[0].length;
+  const index = createHnswIndex(HNSW, dim, IDS.length || 0);
+    readIndexCompat(index, arr, HNSW);
+  try { emit('vec:hnsw:ctor', { which: (index && index._ctorWhich) || ((index && index.maxElements) ? '3-arg' : '2-arg') }); emit('vec:hnsw:debug', { message: 'imported index' }); } catch {}
+  try { setEf(index, EF_SEARCH); } catch {}
       INDEX_HNSW = index;
       await saveHnswToCache();
       try { emit('vec:hnsw:build:end', {}); emit('vec:hnsw:cache:saved', {}); } catch {}
@@ -597,10 +661,145 @@ const VEC = (() => {
   function isLoaded() { return V.length > 0; }
   function getSource() { return VEC_URL || ''; }
   function isBuilding() { return !!BUILDING; }
-  function setEfSearch(v){ try{ EF_SEARCH = Math.max(4, Math.min(1024, v|0)); if (INDEX_HNSW) INDEX_HNSW.setEfSearch(EF_SEARCH); }catch{} }
+  function setEfSearch(v){
+    try {
+      EF_SEARCH = Math.max(4, Math.min(1024, v|0));
+      if (INDEX_HNSW) setEf(INDEX_HNSW, EF_SEARCH);
+    } catch {}
+  }
   function getEfSearch(){ return EF_SEARCH; }
   function setEfConstruction(v){ try{ EF_CONSTRUCTION = Math.max(8, Math.min(2048, v|0)); }catch{} }
   function getEfConstruction(){ return EF_CONSTRUCTION; }
+
+  // ---- Internal helpers ----
+  function createHnswIndex(HNSWLib, dim, maxElements){
+  const maxE = Math.max(1, maxElements|0);
+  const space = 'cosine';
+  const d = Math.max(1, dim|0);
+  const ctors = [];
+  const add = (f) => { if (typeof f === 'function') ctors.push(f); };
+  add(HNSWLib && HNSWLib.HierarchicalNSW);
+  add(HNSWLib && HNSWLib.default && HNSWLib.default.HierarchicalNSW);
+  add(HNSWLib && HNSWLib.hnswlib && HNSWLib.hnswlib.HierarchicalNSW);
+  // Probe other function exports with matching prototype methods
+  try {
+    for (const v of Object.values(HNSWLib || {})) {
+      if (typeof v === 'function') {
+        const proto = v && v.prototype ? Object.getOwnPropertyNames(v.prototype) : [];
+        if (proto.includes('addPoints') || proto.includes('addItems')) add(v);
+      }
+    }
+  } catch {}
+  // De-duplicate
+  const uniq = [];
+  const seen = new Set();
+  for (const f of ctors) { const id = String(f && f.name || 'ctor'); if (!seen.has(id)) { uniq.push(f); seen.add(id); } }
+  // Debug: log available keys once
+  try {
+    const keys = Object.keys(HNSWLib || {}).slice(0, 12).join(',');
+    console.debug('HNSW keys:', keys);
+    try { emit('vec:hnsw:debug', { message: `keys: ${keys}` }); } catch {}
+  } catch {}
+  const errs = [];
+  const perms3 = [
+    ['space','dim','maxE','space,dim,maxE'],
+    ['dim','space','maxE','dim,space,maxE'],
+    ['dim','maxE','space','dim,maxE,space'],
+    ['maxE','dim','space','maxE,dim,space'],
+    ['space','maxE','dim','space,maxE,dim'],
+    ['maxE','space','dim','maxE,space,dim']
+  ];
+  for (const Ctor of uniq) {
+    try { const idx = new Ctor(space, d, ''); idx._ctorWhich = '3-arg space,dim,\'\' (new)'; return idx; } catch (e) { errs.push(e && e.message ? e.message : String(e)); }
+    try { const idx = new Ctor(space, d, '/hnsw_autosave.bin'); idx._ctorWhich = '3-arg space,dim,/hnsw_autosave.bin (new)'; return idx; } catch (e) { errs.push(e && e.message ? e.message : String(e)); }
+    for (const [a,b,c,tag] of perms3) {
+      try {
+        const args = { space, dim: d, maxE };
+        const idx = new Ctor(args[a], args[b], String(args[c]));
+        idx._ctorWhich = `3-arg ${tag} (new)`;
+        return idx;
+      } catch (e) { errs.push(e && e.message ? e.message : String(e)); }
+    }
+  }
+  // Try 2-arg permutations, rely on initIndex later
+  for (const Ctor of uniq) {
+    try { const idx = new Ctor(space, d); idx._ctorWhich = '2-arg space,dim (new)'; return idx; } catch (e) { errs.push(e && e.message ? e.message : String(e)); }
+    try { const idx = new Ctor(d, space); idx._ctorWhich = '2-arg dim,space (new)'; return idx; } catch (e) { errs.push(e && e.message ? e.message : String(e)); }
+  }
+  // Last resort: enum metric
+  try { const METRIC = (HNSWLib && HNSWLib.MetricSpace && HNSWLib.MetricSpace.COSINE) || space; const Ctor = uniq[0]; if (Ctor) { const idx = new Ctor(METRIC, d, maxE); idx._ctorWhich = '3-arg METRIC const (new)'; return idx; } } catch (e) { errs.push(e && e.message ? e.message : String(e)); }
+  try { emit('vec:hnsw:debug', { message: `ctor failed: ${errs.join(' | ')}` }); } catch {}
+  throw new Error('HierarchicalNSW constructor variants exhausted: ' + errs.join(' | '));
+  }
+
+  // --- Compatibility helpers for path-based read/write ---
+  function ensureFS(api) {
+    const FS = api && (api.FS || (api.Module && api.Module.FS));
+    if (!FS || typeof FS.readFile !== 'function' || typeof FS.writeFile !== 'function') {
+  throw new Error('FS was not exported. add it to EXPORTED_RUNTIME_METHODS (see the FAQ)');
+    }
+    return FS;
+  }
+
+  function readIndexCompat(index, bytes, api) {
+    // Try byte-array API first
+    try {
+      index.readIndex(bytes);
+      return true;
+    } catch (e) {
+      const msg = e && (e.message || String(e));
+      if (!(msg && /std::string|string|argument/i.test(msg))) throw e;
+    }
+    // Path-based: write bytes to FS then read by path
+    const FS = ensureFS(api);
+    const path = `/hnsw_${Date.now()}_${Math.random().toString(36).slice(2)}.bin`;
+    FS.writeFile(path, bytes);
+    // Try common variants
+    let ok = false; const errs = [];
+    const tries = [
+      () => index.readIndex(path),
+      () => index.readIndex(path, false),
+      () => index.readIndex(path, true),
+      () => index.readIndex(path, (IDS && IDS.length) || 0),
+      () => index.readIndex(path, (IDS && IDS.length) || 0, false),
+      () => index.readIndex(path, (IDS && IDS.length) || 0, true)
+    ];
+    for (const t of tries) {
+      try { t(); ok = true; break; } catch (e) { errs.push(e && e.message ? e.message : String(e)); }
+    }
+    if (!ok) {
+      try { FS.unlink && FS.unlink(path); } catch {}
+      throw new Error('HNSW readIndex failed: ' + errs.join(' | '));
+    }
+    try { FS.unlink && FS.unlink(path); } catch {}
+    return true;
+  }
+
+  function writeIndexCompat(index, api) {
+    try {
+      const out = index.writeIndex();
+      if (out && (out instanceof Uint8Array || ArrayBuffer.isView(out))) return out;
+    } catch (e) {
+      const msg = e && (e.message || String(e));
+      if (!(msg && /std::string|string|argument/i.test(msg))) throw e;
+    }
+    const FS = ensureFS(api);
+    const path = `/hnsw_${Date.now()}_${Math.random().toString(36).slice(2)}.bin`;
+    // Some builds require additional params
+    let ok = false; const errs = [];
+    const tries = [
+      () => index.writeIndex(path),
+      () => index.writeIndex(path, false),
+      () => index.writeIndex(path, true)
+    ];
+    for (const t of tries) {
+      try { t(); ok = true; break; } catch (e) { errs.push(e && e.message ? e.message : String(e)); }
+    }
+    if (!ok) throw new Error('HNSW writeIndex failed: ' + errs.join(' | '));
+    const bytes = FS.readFile(path);
+    try { FS.unlink && FS.unlink(path); } catch {}
+    return bytes;
+  }
 
   return { load, loadFromParquet, loadFromRows, similarByCid, getVector, projectCid, size, isHnswReady, isLoaded, getCacheState, clearHnswCache, rebuildIndex, getSource, exportIndex, importIndex, cancelBuild, isBuilding, setEfSearch, getEfSearch, setEfConstruction, getEfConstruction, setUseCache, getUseCache };
 })();

@@ -20,7 +20,7 @@ window.addEventListener('DOMContentLoaded', () => {
   searchDiv.innerHTML = `
   <label for="search-input" style="font-weight:bold;font-size:1.1em;margin-bottom:0.5em;">Semantic Search (client-side)</label>
     <input id="search-input" type="text" placeholder="Search for a celebrity..." autocomplete="off" style="padding:0.7em 1em;font-size:1.1em;border-radius:8px;border:1.5px solid #bbb;margin-bottom:0.7em;" />
-  <small style="color:#666">Tip: prefix with cid:Qm... to use vector KNN by CID</small>
+  <small style="color:#666">Tip: prefix with cid:Qm... to use vector KNN by CID (names come from Profiles)</small>
     <div id="search-status" style="color:#666;margin:0.25em 0 0.25em 0;font-size:0.85em;"></div>
     <div id="search-progress" style="color:#888;margin:0 0 0.5em 0;font-size:0.8em;height:1.2em;"></div>
     <div id="search-actions" style="display:flex;gap:0.5em;margin-bottom:0.5em;flex-wrap:wrap;align-items:center;">
@@ -44,10 +44,18 @@ window.addEventListener('DOMContentLoaded', () => {
       <label style="display:flex;align-items:center;gap:0.3em;color:#444;font-size:0.9em;" title="Skip load/save HNSW index to IndexedDB">
         <input type="checkbox" id="chk-no-cache" /> No cache
       </label>
+      <span style="display:flex;align-items:center;gap:0.3em;color:#444;font-size:0.9em;">
+        <label title="Show internal debug messages" style="display:inline-flex;align-items:center;gap:0.3em;">
+          <input type="checkbox" id="chk-debug" /> Debug
+        </label>
+        <button id="btn-clear-debug" title="Clear debug log" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Clear</button>
+        <button id="btn-copy-debug" title="Copy debug log to clipboard" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Copy</button>
+      </span>
     </div>
   <div id="progress-bar" style="height:6px;background:#eee;border-radius:4px;overflow:hidden;margin:-0.25em 0 0.5em 0;">
     <div id="progress-bar-fill" style="height:100%;width:0;background:#4363d8;transition:width 0.12s ease;"></div>
   </div>
+  <pre id="debug-log" style="display:none;white-space:pre-wrap;background:#fafafa;border:1px solid #eee;border-radius:6px;padding:0.5em;color:#444;max-height:160px;overflow:auto;margin:0 0 0.5em 0;"></pre>
   <div id="toast" style="position:fixed;bottom:16px;left:16px;max-width:60vw;background:#333;color:#fff;padding:0.6em 0.8em;border-radius:6px;opacity:0;transform:translateY(10px);transition:opacity 0.2s, transform 0.2s;z-index:1006;"></div>
   <div id="search-results" style="max-height:260px;overflow-y:auto;"></div>
   `;
@@ -71,6 +79,10 @@ window.addEventListener('DOMContentLoaded', () => {
   const selProfiles = searchDiv.querySelector('#sel-profiles');
   const chkAuto = searchDiv.querySelector('#chk-auto-parquet');
   const chkNoCache = searchDiv.querySelector('#chk-no-cache');
+  const chkDebug = searchDiv.querySelector('#chk-debug');
+  const debugPre = searchDiv.querySelector('#debug-log');
+  const btnClearDebug = searchDiv.querySelector('#btn-clear-debug');
+  const btnCopyDebug = searchDiv.querySelector('#btn-copy-debug');
   const progressFill = searchDiv.querySelector('#progress-bar-fill');
   const toastEl = searchDiv.querySelector('#toast');
   let currentResults = [];
@@ -98,6 +110,7 @@ window.addEventListener('DOMContentLoaded', () => {
         profiles: selProfiles && selProfiles.value || '',
   autoParquet: !!(chkAuto && chkAuto.checked),
   noCache: !!(chkNoCache && chkNoCache.checked),
+  debug: !!(chkDebug && chkDebug.checked),
   efSearch: numEf ? (parseInt(numEf.value, 10) || 64) : 64,
   efConstruction: numEfc ? (parseInt(numEfc.value, 10) || 200) : 200
       };
@@ -113,6 +126,22 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   function baseName(p){ try{ return String(p||'').split('/').pop(); }catch{ return String(p||''); } }
+
+  function logDebug(msg) {
+    try {
+      if (!debugPre) return;
+      const prior = (debugPre.textContent || '').split('\n').filter(Boolean);
+      const ts = new Date().toISOString().slice(11, 19);
+      prior.push(`[${ts}] ${msg}`);
+      const kept = prior.slice(-200);
+      debugPre.textContent = kept.join('\n');
+      if (chkDebug && chkDebug.checked) {
+        debugPre.style.display = 'block';
+        // auto-scroll to bottom when visible
+        try { debugPre.scrollTop = debugPre.scrollHeight; } catch {}
+      }
+    } catch {}
+  }
 
   async function populateDatasetSelectors() {
     try {
@@ -155,12 +184,14 @@ window.addEventListener('DOMContentLoaded', () => {
       }
   if (chkAuto) chkAuto.checked = !!(prefs && prefs.autoParquet);
   if (chkNoCache) chkNoCache.checked = !!(prefs && prefs.noCache);
+  if (chkDebug) chkDebug.checked = !!(prefs && prefs.debug);
   if (numEf && prefs && typeof prefs.efSearch === 'number') numEf.value = String(prefs.efSearch);
   if (numEfc && prefs && typeof prefs.efConstruction === 'number') numEfc.value = String(prefs.efConstruction);
       // If first run (no prefs) and we have valid options, default-enable auto parquet
       if (!prefs && selVectors.options.length && selProfiles.options.length) {
         if (chkAuto) chkAuto.checked = true;
       }
+      if (debugPre) debugPre.style.display = (chkDebug && chkDebug.checked) ? 'block' : 'none';
     } catch (e) {
       // Fallback to defaults
       if (selVectors && !selVectors.options.length) {
@@ -193,7 +224,8 @@ window.addEventListener('DOMContentLoaded', () => {
         const hits = window.VEC.similarByCid(cid, 20);
         filtered = hits.map(h => {
           const rec = window.KNN && window.KNN.getByCid ? window.KNN.getByCid(h.cid) : null;
-          return { cid: h.cid, name: rec?.name || h.cid, mbti: rec?.mbti, socionics: rec?.socionics, big5: rec?.big5, _score: h._score };
+          const nm = (rec?.displayName) || (rec?.name) || h.cid;
+          return { cid: h.cid, name: nm, displayName: nm, mbti: rec?.mbti, socionics: rec?.socionics, big5: rec?.big5, _score: h._score };
         });
       } else {
         filtered = window.KNN.search(q, 20);
@@ -316,6 +348,18 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Visually highlight the currently selected result row
+  function highlightSelected() {
+    try {
+      const rows = resultsDiv ? resultsDiv.querySelectorAll('div[data-index]') : [];
+      rows.forEach((el) => {
+        const idx = parseInt(el.dataset.index || '-1', 10);
+        const isSel = idx === selectedIndex;
+        el.style.background = isSel ? '#e8f0ff' : 'none';
+      });
+    } catch {}
+  }
+
   let tSearch;
   input.addEventListener('input', () => {
     clearTimeout(tSearch);
@@ -382,7 +426,7 @@ window.addEventListener('DOMContentLoaded', () => {
   })();
 
   function computePersonVisual(row) {
-    const label = row.name || row.cid || 'Unknown';
+    const label = row.displayName || row.name || row.cid || 'Unknown';
     const color = '#4363d8';
     // Prefer vector PCA projection if available
     let x = 0, y = 0, z = 0;
@@ -412,7 +456,8 @@ window.addEventListener('DOMContentLoaded', () => {
   const building = (window.VEC && window.VEC.isBuilding && window.VEC.isBuilding());
   const ef = (window.VEC && window.VEC.getEfSearch) ? window.VEC.getEfSearch() : 64;
   const useCache = (window.VEC && window.VEC.getUseCache) ? window.VEC.getUseCache() : true;
-  if (statusDiv) statusDiv.textContent = `Profiles: ${nProfiles} (${pShort}) · Vectors: ${vecN} (${srcShort}) · HNSW: ${hnsw ? 'ready' : 'off'} · ef ${ef} · Cache: ${cache}${useCache ? '' : ' (disabled)'}${building ? ' · Building…' : ''}`;
+  const ctor = window.__HNSW_CTOR || '';
+  if (statusDiv) statusDiv.textContent = `Profiles: ${nProfiles} (${pShort}) · Vectors: ${vecN} (${srcShort}) · HNSW: ${hnsw ? 'ready' : 'off'}${ctor ? ' ('+ctor+')' : ''} · ef ${ef} · Cache: ${cache}${useCache ? '' : ' (disabled)'}${building ? ' · Building…' : ''}`;
   }
 
   function setProgress(msg) { if (progressDiv) progressDiv.textContent = msg || ''; }
@@ -462,9 +507,25 @@ window.addEventListener('DOMContentLoaded', () => {
     setBuildingUI(true);
   });
   window.addEventListener('vec:hnsw:build:end', () => { setProgress('HNSW: built.'); resetProgressSoon(); setBuildingUI(false); updateStatus(window.KNN && window.KNN.size ? window.KNN.size() : 0); });
-  window.addEventListener('vec:hnsw:cache:loaded', () => { setProgress('HNSW: loaded from cache.'); resetProgressSoon(); toast('HNSW cache loaded'); });
-  window.addEventListener('vec:hnsw:cache:saved', () => { setProgress('HNSW: cached.'); resetProgressSoon(); });
-  window.addEventListener('vec:hnsw:error', () => { setProgress('HNSW: error (fallback).'); resetProgressSoon(); setBuildingUI(false); updateStatus(window.KNN && window.KNN.size ? window.KNN.size() : 0); toast('HNSW error; using fallback', false); });
+  window.addEventListener('vec:hnsw:ctor', (e) => { try { const which = e.detail && e.detail.which ? e.detail.which : ''; window.__HNSW_CTOR = which; updateStatus(window.KNN && window.KNN.size ? window.KNN.size() : 0); if (which) logDebug(`ctor: ${which}`); } catch {} });
+  window.addEventListener('vec:hnsw:debug', (e) => {
+    try {
+      const d = e.detail || {};
+  if (d.message) { setProgress(`HNSW: ${d.message}`); logDebug(d.message); }
+    } catch {}
+  });
+  window.addEventListener('vec:hnsw:cache:loaded', () => { setProgress('HNSW: loaded from cache.'); resetProgressSoon(); toast('HNSW cache loaded'); try { logDebug('cache: loaded'); } catch {} });
+  window.addEventListener('vec:hnsw:cache:saved', () => { setProgress('HNSW: cached.'); resetProgressSoon(); try { logDebug('cache: saved'); } catch {} });
+  window.addEventListener('vec:hnsw:error', (e) => {
+    const d = (e && e.detail) || {};
+    const msg = d.message ? `HNSW: error (fallback). ${d.message}` : 'HNSW: error (fallback).';
+    setProgress(msg);
+    resetProgressSoon();
+    setBuildingUI(false);
+    updateStatus(window.KNN && window.KNN.size ? window.KNN.size() : 0);
+  toast('HNSW error; using fallback', false);
+  try { if (d && d.message) logDebug(`error: ${d.message}`); } catch {}
+  });
 
   if (btnRebuild) btnRebuild.onclick = async () => {
     if (window.VEC && window.VEC.rebuildIndex) {
@@ -602,6 +663,19 @@ window.addEventListener('DOMContentLoaded', () => {
     if (window.VEC && window.VEC.setUseCache) window.VEC.setUseCache(!(chkNoCache.checked));
     savePrefs();
     updateStatus(window.KNN && window.KNN.size ? window.KNN.size() : 0);
+  });
+  if (btnClearDebug) btnClearDebug.addEventListener('click', () => { if (debugPre) { debugPre.textContent = ''; toast('Debug cleared'); } });
+  if (btnCopyDebug) btnCopyDebug.addEventListener('click', async () => {
+    try {
+      const txt = debugPre ? debugPre.textContent : '';
+      if (!txt) { toast('Debug log empty'); return; }
+      await navigator.clipboard.writeText(txt);
+      toast('Copied debug log');
+    } catch { toast('Copy failed', false); }
+  });
+  if (chkDebug) chkDebug.addEventListener('change', () => {
+    if (debugPre) debugPre.style.display = chkDebug.checked ? 'block' : 'none';
+    savePrefs();
   });
   if (numEfc) numEfc.addEventListener('change', () => {
     const v = parseInt(numEfc.value, 10) || 200;

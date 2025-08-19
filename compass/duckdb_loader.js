@@ -9,12 +9,13 @@ const DuckVec = (() => {
 
   async function init() {
     if (db) return;
-    const bundles = duckdb.getJsDelivrBundles();
-    const bundle = await duckdb.selectBundle(bundles);
-    const worker = new Worker(bundle.mainWorker);
+  // Use local worker/wasm to avoid cross-origin Worker errors
+  const mainWorkerUrl = new URL('@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js', import.meta.url);
+  const wasmUrl = new URL('@duckdb/duckdb-wasm/dist/duckdb-eh.wasm', import.meta.url);
+  const worker = new Worker(mainWorkerUrl);
     const logger = new duckdb.ConsoleLogger();
     db = new duckdb.AsyncDuckDB(logger, worker);
-    await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+  await db.instantiate(wasmUrl.toString());
     conn = await db.connect();
     // Enable HTTPFS so DuckDB can read from /dataset
     try {
@@ -31,12 +32,22 @@ const DuckVec = (() => {
     // Try common column names for id and vector fields
     const idCols = ['cid', 'profile_cid', 'id', 'profile_id', 'uuid', 'uid', 'profile_uuid', 'profile_uid'];
     const vecCols = ['vector', 'embedding', 'embeddings', 'vec', 'values', 'vectors', 'features', 'feat', 'embedding_vector', 'vector_64', 'embedding_64'];
+    // Ensure DuckDB httpfs sees an absolute HTTP(S) URL, not a local path
+    const absUrl = new URL(parquetUrl, (globalThis.location && globalThis.location.origin) || 'http://localhost:3000').toString();
+    // Quick existence check to avoid spamming errors if file is missing
+    try {
+      const head = await fetch(absUrl, { method: 'HEAD' });
+      if (!head.ok) throw new Error(`HTTP ${head.status}`);
+    } catch (e) {
+      console.error('DuckDB vectors: parquet not reachable at', absUrl, e && e.message || e);
+      throw new Error(`Parquet not found at ${absUrl}`);
+    }
     let res;
     let used = null;
     let lastErr = null;
     for (const idc of idCols) {
       for (const vc of vecCols) {
-        const sql = `SELECT CAST(${idc} AS VARCHAR) AS cid, list_transform(${vc}, x -> CAST(x AS DOUBLE)) AS vector FROM read_parquet('${parquetUrl}')`;
+        const sql = `SELECT CAST(${idc} AS VARCHAR) AS cid, list_transform(${vc}, x -> CAST(x AS DOUBLE)) AS vector FROM read_parquet('${absUrl}')`;
         try {
           res = await conn.query(sql);
           used = { idc, vc };
@@ -53,7 +64,7 @@ const DuckVec = (() => {
       console.error('DuckDB vectors autodetect failed:', lastErr);
       throw new Error(`DuckDB could not locate id/vector columns in Parquet (${parquetUrl}). Tried ids=[${idCols.join(', ')}]; vectors=[${vecCols.join(', ')}]. Ensure the file is reachable under /dataset and contains one id column plus an array-like vector column.`);
     }
-    console.info(`DuckDB vectors: using id='${used.idc}', vector='${used.vc}' from ${parquetUrl}`);
+  console.info(`DuckDB vectors: using id='${used.idc}', vector='${used.vc}' from ${absUrl}`);
     const out = [];
     for (let i = 0; i < res.numRows; i++) {
       const row = res.get(i);
@@ -71,35 +82,45 @@ const DuckVec = (() => {
     await init();
     // Autodetect typical columns
     const idCols = ['cid', 'profile_cid', 'id', 'profile_id', 'uuid', 'uid', 'profile_uuid', 'profile_uid'];
-    const nameCols = ['name', 'profile_name', 'display_name', 'title', 'profile_title'];
+  const nameCols = ['display_name', 'displayName', 'name', 'profile_name', 'title', 'profile_title'];
     const mbtiCols = ['mbti', 'mbti_type', 'mbti_code'];
     const socCols = ['socionics', 'socionics_type', 'socionics_code'];
     const big5Cols = ['big5', 'bigfive', 'big_five', 'big5_code'];
     const descCols = ['description', 'bio', 'about', 'summary'];
+    // Ensure absolute URL
+    const absUrl = new URL(parquetUrl, (globalThis.location && globalThis.location.origin) || 'http://localhost:3000').toString();
 
   function coalesceExpr(cols) { return cols.map(c => `TRY_CAST(${c} AS VARCHAR)`).join(' , '); }
 
+    // Quick existence check
+    try {
+      const head = await fetch(absUrl, { method: 'HEAD' });
+      if (!head.ok) throw new Error(`HTTP ${head.status}`);
+    } catch (e) {
+      console.error('DuckDB profiles: parquet not reachable at', absUrl, e && e.message || e);
+      throw new Error(`Parquet not found at ${absUrl}`);
+    }
     let res;
     let lastErr = null;
     let chosen = null;
     for (const idc of idCols) {
       // Build COALESCE chains for optional columns
-      const nameExpr = `COALESCE(${coalesceExpr(nameCols)}, '')`;
+  const nameExpr = `NULLIF(TRIM(COALESCE(${coalesceExpr(nameCols)}, '')), '')`;
       const mbtiExpr = `COALESCE(${coalesceExpr(mbtiCols)}, '')`;
       const socExpr = `COALESCE(${coalesceExpr(socCols)}, '')`;
       const big5Expr = `COALESCE(${coalesceExpr(big5Cols)}, '')`;
       const sql = `
         SELECT
           CAST(${idc} AS VARCHAR) AS cid,
-          ${nameExpr} AS name,
+          COALESCE(${nameExpr}, '') AS name,
           ${mbtiExpr} AS mbti,
           ${socExpr} AS socionics,
           ${big5Expr} AS big5,
           COALESCE(${coalesceExpr(descCols)}, '') AS description,
           TRIM(
-            CONCAT_WS(' ', ${nameExpr}, ${mbtiExpr}, ${socExpr}, ${big5Expr}, COALESCE(${coalesceExpr(descCols)}, ''))
+            CONCAT_WS(' ', COALESCE(${nameExpr}, ''), ${mbtiExpr}, ${socExpr}, ${big5Expr}, COALESCE(${coalesceExpr(descCols)}, ''))
           ) AS text
-        FROM read_parquet('${parquetUrl}')
+  FROM read_parquet('${absUrl}')
       `;
       try {
         res = await conn.query(sql);
@@ -115,7 +136,7 @@ const DuckVec = (() => {
       console.error('DuckDB profiles autodetect failed:', lastErr);
       throw new Error(`DuckDB could not locate id column in profiles Parquet (${parquetUrl}). Tried ids=[${idCols.join(', ')}]. Ensure the file is reachable under /dataset and contains a unique profile id column.`);
     }
-    console.info(`DuckDB profiles: using id='${chosen.idc}' from ${parquetUrl}`);
+  console.info(`DuckDB profiles: using id='${chosen.idc}' from ${absUrl}`);
     const out = [];
     for (let i = 0; i < res.numRows; i++) {
       const r = res.get(i);
