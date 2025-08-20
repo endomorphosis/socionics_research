@@ -20,7 +20,7 @@ window.addEventListener('DOMContentLoaded', () => {
   searchDiv.innerHTML = `
   <label for="search-input" style="font-weight:bold;font-size:1.1em;margin-bottom:0.5em;">Semantic Search (client-side)</label>
     <input id="search-input" type="text" placeholder="Search for a celebrity..." autocomplete="off" style="padding:0.7em 1em;font-size:1.1em;border-radius:8px;border:1.5px solid #bbb;margin-bottom:0.7em;" />
-  <small style="color:#666">Tip: prefix with cid:Qm... to use vector KNN by CID (names come from Profiles)</small>
+  <small style="color:#666">Tip: prefix with cid:Qm... or id:VALUE (any id) to use vector KNN; names come from Profiles</small>
     <div id="search-status" style="color:#666;margin:0.25em 0 0.25em 0;font-size:0.85em;"></div>
     <div id="search-progress" style="color:#888;margin:0 0 0.5em 0;font-size:0.8em;height:1.2em;"></div>
     <div id="search-actions" style="display:flex;gap:0.5em;margin-bottom:0.5em;flex-wrap:wrap;align-items:center;">
@@ -35,6 +35,11 @@ window.addEventListener('DOMContentLoaded', () => {
       <select id="sel-profiles" title="Choose profiles parquet" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;min-width:200px;"></select>
       <button id="btn-load-profiles" title="Load profiles for KNN" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Load Profiles</button>
       <button id="btn-export-index" title="Export HNSW index" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Export Index</button>
+  <button id="btn-export-vectors" title="Export normalized vectors (Alt: CSV)" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Export Vectors</button>
+  <button id="btn-export-profiles" title="Export enriched profiles (Alt: CSV, Ctrl: Parquet)" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Export Profiles</button>
+  <button id="btn-export-proj" title="Export PCA projections (Alt: CSV, Ctrl: Parquet)" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Export Proj</button>
+  <button id="btn-export-manifest" title="Export dataset manifest (sources, dims, PCA variance)" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Export Manifest</button>
+  <button id="btn-export-idmap" title="Export ID map (Alt: CSV, Ctrl: Parquet)" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Export IdMap</button>
       <label for="file-import-index" style="display:inline-flex;align-items:center;gap:0.3em;border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">
         Import Index <input type="file" id="file-import-index" accept="application/octet-stream,.bin" style="display:none" />
       </label>
@@ -47,6 +52,12 @@ window.addEventListener('DOMContentLoaded', () => {
       <span style="display:flex;align-items:center;gap:0.3em;color:#444;font-size:0.9em;">
         <label title="Show internal debug messages" style="display:inline-flex;align-items:center;gap:0.3em;">
           <input type="checkbox" id="chk-debug" /> Debug
+        </label>
+        <label title="Compute PCA on main thread (disable worker)" style="display:inline-flex;align-items:center;gap:0.3em;">
+          <input type="checkbox" id="chk-inline-pca" /> Inline PCA
+        </label>
+        <label title="Build HNSW on main thread (disable worker)" style="display:inline-flex;align-items:center;gap:0.3em;">
+          <input type="checkbox" id="chk-disable-worker" /> Inline HNSW
         </label>
         <button id="btn-clear-debug" title="Clear debug log" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Clear</button>
         <button id="btn-copy-debug" title="Copy debug log to clipboard" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:0.25em 0.5em;cursor:pointer;">Copy</button>
@@ -72,6 +83,11 @@ window.addEventListener('DOMContentLoaded', () => {
   const btnParquet = searchDiv.querySelector('#btn-load-parquet');
   const btnProfiles = searchDiv.querySelector('#btn-load-profiles');
   const btnExportIdx = searchDiv.querySelector('#btn-export-index');
+  const btnExportVec = searchDiv.querySelector('#btn-export-vectors');
+  const btnExportProf = searchDiv.querySelector('#btn-export-profiles');
+  const btnExportProj = searchDiv.querySelector('#btn-export-proj');
+  const btnExportManifest = searchDiv.querySelector('#btn-export-manifest');
+  const btnExportIdMap = searchDiv.querySelector('#btn-export-idmap');
   const numEf = searchDiv.querySelector('#num-efsearch');
   const numEfc = searchDiv.querySelector('#num-efc');
   const fileImportIdx = searchDiv.querySelector('#file-import-index');
@@ -80,6 +96,8 @@ window.addEventListener('DOMContentLoaded', () => {
   const chkAuto = searchDiv.querySelector('#chk-auto-parquet');
   const chkNoCache = searchDiv.querySelector('#chk-no-cache');
   const chkDebug = searchDiv.querySelector('#chk-debug');
+  const chkInlinePca = searchDiv.querySelector('#chk-inline-pca');
+  const chkDisableWorker = searchDiv.querySelector('#chk-disable-worker');
   const debugPre = searchDiv.querySelector('#debug-log');
   const btnClearDebug = searchDiv.querySelector('#btn-clear-debug');
   const btnCopyDebug = searchDiv.querySelector('#btn-copy-debug');
@@ -192,6 +210,9 @@ window.addEventListener('DOMContentLoaded', () => {
         if (chkAuto) chkAuto.checked = true;
       }
       if (debugPre) debugPre.style.display = (chkDebug && chkDebug.checked) ? 'block' : 'none';
+  // Reflect worker toggles from localStorage
+  try { if (chkInlinePca) chkInlinePca.checked = (localStorage.getItem('vec_disable_pca_worker') === '1'); } catch {}
+  try { if (chkDisableWorker) chkDisableWorker.checked = (localStorage.getItem('vec_disable_worker') === '1'); } catch {}
     } catch (e) {
       // Fallback to defaults
       if (selVectors && !selVectors.options.length) {
@@ -217,18 +238,40 @@ window.addEventListener('DOMContentLoaded', () => {
       }
       let filtered;
       let isVector = false;
-      const m = q.match(/^cid:([A-Za-z0-9]+)/);
-      if (m && window.VEC && window.VEC.similarByCid) {
+      // Accept multiple id prefixes and IPFS-like CIDs without prefix
+      const prefix = q.match(/^(cid|id|pid|uuid|uid):(.+)$/i);
+      const ipfsLike = (!prefix && /^(Qm|bafy)[a-zA-Z0-9]+$/i.test(q));
+      if ((prefix || ipfsLike) && window.VEC && window.VEC.similarByCid) {
         isVector = true;
-        const cid = m[1];
-        const hits = window.VEC.similarByCid(cid, 20);
+        let targetCid = null;
+        if (prefix) {
+          const rawId = (prefix[2] || '').trim();
+          // Use resolver to get canonical CID from any id
+          const rec = (window.KNN && window.KNN.resolveId) ? window.KNN.resolveId(rawId) : (window.KNN && window.KNN.getByCid ? window.KNN.getByCid(rawId) : null);
+          targetCid = rec && rec.cid ? rec.cid : (prefix[1].toLowerCase() === 'cid' ? rawId : null);
+        } else if (ipfsLike) {
+          targetCid = q.trim();
+        }
+        if (!targetCid) {
+          resultsDiv.innerHTML = '<div style="color:#888;padding:0.5em;">ID not found in profiles.</div>';
+          try { console.warn('[search] id resolution failed for', q, 'IDMAP size=', window.KNN && window.KNN.getIdMapSize ? window.KNN.getIdMapSize() : '?'); } catch {}
+          return;
+        }
+        const hits = window.VEC.similarByCid(targetCid, 20);
         filtered = hits.map(h => {
           const rec = window.KNN && window.KNN.getByCid ? window.KNN.getByCid(h.cid) : null;
           const nm = (rec?.displayName) || (rec?.name) || h.cid;
           return { cid: h.cid, name: nm, displayName: nm, mbti: rec?.mbti, socionics: rec?.socionics, big5: rec?.big5, _score: h._score };
         });
       } else {
-        filtered = window.KNN.search(q, 20);
+        // Resolve names for all results as well (not just vector neighbors)
+        const base = window.KNN.search(q, 20);
+        filtered = base.map(r => {
+          const rec = (r && r.cid && window.KNN && window.KNN.getByCid) ? window.KNN.getByCid(r.cid) : null;
+          const nm = (rec?.displayName) || (rec?.name) || r.displayName || r.name || r.cid || 'Unknown';
+          // preserve original scoring/fields, but ensure name/displayName are set consistently
+          return { ...r, name: nm, displayName: nm };
+        });
       }
   resultsDiv.innerHTML = '';
       if (!filtered.length) {
@@ -260,7 +303,7 @@ window.addEventListener('DOMContentLoaded', () => {
           const seen = new Set(window.personalityData.map(p => p.cid || p.label));
           let added = 0;
           for (const row of filtered) {
-            const label = row.name || row.cid || 'Unknown';
+            const label = row.displayName || row.name || row.cid || 'Unknown';
             const key = row.cid || label;
             if (seen.has(key)) continue;
             const p = computePersonVisual(row);
@@ -426,7 +469,13 @@ window.addEventListener('DOMContentLoaded', () => {
   })();
 
   function computePersonVisual(row) {
-    const label = row.displayName || row.name || row.cid || 'Unknown';
+    // Ensure we resolve a friendly name when only a CID is present
+    let label = row.displayName || row.name || '';
+    if (!label && row && row.cid && window.KNN && window.KNN.getByCid) {
+      const rec = window.KNN.getByCid(row.cid);
+      if (rec) label = rec.displayName || rec.name || '';
+    }
+    if (!label) label = row.cid || 'Unknown';
     const color = '#4363d8';
     // Prefer vector PCA projection if available
     let x = 0, y = 0, z = 0;
@@ -457,7 +506,16 @@ window.addEventListener('DOMContentLoaded', () => {
   const ef = (window.VEC && window.VEC.getEfSearch) ? window.VEC.getEfSearch() : 64;
   const useCache = (window.VEC && window.VEC.getUseCache) ? window.VEC.getUseCache() : true;
   const ctor = window.__HNSW_CTOR || '';
-  if (statusDiv) statusDiv.textContent = `Profiles: ${nProfiles} (${pShort}) · Vectors: ${vecN} (${srcShort}) · HNSW: ${hnsw ? 'ready' : 'off'}${ctor ? ' ('+ctor+')' : ''} · ef ${ef} · Cache: ${cache}${useCache ? '' : ' (disabled)'}${building ? ' · Building…' : ''}`;
+  // PCA explained variance (top 3) if available
+  let pcaTxt = '';
+  try {
+    const info = (window.VEC && window.VEC.getPcaInfo && window.VEC.getPcaInfo());
+    if (info && Array.isArray(info.explained) && info.explained.length) {
+      const pct = info.explained.slice(0,3).map(x => `${Math.round((x||0)*100)}%`).join('/');
+      if (pct) pcaTxt = ` · PCA ${pct}`;
+    }
+  } catch {}
+  if (statusDiv) statusDiv.textContent = `Profiles: ${nProfiles} (${pShort}) · Vectors: ${vecN} (${srcShort}) · HNSW: ${hnsw ? 'ready' : 'off'}${ctor ? ' ('+ctor+')' : ''} · ef ${ef} · Cache: ${cache}${useCache ? '' : ' (disabled)'}${building ? ' · Building…' : ''}${pcaTxt}`;
   }
 
   function setProgress(msg) { if (progressDiv) progressDiv.textContent = msg || ''; }
@@ -544,6 +602,78 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  // Export a manifest capturing sources and stats
+  if (btnExportManifest) btnExportManifest.onclick = async () => {
+    try {
+      const manifest = {
+        timestamp: new Date().toISOString(),
+        profilesSource: (window.KNN && window.KNN.getSource && window.KNN.getSource()) || '',
+        vectorsSource: (window.VEC && window.VEC.getSource && window.VEC.getSource()) || '',
+        profilesCount: (window.KNN && window.KNN.size && window.KNN.size()) || 0,
+        vectorsCount: (window.VEC && window.VEC.size && window.VEC.size()) || 0,
+        vectorDim: (window.VEC && window.VEC.getDim && window.VEC.getDim()) || 0,
+        hnsw: {
+          ready: (window.VEC && window.VEC.isHnswReady && window.VEC.isHnswReady()) || false,
+          cacheState: (window.VEC && window.VEC.getCacheState && window.VEC.getCacheState()) || 'none',
+          ef: (window.VEC && window.VEC.getEfSearch && window.VEC.getEfSearch()) || 64,
+          ctor: window.__HNSW_CTOR || ''
+        },
+        pca: (window.VEC && window.VEC.getPcaInfo && window.VEC.getPcaInfo()) || { dim: 0, count: 0, eigenvalues: [], totalVariance: 0, explained: [] }
+      };
+      const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'dataset_manifest.json'; a.click(); URL.revokeObjectURL(a.href);
+      toast('Manifest exported');
+    } catch (e) { toast(e && e.message ? e.message : 'Export failed', false); }
+  };
+
+  // Export an ID map of alternate identifiers -> canonical cid
+  if (btnExportIdMap) btnExportIdMap.onclick = async (ev) => {
+    try {
+      if (!window.KNN || !window.KNN.getAll) throw new Error('Profiles not loaded');
+      const rows = window.KNN.getAll();
+      const pairSet = new Set();
+      const out = [];
+      const looksLikeIdKey = (k) => /(^|_)(cid|uuid|uid|id)$/i.test(k || '');
+      for (const r of rows) {
+        if (!r) continue;
+        const cid = (r.cid != null) ? String(r.cid) : '';
+        const candidates = new Set();
+        if (cid) candidates.add(cid);
+        for (const [k, v] of Object.entries(r)) {
+          if (!looksLikeIdKey(k)) continue;
+          if (Array.isArray(v) || (v && typeof v === 'object')) continue;
+          const s = v == null ? '' : String(v);
+          if (!s) continue;
+          candidates.add(s);
+        }
+        for (const id of candidates) {
+          const key = `${id}\u0000${cid}`;
+          if (!pairSet.has(key)) { pairSet.add(key); out.push({ id, cid }); }
+        }
+      }
+      if (!out.length) throw new Error('No ids');
+      const wantCsv = !!(ev && ev.altKey);
+      const wantParquet = !!(ev && ev.ctrlKey);
+      let blob, name;
+      if (wantParquet) {
+        if (!window.DuckVec || !window.DuckVec.exportProfilesParquet) throw new Error('Parquet export unavailable');
+        const bytes = await window.DuckVec.exportProfilesParquet(out);
+        blob = new Blob([bytes], { type: 'application/octet-stream' });
+        name = 'idmap.parquet';
+      } else if (wantCsv) {
+        const lines = ['id,cid'];
+        for (const p of out) lines.push(`${JSON.stringify(p.id)},${JSON.stringify(p.cid)}`);
+        blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' });
+        name = 'idmap.csv';
+      } else {
+        blob = new Blob([JSON.stringify(out)], { type: 'application/json' });
+        name = 'idmap.json';
+      }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href);
+      toast('IdMap exported');
+    } catch (e) { toast(e && e.message ? e.message : 'Export failed', false); }
+  };
+
   if (btnCancel) btnCancel.onclick = () => {
     if (window.VEC && window.VEC.cancelBuild) {
       const ok = window.VEC.cancelBuild();
@@ -604,6 +734,104 @@ window.addEventListener('DOMContentLoaded', () => {
       URL.revokeObjectURL(a.href);
       toast('Index exported');
     } finally { done(); }
+  };
+
+  // Export normalized vectors (JSON by default; hold Alt for CSV)
+  if (btnExportVec) btnExportVec.onclick = async (ev) => {
+    try {
+      if (!window.VEC || !window.VEC.getRows) throw new Error('Vectors not loaded');
+      const rows = window.VEC.getRows();
+      if (!rows || !rows.length) throw new Error('No vectors');
+  const wantCsv = !!(ev && ev.altKey);
+      const wantParquet = !!(ev && ev.ctrlKey);
+      let blob, name;
+      if (wantParquet) {
+        if (!window.DuckVec || !window.DuckVec.exportVectorsParquet) throw new Error('Parquet export unavailable');
+        const bytes = await window.DuckVec.exportVectorsParquet(rows);
+        blob = new Blob([bytes], { type: 'application/octet-stream' });
+        name = 'vectors_normalized.parquet';
+      } else if (wantCsv) {
+        // CSV: cid,vector_json
+        const lines = ['cid,vector'];
+        for (const r of rows) lines.push(`${JSON.stringify(r.cid)},${JSON.stringify(r.vector)}`);
+        blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' });
+        name = 'vectors_normalized.csv';
+      } else {
+        blob = new Blob([JSON.stringify(rows)], { type: 'application/json' });
+        name = 'vectors_normalized.json';
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast('Vectors exported');
+    } catch (e) { toast(e && e.message ? e.message : 'Export failed', false); }
+  };
+
+  // Export enriched profiles from KNN (JSON by default; hold Alt for CSV)
+  if (btnExportProf) btnExportProf.onclick = async (ev) => {
+    try {
+  if (!window.KNN || !window.KNN.getAll) throw new Error('Profiles not loaded');
+  const out = window.KNN.getAll();
+  if (!out || !out.length) throw new Error('No profiles');
+  const wantCsv = !!(ev && ev.altKey);
+      const wantParquet = !!(ev && ev.ctrlKey);
+      let blob, name;
+      if (wantParquet) {
+        if (!window.DuckVec || !window.DuckVec.exportProfilesParquet) throw new Error('Parquet export unavailable');
+        const bytes = await window.DuckVec.exportProfilesParquet(out);
+        blob = new Blob([bytes], { type: 'application/octet-stream' });
+        name = 'profiles_enriched.parquet';
+      } else if (wantCsv) {
+        // CSV minimal: cid,displayName,mbti,socionics,big5
+        const lines = ['cid,displayName,mbti,socionics,big5'];
+        for (const r of out) {
+          const line = [r.cid || '', r.displayName || r.name || '', r.mbti || '', r.socionics || '', r.big5 || '']
+            .map(v => JSON.stringify(String(v || ''))).join(',');
+          lines.push(line);
+        }
+        blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' });
+        name = 'profiles_enriched.csv';
+      } else {
+        blob = new Blob([JSON.stringify(out)], { type: 'application/json' });
+        name = 'profiles_enriched.json';
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast('Profiles exported');
+    } catch (e) { toast(e && e.message ? e.message : 'Export failed', false); }
+  };
+
+  // Export PCA projections for all loaded vectors
+  if (btnExportProj) btnExportProj.onclick = async (ev) => {
+    try {
+      if (!window.VEC || !window.VEC.getProjections) throw new Error('Vectors not loaded');
+      const rows = window.VEC.getProjections();
+      if (!rows || !rows.length) throw new Error('No projections');
+      const wantCsv = !!(ev && ev.altKey);
+      const wantParquet = !!(ev && ev.ctrlKey);
+      let blob, name;
+      if (wantParquet) {
+        if (!window.DuckVec || !window.DuckVec.exportProfilesParquet) throw new Error('Parquet export unavailable');
+        const bytes = await window.DuckVec.exportProfilesParquet(rows);
+        blob = new Blob([bytes], { type: 'application/octet-stream' });
+        name = 'vectors_projections.parquet';
+      } else if (wantCsv) {
+        const lines = ['cid,x,y,z'];
+        for (const r of rows) lines.push([r.cid, r.x, r.y, r.z].map(v => JSON.stringify(String(v))).join(','));
+        blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' });
+        name = 'vectors_projections.csv';
+      } else {
+        blob = new Blob([JSON.stringify(rows)], { type: 'application/json' });
+        name = 'vectors_projections.json';
+      }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href);
+      toast('Projections exported');
+    } catch (e) { toast(e && e.message ? e.message : 'Export failed', false); }
   };
 
   if (fileImportIdx) fileImportIdx.addEventListener('change', async (ev) => {
@@ -676,6 +904,20 @@ window.addEventListener('DOMContentLoaded', () => {
   if (chkDebug) chkDebug.addEventListener('change', () => {
     if (debugPre) debugPre.style.display = chkDebug.checked ? 'block' : 'none';
     savePrefs();
+  });
+  if (chkInlinePca) chkInlinePca.addEventListener('change', () => {
+    try {
+      if (chkInlinePca.checked) localStorage.setItem('vec_disable_pca_worker', '1');
+      else localStorage.removeItem('vec_disable_pca_worker');
+      toast(`Inline PCA ${chkInlinePca.checked ? 'enabled' : 'disabled'}. Reload or reload vectors to apply.`, true);
+    } catch {}
+  });
+  if (chkDisableWorker) chkDisableWorker.addEventListener('change', () => {
+    try {
+      if (chkDisableWorker.checked) localStorage.setItem('vec_disable_worker', '1');
+      else localStorage.removeItem('vec_disable_worker');
+      toast(`Inline HNSW ${chkDisableWorker.checked ? 'enabled' : 'disabled'}. Reload or rebuild index to apply.`, true);
+    } catch {}
   });
   if (numEfc) numEfc.addEventListener('change', () => {
     const v = parseInt(numEfc.value, 10) || 200;

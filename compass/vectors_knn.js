@@ -18,6 +18,14 @@ const VEC = (() => {
   let VEC_URL = null; // dataset url for signature
   let CACHE_STATE = 'none'; // 'none' | 'loaded' | 'saved' | 'error'
   let USE_CACHE = true; // whether to attempt to load/save from IndexedDB
+  let EIG = null; // Float64Array of top eigenvalues
+  let TOTVAR = 0; // total variance (trace of covariance)
+  // Persistently disable worker build path if wasm FS is unavailable (avoids repeated errors)
+  function getWorkerDisabled(){ try { return localStorage.getItem('vec_disable_worker') === '1'; } catch { return false; } }
+  function setWorkerDisabled(v){ try { if (v) localStorage.setItem('vec_disable_worker','1'); else localStorage.removeItem('vec_disable_worker'); } catch {} }
+  // Separate flag for PCA worker failures (RangeError, etc.)
+  function getPcaWorkerDisabled(){ try { return localStorage.getItem('vec_disable_pca_worker') === '1'; } catch { return false; } }
+  function setPcaWorkerDisabled(v){ try { if (v) localStorage.setItem('vec_disable_pca_worker','1'); else localStorage.removeItem('vec_disable_pca_worker'); } catch {} }
 
   function emit(name, detail){ try { window.dispatchEvent(new CustomEvent(name, { detail })); } catch {} }
 
@@ -40,35 +48,86 @@ const VEC = (() => {
   }
 
   async function loadFromRows(rows) {
-    V = new Array(rows.length);
-    IDS = new Array(rows.length);
-    INDEX = new Map();
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      const vec = new Float32Array(r.vector);
-      V[i] = vec;
-      IDS[i] = r.cid;
-      INDEX.set(r.cid, i);
+    // 1) Collect raw arrays and determine the target dimension by majority vote (mode)
+    const raw = rows.map(r => ({ cid: r.cid, vec: Array.isArray(r.vector) ? r.vector.map(Number) : [] }));
+    const lenCounts = new Map();
+    for (const { vec } of raw) {
+      const L = vec.length | 0;
+      if (L > 0) lenCounts.set(L, (lenCounts.get(L) || 0) + 1);
     }
-    console.log(`Vectors loaded: ${rows.length}`);
+    // Choose the dimension with the highest frequency; tie-breaker: larger dimension
+    let targetDim = 0, bestCount = -1;
+    for (const [L, c] of lenCounts.entries()) {
+      if (c > bestCount || (c === bestCount && L > targetDim)) { targetDim = L; bestCount = c; }
+    }
+    if (!targetDim) {
+      throw new Error('No non-empty vectors found');
+    }
+    // 2) Normalize every row to targetDim: pad with 0s or truncate; coerce non-finite to 0
+    const kept = [];
+    let padded = 0, truncated = 0, fixedNonFinite = 0, dropped = 0;
+    for (const { cid, vec } of raw) {
+      if (!cid || !vec || vec.length === 0) { dropped++; continue; }
+      let out = new Array(targetDim);
+      if (vec.length >= targetDim) {
+        for (let j = 0; j < targetDim; j++) {
+          const x = vec[j]; const v = Number.isFinite(x) ? x : 0; if (!Number.isFinite(x)) fixedNonFinite++;
+          out[j] = v;
+        }
+        if (vec.length > targetDim) truncated++;
+      } else {
+        for (let j = 0; j < vec.length; j++) {
+          const x = vec[j]; const v = Number.isFinite(x) ? x : 0; if (!Number.isFinite(x)) fixedNonFinite++;
+          out[j] = v;
+        }
+        for (let j = vec.length; j < targetDim; j++) out[j] = 0;
+        padded++;
+      }
+      kept.push({ cid, vec: out });
+    }
+    try { 
+      const msg = `sanitized vectors: kept=${kept.length} dropped=${dropped} dim=${targetDim}`
+        + (padded||truncated||fixedNonFinite ? ` (padded=${padded}, truncated=${truncated}, fixedNonFinite=${fixedNonFinite})` : '');
+      if (dropped || padded || truncated || fixedNonFinite) console.warn(`Sanitized vectors: ${msg}`);
+      emit('vec:hnsw:debug', { message: msg });
+    } catch {}
+
+    // 3) Build typed arrays and indices
+    V = new Array(kept.length);
+    IDS = new Array(kept.length);
+    INDEX = new Map();
+    for (let i = 0; i < kept.length; i++) {
+      const { cid, vec } = kept[i];
+      const f32 = new Float32Array(targetDim);
+      f32.set(vec);
+      V[i] = f32;
+      IDS[i] = cid;
+      INDEX.set(cid, i);
+    }
+    console.log(`Vectors loaded: ${kept.length}`);
     if (rows.length && V[0]) {
       // Launch PCA in worker to keep UI responsive
       try {
-        emit('vec:pca:start', { count: rows.length, dim: V[0].length });
         BUILDING = true;
-        await runPCAInWorker();
+        if (getPcaWorkerDisabled()) {
+          try { emit('vec:hnsw:debug', { message: 'pca worker disabled; computing inline' }); } catch {}
+          computePCAAndProjections();
+        } else {
+          emit('vec:pca:start', { count: rows.length, dim: V[0].length });
+          await runPCAInWorker();
+        }
         emit('vec:pca:end', {});
-        BUILDING = false;
       } catch (e) {
         console.warn('PCA (worker) failed, fallback inline:', e);
+        try { setPcaWorkerDisabled(true); emit('vec:hnsw:debug', { message: 'pca worker failed; disabling worker path' }); } catch {}
         try {
-          BUILDING = true;
           computePCAAndProjections();
           emit('vec:pca:end', {});
         } catch (e2) {
           console.warn('PCA projection failed:', e2);
           emit('vec:pca:error', { message: String(e2) });
         }
+      } finally {
         BUILDING = false;
       }
       try {
@@ -81,7 +140,7 @@ const VEC = (() => {
         emit('vec:hnsw:error', { message: String(e) });
       }
     }
-    return rows.length;
+  return kept.length;
   }
 
   async function loadFromParquet(parquetUrl = '/dataset/pdb_profile_vectors.parquet') {
@@ -202,6 +261,11 @@ const VEC = (() => {
 
   async function buildHnswIndexWorkerFirst() {
     if (!V.length) return;
+    if (getWorkerDisabled()) {
+      try { emit('vec:hnsw:debug', { message: 'worker disabled; using main thread' }); } catch {}
+      await buildHnswIndex();
+      return;
+    }
     try { emit('vec:hnsw:build:start', { count: V.length, dim: V[0].length }); } catch {}
     // Flatten V into a contiguous Float32Array buffer [n*d]
     const n = V.length; const d = V[0].length;
@@ -225,7 +289,8 @@ const VEC = (() => {
       return;
     } catch (e) {
       console.warn('HNSW worker build failed, building on main thread:', e);
-      try { emit('vec:hnsw:debug', { message: 'worker failed; building on main thread' }); } catch {}
+      try { emit('vec:hnsw:debug', { message: 'worker failed; disabling worker path' }); } catch {}
+      setWorkerDisabled(true);
       try { await buildHnswIndex(); } finally { BUILDING = false; }
     }
   }
@@ -265,7 +330,7 @@ const VEC = (() => {
       }
     }
 
-    // power iteration to get top 3 eigenvectors
+  // power iteration to get top 3 eigenvectors
     function powerIter(Cm, d, iters = 60) {
       let v = new Float64Array(d);
       for (let i = 0; i < d; i++) v[i] = Math.random() - 0.5;
@@ -294,7 +359,7 @@ const VEC = (() => {
         for (let c = 0; c < d; c++) s += Cm[ro + c] * v[c];
         num += v[r] * s; den += v[r] * v[r];
       }
-      const lambda = num / (den || 1);
+  const lambda = num / (den || 1);
       return { vec: v, lambda };
     }
     function normalize(x) {
@@ -307,10 +372,15 @@ const VEC = (() => {
       for (let i = 0; i < x.length; i++) x[i] -= dot * pc[i];
     }
 
+    // Total variance is the trace of covariance matrix
+    let trace = 0; for (let i = 0; i < d; i++) trace += C[i * d + i];
+    TOTVAR = trace;
     PC = [];
+    EIG = new Float64Array(3);
     for (let k = 0; k < 3; k++) {
-      const { vec } = powerIter(C, d, 60);
+      const { vec, lambda } = powerIter(C, d, 60);
       PC.push(vec);
+      EIG[k] = lambda || 0;
     }
 
     // compute projections and min/max
@@ -475,6 +545,31 @@ const VEC = (() => {
 
   function projectCid(cid) {
     return PROJ.get(cid) || null;
+  }
+
+  function getProjections() {
+    // Ensure projections exist; compute inline if needed
+    try {
+      if (!PROJ || PROJ.size === 0) {
+        if (V && V.length && V[0]) computePCAAndProjections();
+      }
+    } catch {}
+    const out = [];
+    for (const [cid, p] of PROJ.entries()) {
+      if (Array.isArray(p) && p.length >= 3) out.push({ cid, x: p[0], y: p[1], z: p[2] });
+    }
+    return out;
+  }
+
+  function getPcaInfo() {
+    try {
+      const dim = (V && V[0]) ? V[0].length : 0;
+      const count = IDS ? IDS.length : 0;
+      const eigen = (EIG && EIG.length) ? Array.from(EIG) : [];
+      const totalVar = TOTVAR || 0;
+      const explained = (totalVar > 0 && eigen.length) ? eigen.map(v => v / totalVar) : [];
+      return { dim, count, eigenvalues: eigen, totalVariance: totalVar, explained };
+    } catch { return { dim: 0, count: 0, eigenvalues: [], totalVariance: 0, explained: [] }; }
   }
 
   function setEf(index, v){
@@ -801,7 +896,15 @@ const VEC = (() => {
     return bytes;
   }
 
-  return { load, loadFromParquet, loadFromRows, similarByCid, getVector, projectCid, size, isHnswReady, isLoaded, getCacheState, clearHnswCache, rebuildIndex, getSource, exportIndex, importIndex, cancelBuild, isBuilding, setEfSearch, getEfSearch, setEfConstruction, getEfConstruction, setUseCache, getUseCache };
+  function getRows() {
+    // Return a plain array of { cid, vector } with normalized vectors
+    const out = new Array(IDS.length);
+    for (let i = 0; i < IDS.length; i++) out[i] = { cid: IDS[i], vector: Array.from(V[i]) };
+    return out;
+  }
+  function getDim() { return (V && V[0]) ? V[0].length : 0; }
+
+  return { load, loadFromParquet, loadFromRows, similarByCid, getVector, projectCid, size, isHnswReady, isLoaded, getCacheState, clearHnswCache, rebuildIndex, getSource, exportIndex, importIndex, cancelBuild, isBuilding, setEfSearch, getEfSearch, setEfConstruction, getEfConstruction, setUseCache, getUseCache, getRows, getDim, getProjections, getPcaInfo };
 })();
 
 window.VEC = VEC;

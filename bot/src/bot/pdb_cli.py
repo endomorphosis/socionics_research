@@ -1187,13 +1187,39 @@ def main():
                 results_rows.append({"rank": printed, "score": float(s), "name": nm, "cid": cid, "aliases": alias_str})
             if printed >= desired_top:
                 break
+        # Summary line to ensure some visible output in quiet environments
+        try:
+            print(f"Found {printed} results (requested top={desired_top})")
+        except Exception:
+            pass
+        # Save CSV if requested; create file even when empty and without pandas
         if results_rows is not None and getattr(args, "save_csv", None):
+            csv_path = getattr(args, "save_csv")
+            wrote = False
             try:
-                import pandas as _pd
-                _pd.DataFrame(results_rows).to_csv(getattr(args, "save_csv"), index=False)
-                print(f"Saved {len(results_rows)} rows to {getattr(args, 'save_csv')}")
-            except Exception as e:
-                print(f"Failed to save CSV: {e}")
+                import pandas as _pd  # type: ignore
+                _pd.DataFrame(results_rows).to_csv(csv_path, index=False)
+                wrote = True
+            except Exception:
+                # Fallback to Python csv module
+                try:
+                    import csv as _csv
+                    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+                        writer = _csv.DictWriter(f, fieldnames=["rank", "score", "name", "cid", "aliases"])
+                        writer.writeheader()
+                        for row in (results_rows or []):
+                            writer.writerow(row)
+                    wrote = True
+                except Exception as e2:
+                    try:
+                        print(f"Failed to save CSV to {csv_path}: {e2}")
+                    except Exception:
+                        pass
+            if wrote:
+                try:
+                    print(f"Saved {len(results_rows)} rows to {csv_path}")
+                except Exception:
+                    pass
     elif args.cmd == "search-names":
         import pandas as pd
         import re as _re

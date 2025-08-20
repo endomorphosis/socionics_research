@@ -31,6 +31,7 @@ const KNN = (() => {
   let DATA = [];
   let VECTORS = [];
   let CIDX = new Map(); // cid -> record
+   let IDMAP = new Map(); // any known id (cid/pid/profile_cid/uuid/uid/...) -> record
   let SRC = '';
 
   async function load(url = '/pdb_profiles.json') {
@@ -43,12 +44,27 @@ const KNN = (() => {
 
   function loadFromRows(rows) {
     // Normalize and enrich rows with a canonical displayName
-    DATA = rows.map(normalizeRecord);
-    VECTORS = DATA.map(r => embed(r.text));
-    CIDX = new Map();
-    for (const r of DATA) if (r.cid) CIDX.set(r.cid, r);
-    console.log(`KNN loaded ${DATA.length} records`);
-    return DATA.length;
+     DATA = new Array(rows.length);
+     VECTORS = new Array(rows.length);
+     CIDX = new Map();
+     IDMAP = new Map();
+     for (let i = 0; i < rows.length; i++) {
+       const r0 = rows[i] || {};
+       const r = normalizeRecord(r0);
+       DATA[i] = r;
+       VECTORS[i] = embed(r.text);
+       // Primary cid map
+       if (r.cid) CIDX.set(r.cid, r);
+       // Index by alternate id fields to improve name resolution for vector neighbors
+       const ids = idCandidates(r0, r);
+       for (const id of ids) {
+         if (!id) continue;
+         const key = String(id);
+         if (!IDMAP.has(key)) IDMAP.set(key, r);
+       }
+     }
+     console.log(`KNN loaded ${DATA.length} records`);
+     return DATA.length;
   }
 
   async function loadFromParquet(url = '/dataset/pdb_profiles_normalized.parquet') {
@@ -67,15 +83,23 @@ const KNN = (() => {
     for (let j = 0; j < Math.min(k, scores.length); j++) {
       const [score, idx] = scores[j];
       const r = DATA[idx];
-  out.push({ ...r, name: r.displayName || r.name || r.cid || '', _score: score });
+      const nm = r.displayName || r.name || r.cid || '';
+      out.push({ ...r, name: nm, displayName: nm, _score: score });
     }
     return out;
   }
 
   function getByCid(cid) {
-    return CIDX.get(cid) || null;
+    if (!cid) return null;
+    return CIDX.get(cid) || IDMAP.get(String(cid)) || null;
+  }
+  function resolveId(id) {
+    if (id == null) return null;
+    const rec = CIDX.get(String(id)) || IDMAP.get(String(id)) || null;
+    return rec || null;
   }
   function size() { return DATA.length; }
+  function getIdMapSize() { return IDMAP.size; }
   function getSource() { return SRC || ''; }
 
   // --------- Helpers ---------
@@ -120,6 +144,42 @@ const KNN = (() => {
     return r;
   }
 
+   function idCandidates(raw, norm) {
+     const ids = [];
+     const add = (v) => {
+       try {
+         if (v == null) return;
+         const s = typeof v === 'string' ? v : String(v);
+         if (s !== '') ids.push(s);
+       } catch {}
+     };
+     try {
+       // Common explicit fields
+       add(raw && raw.cid); add(raw && raw.profile_cid); add(raw && raw.pid);
+       add(raw && raw.id); add(raw && raw.profile_id); add(raw && raw.uuid); add(raw && raw.uid);
+       add(raw && raw.profile_uuid); add(raw && raw.profile_uid);
+       add(norm && norm.cid);
+       // Dynamically include any key that clearly looks like an ID:
+       // matches: id, _id, cid, _cid, uuid, _uuid, uid, _uid (case-insensitive, word/underscore boundary)
+       const looksLikeIdKey = (k) => /(^|_)(cid|uuid|uid|id)$/i.test(k || '');
+       const harvest = (obj) => {
+         if (!obj || typeof obj !== 'object') return;
+         for (const [k, v] of Object.entries(obj)) {
+           if (!looksLikeIdKey(k)) continue;
+           // Avoid obvious non-identifiers like empty strings or arrays/objects
+           if (Array.isArray(v) || (v && typeof v === 'object')) continue;
+           add(v);
+         }
+       };
+       harvest(raw);
+       harvest(norm);
+     } catch {}
+     // Deduplicate while preserving first occurrence
+     const out = [];
+     const seen = new Set();
+     for (const v of ids) { if (!seen.has(v)) { out.push(v); seen.add(v); } }
+     return out;
+   }
   function cleanName(s) {
     if (!s) return '';
     let t = String(s).normalize('NFC');
@@ -138,7 +198,8 @@ const KNN = (() => {
     }).join(' ');
   }
 
-  return { load, loadFromRows, loadFromParquet, search, getByCid, size, getSource };
+  function getAll() { return DATA.slice(); }
+  return { load, loadFromRows, loadFromParquet, search, getByCid, resolveId, size, getIdMapSize, getSource, getAll };
 })();
 
 window.KNN = KNN;
