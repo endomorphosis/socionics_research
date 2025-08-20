@@ -457,6 +457,25 @@ PYTHONPATH=bot/src python -m bot.pdb_cli search-faiss "elon musk" --top 10 \
 	--index data/bot_store/pdb_faiss_char.index
 ```
 
+Alias enrichment (retro-tagging) and alias-aware search:
+- If you expanded from a URL and want substring searches to match aliases like "superman" or "harry potter", retro-tag `_search_keyword` on existing related rows, re-export characters, and rebuild the index.
+
+```
+# Tag related rows by seed profile id (e.g., 1986 for Superman) and source
+PYTHONPATH=bot/src python -m bot.pdb_cli tag-keyword \
+	--keyword superman \
+	--seed-pids 1986 \
+	--sources v2_related_from_url:profiles
+
+# Re-export and rebuild index
+PYTHONPATH=bot/src python -m bot.pdb_cli export-characters --out data/bot_store/pdb_characters.parquet
+PYTHONPATH=bot/src python -m bot.pdb_cli index-characters --char-parquet data/bot_store/pdb_characters.parquet --out data/bot_store/pdb_faiss_char.index
+
+# Alias-aware filtering: search-characters matches --contains against name and alt_names
+PYTHONPATH=bot/src python -m bot.pdb_cli search-characters "superman" \
+	--top 10 --index data/bot_store/pdb_faiss_char.index --contains superman
+```
+
 ### Ingestion Cycle Script
 To run a full ingestion cycle end-to-end with environment-configurable headers, rate, and concurrency, use:
 

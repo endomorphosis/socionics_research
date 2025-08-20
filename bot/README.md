@@ -321,6 +321,9 @@ Flags:
 - `--append-terms`: Comma-separated suffixes appended to each keyword (e.g., `characters,cast`)
 - `--expand-characters`: Sweep A–Z and 0–9 suffix tokens for discovery
 - `--expand-pages`: Pages per expanded token when `--expand-characters` is set
+- `--html-fallback`: If v2 returns zero character items for a keyword, parse the public search page HTML and expand via `expand-from-url` to surface profiles that survive `--only-profiles`.
+- `--render-js`: With `--html-fallback`, render the search page with a headless browser (Playwright) before parsing to capture dynamically injected results.
+- `--html-limit`: Max number of profile links to follow from the HTML fallback per keyword (applies when `--html-fallback`).
 - `--auto-embed`, `--auto-index`, `--index-out`: Post-ingest vector/index ops
 - `--verbose`: Print entity names by list per page
 - `--dry-run`: Preview without writes
@@ -358,6 +361,20 @@ PYTHONPATH=bot/src python -m bot.pdb_cli \
 		search-keywords --queries "superman,harry potter" \
 		--only-profiles --expand-boards --boards-max 3 --chase-hints --hints-max 3 \
 		--limit 15 --pages 1 --verbose --dry-run
+
+# HTML fallback for sparse v2 results (recommended for character queries)
+# Note: pass global flags (e.g., --headers-file) before the subcommand name.
+PYTHONPATH=bot/src python -m bot.pdb_cli \
+	--headers-file data/bot_store/headers.json \
+	search-keywords --queries "superman,gandalf" \
+	--only-profiles --filter-characters --characters-relaxed \
+	--expand-subcategories --force-character-group \
+	--html-fallback --render-js --html-limit 12 \
+	--pages 1 --limit 20 --verbose --dry-run
+
+# The HTML fallback automatically calls `expand-from-url` on the public
+# search page and tags discovered rows with `--set-keyword <term>` so that
+# subsequent `export-characters` can include high-signal aliases.
 
 ### hot-queries
 Fetch trending search hot queries (v2) and optionally store raw items.
@@ -424,6 +441,29 @@ Search character-only index:
 ```
 PYTHONPATH=bot/src python -m bot.pdb_cli search-faiss "elon musk" --top 10 \
 	--index data/bot_store/pdb_faiss_char.index
+```
+
+Name fallback behavior:
+- When v2 payloads omit names, `export-characters` derives a readable name from the profile URL slug (e.g., `/profile/1986/clark-kent-superman` → `Clark Kent Superman`). Common SEO tails like `-mbti-personality-type` are stripped.
+- This improves retrieval and avoids `(unknown)` names in the character parquet.
+
+Alias enrichment (retro-tagging) and alias-aware search:
+- If you expanded from a URL and want substring searches to match aliases like "superman" or "harry potter", retro-tag `_search_keyword` on existing related rows, re-export characters, and rebuild the index.
+
+```
+# Tag related rows by seed profile id (e.g., 1986 for Superman) and source
+PYTHONPATH=bot/src python -m bot.pdb_cli tag-keyword \
+	--keyword superman \
+	--seed-pids 1986 \
+	--sources v2_related_from_url:profiles
+
+# Re-export and rebuild index
+PYTHONPATH=bot/src python -m bot.pdb_cli export-characters --out data/bot_store/pdb_characters.parquet
+PYTHONPATH=bot/src python -m bot.pdb_cli index-characters --char-parquet data/bot_store/pdb_characters.parquet --out data/bot_store/pdb_faiss_char.index
+
+# Alias-aware filtering: search-characters matches --contains against name and alt_names
+PYTHONPATH=bot/src python -m bot.pdb_cli search-characters "superman" \
+	--top 10 --index data/bot_store/pdb_faiss_char.index --contains superman
 ```
 
 ### Ingestion Cycle Script
