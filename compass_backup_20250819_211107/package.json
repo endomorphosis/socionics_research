@@ -1,0 +1,24 @@
+{
+  "name": "compass",
+  "version": "1.0.0",
+  "main": "compass.js",
+  "scripts": {
+  "dev": "vite",
+    "build": "vite build",
+  "preview": "vite preview",
+  "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@jaames/iro": "^5.5.2",
+    "express": "^5.1.0",
+  "hnswlib-wasm": "^0.8.2",
+  "@duckdb/duckdb-wasm": "^1.28.0",
+    "three": "^0.179.1",
+    "vite": "^7.1.2"
+  }
+}

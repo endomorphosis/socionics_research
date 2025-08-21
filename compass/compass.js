@@ -230,5 +230,5 @@ window.addEventListener('DOMContentLoaded', () => {
     if (labelRenderer) labelRenderer.render(scene, camera);
   }
   animate();
-}
+});
 

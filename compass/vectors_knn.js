@@ -547,6 +547,21 @@ const VEC = (() => {
     return PROJ.get(cid) || null;
   }
 
+  function projectVector(vec) {
+    try {
+      if (!vec || !PC || !MEAN || !SCALE) return null;
+      const v = (vec instanceof Float32Array || vec instanceof Float64Array) ? vec : new Float32Array(vec);
+      const p = [0, 0, 0];
+      for (let j = 0; j < 3; j++) {
+        const val = dotCentered(v, PC[j]);
+        const a = SCALE.min[j], b = SCALE.max[j];
+        const t = (val - a) / (b - a || 1);
+        p[j] = Math.min(1, Math.max(-1, t * 2 - 1));
+      }
+      return p;
+    } catch { return null; }
+  }
+
   function getProjections() {
     // Ensure projections exist; compute inline if needed
     try {
@@ -648,7 +663,8 @@ const VEC = (() => {
       if (!entry || !entry.data) return false;
   const bytes = entry.data instanceof Uint8Array ? entry.data : new Uint8Array(entry.data);
   if (!bytes || !bytes.length) return false;
-  readIndexCompat(index, bytes, HNSW);
+  try { readIndexCompat(index, bytes, HNSW); }
+  catch (e) { console.warn('HNSW cache read unsupported in this wasm build; skipping cache load'); return false; }
     try { emit('vec:hnsw:ctor', { which: (index && index._ctorWhich) || ((index && index.maxElements) ? '3-arg' : '2-arg') }); emit('vec:hnsw:debug', { message: 'loaded from cache' }); } catch {}
     try { setEf(index, EF_SEARCH); } catch {}
       INDEX_HNSW = index;
@@ -669,7 +685,9 @@ const VEC = (() => {
       const sig = datasetSignature();
       const key = `hnsw:${sig}`;
       // writeIndex may return Uint8Array
-  const bytes = writeIndexCompat(INDEX_HNSW, HNSW);
+  let bytes;
+  try { bytes = writeIndexCompat(INDEX_HNSW, HNSW); }
+  catch (e) { console.warn('HNSW cache write unsupported in this wasm build; disabling cache'); USE_CACHE = false; return false; }
       const payload = { sig, data: bytes, createdAt: Date.now() };
       await idbSet(key, payload);
       CACHE_STATE = 'saved';
@@ -828,72 +846,30 @@ const VEC = (() => {
   }
 
   // --- Compatibility helpers for path-based read/write ---
-  function ensureFS(api) {
-    const FS = api && (api.FS || (api.Module && api.Module.FS));
-    if (!FS || typeof FS.readFile !== 'function' || typeof FS.writeFile !== 'function') {
-  throw new Error('FS was not exported. add it to EXPORTED_RUNTIME_METHODS (see the FAQ)');
-    }
-    return FS;
-  }
-
   function readIndexCompat(index, bytes, api) {
-    // Try byte-array API first
+    // Prefer byte-array API; if unavailable, skip cache IO gracefully
     try {
       index.readIndex(bytes);
       return true;
     } catch (e) {
       const msg = e && (e.message || String(e));
-      if (!(msg && /std::string|string|argument/i.test(msg))) throw e;
+      // If the error suggests wrong argument type, the build likely only supports path-based IO
+      // We intentionally do NOT attempt FS-based fallback to avoid Emscripten abort noise in browsers
+      throw new Error('HNSW byte-array readIndex unsupported in this wasm build');
     }
-    // Path-based: write bytes to FS then read by path
-    const FS = ensureFS(api);
-    const path = `/hnsw_${Date.now()}_${Math.random().toString(36).slice(2)}.bin`;
-    FS.writeFile(path, bytes);
-    // Try common variants
-    let ok = false; const errs = [];
-    const tries = [
-      () => index.readIndex(path),
-      () => index.readIndex(path, false),
-      () => index.readIndex(path, true),
-      () => index.readIndex(path, (IDS && IDS.length) || 0),
-      () => index.readIndex(path, (IDS && IDS.length) || 0, false),
-      () => index.readIndex(path, (IDS && IDS.length) || 0, true)
-    ];
-    for (const t of tries) {
-      try { t(); ok = true; break; } catch (e) { errs.push(e && e.message ? e.message : String(e)); }
-    }
-    if (!ok) {
-      try { FS.unlink && FS.unlink(path); } catch {}
-      throw new Error('HNSW readIndex failed: ' + errs.join(' | '));
-    }
-    try { FS.unlink && FS.unlink(path); } catch {}
-    return true;
   }
 
   function writeIndexCompat(index, api) {
     try {
       const out = index.writeIndex();
       if (out && (out instanceof Uint8Array || ArrayBuffer.isView(out))) return out;
+      // Some builds may return ArrayBuffer
+      if (out && out.buffer && out.byteLength != null) return new Uint8Array(out.buffer, out.byteOffset || 0, out.byteLength);
     } catch (e) {
-      const msg = e && (e.message || String(e));
-      if (!(msg && /std::string|string|argument/i.test(msg))) throw e;
+      // Do not attempt FS-based fallback; bubble a gentle error so callers can disable cache silently
+      throw new Error('HNSW byte-array writeIndex unsupported in this wasm build');
     }
-    const FS = ensureFS(api);
-    const path = `/hnsw_${Date.now()}_${Math.random().toString(36).slice(2)}.bin`;
-    // Some builds require additional params
-    let ok = false; const errs = [];
-    const tries = [
-      () => index.writeIndex(path),
-      () => index.writeIndex(path, false),
-      () => index.writeIndex(path, true)
-    ];
-    for (const t of tries) {
-      try { t(); ok = true; break; } catch (e) { errs.push(e && e.message ? e.message : String(e)); }
-    }
-    if (!ok) throw new Error('HNSW writeIndex failed: ' + errs.join(' | '));
-    const bytes = FS.readFile(path);
-    try { FS.unlink && FS.unlink(path); } catch {}
-    return bytes;
+    throw new Error('HNSW writeIndex returned no bytes');
   }
 
   function getRows() {
@@ -904,7 +880,7 @@ const VEC = (() => {
   }
   function getDim() { return (V && V[0]) ? V[0].length : 0; }
 
-  return { load, loadFromParquet, loadFromRows, similarByCid, getVector, projectCid, size, isHnswReady, isLoaded, getCacheState, clearHnswCache, rebuildIndex, getSource, exportIndex, importIndex, cancelBuild, isBuilding, setEfSearch, getEfSearch, setEfConstruction, getEfConstruction, setUseCache, getUseCache, getRows, getDim, getProjections, getPcaInfo };
+  return { load, loadFromParquet, loadFromRows, similarByCid, getVector, projectCid, projectVector, size, isHnswReady, isLoaded, getCacheState, clearHnswCache, rebuildIndex, getSource, exportIndex, importIndex, cancelBuild, isBuilding, setEfSearch, getEfSearch, setEfConstruction, getEfConstruction, setUseCache, getUseCache, getRows, getDim, getProjections, getPcaInfo };
 })();
 
 window.VEC = VEC;
