@@ -20,6 +20,14 @@ npm run dev
 ```
 App runs on http://localhost:5173.
 
+Note: Dataset files (Parquet/CSV) are served by the Express server on port 3000. If you plan to use Parquet in dev, also run:
+
+```bash
+npm start
+```
+
+Then the app will auto-resolve dataset URLs to http://localhost:3000/dataset/...
+
 ## Build + Run (single port)
 
 ```bash

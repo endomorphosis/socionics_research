@@ -308,7 +308,7 @@ def main():
         "search-names",
         help="Filter names from raw or character parquet by substring/regex",
     )
-    p_sn.add_argument("--contains", type=str, default=None, help="Case-insensitive substring to match")
+    p_sn.add_argument("--contains", type=str, default=None, help="Case-insensitive substring to match against names")
     p_sn.add_argument("--regex", type=str, default=None, help="Regex to match against names")
     p_sn.add_argument(
         "--chars-only",
@@ -792,7 +792,14 @@ def main():
         "scan-seeds",
         help="Ingest character seeds via v2 search and HTML, then export, embed, index, refresh names, and optionally validate",
     )
-    p_ss.add_argument("--keywords", type=str, required=True, help="Comma-separated seed keywords, e.g., 'superman,gandalf'")
+    # Replace existing keywords arg to be optional and add keywords-file
+    p_ss.add_argument("--keywords", type=str, required=False, help="Comma-separated seed keywords, e.g., 'superman,gandalf'")
+    p_ss.add_argument(
+        "--keywords-file",
+        type=str,
+        default=None,
+        help="Path to file containing keywords (comma/newline/space separated). Use '-' for stdin.",
+    )
     p_ss.add_argument("--headers-file", type=str, default="data/bot_store/headers.json", help="Headers JSON file for v2 requests")
     p_ss.add_argument("--limit", type=int, default=40, help="Limit per v2 search page")
     p_ss.add_argument("--pages", type=int, default=2, help="Pages per keyword for v2 search")
@@ -800,6 +807,12 @@ def main():
     p_ss.add_argument("--no-render", action="store_true", help="Skip HTML render fallback for expand-from-url")
     p_ss.add_argument("--validate-top", type=int, default=10, help="Top-K to show per validation query")
     p_ss.add_argument("--validate", action="store_true", help="Run validation searches for each keyword after indexing")
+    p_ss.add_argument(
+        "--max-seeds",
+        type=int,
+        default=0,
+        help="Process at most N keywords (0 = all)",
+    )
     # Optional: broaden coverage by appending terms and alphanumeric sweep
     p_ss.add_argument(
         "--append-terms",
@@ -817,6 +830,12 @@ def main():
         type=int,
         default=1,
         help="Pages per sweep token when --sweep-alnum is set (maps to search-keywords --expand-pages)",
+    )
+    p_ss.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help="Write console output of the entire scan-seeds run to this file as well (tee)",
     )
 
     # Helper: find subcategories by keyword (to discover character groups)
@@ -960,6 +979,440 @@ def main():
         help="Path to JSON state file used when --use-state",
     )
     p_all.add_argument("--state-reset", action="store_true", help="When --use-state, ignore existing state and start fresh")
+
+    # Reusable async helper to expand from URL without re-entering asyncio.run
+    async def _expand_from_url_async(args_expand) -> None:
+        import re as _re
+        import sys as _sys
+        from pathlib import Path as _Path
+        from urllib.parse import urlparse as _urlparse, parse_qs as _parse_qs
+        # Optional: tee stdout to a log file so shell pipelines with --log-file work
+        orig_stdout = _sys.stdout
+        lf = None
+        if getattr(args_expand, "log_file", None):
+            try:
+                pth = _Path(args_expand.log_file)
+                pth.parent.mkdir(parents=True, exist_ok=True)
+                lf = pth.open("w", encoding="utf-8")
+                class _Tee:
+                    def __init__(self, a, b):
+                        self.a = a; self.b = b
+                    def write(self, s):
+                        try:
+                            self.a.write(s)
+                        except Exception:
+                            pass
+                        try:
+                            self.b.write(s)
+                        except Exception:
+                            pass
+                    def flush(self):
+                        try:
+                            self.a.flush()
+                        except Exception:
+                            pass
+                        try:
+                            self.b.flush()
+                        except Exception:
+                            pass
+                _sys.stdout = _Tee(orig_stdout, lf)
+            except Exception:
+                lf = None
+        base_client = _make_client(args_expand)
+        # Build meta client reusing headers/limits
+        meta_client = None
+        try:
+            from .pdb_client import PdbClient as _PdbClient
+            meta_client = _PdbClient(
+                base_url="https://meta.personality-database.com/api/v2",
+                concurrency=getattr(base_client, "concurrency", 4),
+                rate_per_minute=getattr(base_client, "rate_per_minute", 60),
+                timeout_s=getattr(base_client, "timeout_s", 20.0),
+                headers=getattr(base_client, "_extra_headers", None),
+            )
+        except Exception:
+            meta_client = None
+        if meta_client is None:
+            print("Meta client unavailable; cannot extract sub_cat_id from URLs.")
+            # Restore stdout and close log if used
+            try:
+                _sys.stdout = orig_stdout
+                if lf:
+                    lf.close()
+            except Exception:
+                pass
+            return
+        # Collect URLs
+        urls: list[str] = []
+        if getattr(args_expand, "urls", None):
+            urls.extend([u.strip() for u in str(args_expand.urls).split(",") if u.strip()])
+        if getattr(args_expand, "url_file", None):
+            try:
+                if args_expand.url_file.strip() == "-":
+                    txt = _sys.stdin.read()
+                else:
+                    txt = _Path(args_expand.url_file).read_text(encoding="utf-8")
+                for tok in _re.split(r"[\s,]+", txt):
+                    t = tok.strip()
+                    if t:
+                        urls.append(t)
+            except Exception:
+                pass
+        # If any URLs are PDB search pages, expand them into profile/group links, keeping keyword context
+        from urllib.parse import unquote as _unquote
+        expanded_pairs: list[tuple[str, str | None]] = []  # (url, search_keyword)
+        # Optional HTML override content (from --html-file or --html-stdin)
+        html_override: str | None = None
+        try:
+            if getattr(args_expand, "html_file", None):
+                html_override = _Path(args_expand.html_file).read_text(encoding="utf-8")
+            elif getattr(args_expand, "html_stdin", False):
+                html_override = _sys.stdin.read()
+        except Exception:
+            html_override = None
+        for u in urls:
+            try:
+                parsed = _urlparse(u)
+                if parsed.netloc.endswith("personality-database.com") and parsed.path == "/search":
+                    # Build best-effort headers, including user-provided cookies
+                    import urllib.request as _ur
+                    hdrs = {"User-Agent": "Mozilla/5.0"}
+                    try:
+                        _hdrs = getattr(base_client, "_extra_headers", {}) or {}
+                        if isinstance(_hdrs, dict):
+                            for hk in ("User-Agent","Accept","Accept-Language","Cookie","Origin","Referer"):
+                                v = _hdrs.get(hk) or _hdrs.get(hk.lower())
+                                if isinstance(v, str) and v:
+                                    hdrs[hk] = v
+                    except Exception:
+                        pass
+                    html = html_override or ""
+                    # Optionally render via Playwright for JS-generated content
+                    if (not html) and getattr(args_expand, "render_js", False):
+                        try:
+                            from playwright.async_api import async_playwright  # type: ignore
+                            async with async_playwright() as p:
+                                browser = await p.chromium.launch(headless=True)
+                                context = await browser.new_context(user_agent=hdrs.get("User-Agent") or None)
+                                extra = {k: v for k, v in hdrs.items() if k not in {"User-Agent", "Cookie"}}
+                                if extra:
+                                    try:
+                                        await context.set_extra_http_headers(extra)  # type: ignore
+                                    except Exception:
+                                        pass
+                                ck = hdrs.get("Cookie")
+                                if isinstance(ck, str) and ck:
+                                    try:
+                                        cookies = []
+                                        for part in ck.split(";"):
+                                            part = part.strip()
+                                            if not part or "=" not in part:
+                                                continue
+                                            name, value = part.split("=", 1)
+                                            cookies.append({
+                                                "name": name.strip(),
+                                                "value": value.strip(),
+                                                "domain": parsed.hostname or ".personality-database.com",
+                                                "path": "/",
+                                            })
+                                        if cookies:
+                                            await context.add_cookies(cookies)  # type: ignore
+                                    except Exception:
+                                        pass
+                                page = await context.new_page()
+                                # Scale timeouts from client setting to avoid short 20s default
+                                try:
+                                    _t_s = float(getattr(base_client, "timeout_s", 20.0) or 20.0)
+                                except Exception:
+                                    _t_s = 20.0
+                                _goto_ms = int(max(_t_s, 5.0) * 2000)  # e.g., timeout_s * 2 (in ms)
+                                await page.goto(u, wait_until="load", timeout=_goto_ms)
+                                await page.wait_for_timeout(2000)
+                                html = await page.content()
+                                await context.close()
+                                await browser.close()
+                        except Exception as e:
+                            print(f"[expand-from-url] JS rendering failed or Playwright missing: {e}")
+                            print("Hint: pip install playwright && python -m playwright install chromium")
+                            html = ""
+                    if not html:
+                        req = _ur.Request(u, headers=hdrs)
+                        # Scale urlopen timeout from client setting
+                        try:
+                            _t_s = float(getattr(base_client, "timeout_s", 20.0) or 20.0)
+                        except Exception:
+                            _t_s = 20.0
+                        _to = max(int(_t_s * 2), 10)
+                        with _ur.urlopen(req, timeout=_to) as resp:
+                            html = resp.read().decode("utf-8", errors="ignore")
+                    q = _parse_qs(parsed.query)
+                    kw = None
+                    try:
+                        kws = q.get("keyword") or q.get("q") or []
+                        for kk in kws:
+                            if isinstance(kk, str) and kk:
+                                kw = _unquote(kk).strip() or None
+                                if kw:
+                                    break
+                    except Exception:
+                        kw = None
+                    # Try v2 search/top directly using the keyword (more reliable than scraping)
+                    if kw:
+                        try:
+                            data2 = await base_client.fetch_json("search/top", {"limit": max(int(getattr(args_expand, "limit", 20)), 1), "keyword": kw})
+                            payload2 = data2.get("data") if isinstance(data2, dict) else data2
+                            if isinstance(payload2, dict):
+                                profs = (payload2.get("profiles") or [])
+                                for alt_key in ("recommendProfiles", "characters", "relatedProfiles"):
+                                    alt_list = payload2.get(alt_key) or []
+                                    if alt_list:
+                                        if alt_key in ("characters", "relatedProfiles"):
+                                            alt_list = [({**it, "_from_character_group": True} if isinstance(it, dict) else it) for it in alt_list]
+                                        profs = (profs or []) + alt_list
+                                for it in profs or []:
+                                    if isinstance(it, dict):
+                                        pid = None
+                                        for kk in ("id","profileId","profile_id","profileID"):
+                                            vv = it.get(kk)
+                                            if isinstance(vv, int): pid = vv; break
+                                            if isinstance(vv, str) and vv.isdigit(): pid = int(vv); break
+                                        if isinstance(pid, int):
+                                            expanded_pairs.append((f"https://www.personality-database.com/profile/{pid}", kw))
+                                for sc in (payload2.get("subcategories") or []):
+                                    if isinstance(sc, dict):
+                                        sid = None
+                                        for kk in ("id","profileId","profile_id","profileID"):
+                                            vv = sc.get(kk)
+                                            if isinstance(vv, int): sid = vv; break
+                                            if isinstance(vv, str) and vv.isdigit(): sid = int(vv); break
+                                        if isinstance(sid, int):
+                                            expanded_pairs.append((f"https://www.personality-database.com/profile?sub_cat_id={sid}", kw))
+                        except Exception:
+                            pass
+                    for m in _re.finditer(r'href=[\"\'](/profile/[^\"\']+)[\"\']', html):
+                        href = m.group(1)
+                        expanded_pairs.append((f"https://www.personality-database.com{href}", kw))
+                    for m in _re.finditer(r'href=[\"\'](/profile\?[^\"\']*sub_cat_id=\d+[^\"\']*)[\"\']', html):
+                        href = m.group(1)
+                        expanded_pairs.append((f"https://www.personality-database.com{href}", kw))
+                    if not any('/profile' in p[0] for p in expanded_pairs):
+                        for mm in _re.finditer(r'sub_cat_id\s*[:=]\s*(\d+)', html):
+                            sid = mm.group(1)
+                            synthetic = f"https://www.personality-database.com/profile?sub_cat_id={sid}"
+                            expanded_pairs.append((synthetic, kw))
+                else:
+                    expanded_pairs.append((u, None))
+            except Exception:
+                expanded_pairs.append((u, None))
+        # De-duplicate expanded list (prefer keeping a non-None keyword)
+        seen_map: dict[str, str | None] = {}
+        for u, kw in expanded_pairs:
+            if u not in seen_map or (kw and not seen_map.get(u)):
+                seen_map[u] = kw
+        url_list = [(u, seen_map[u]) for u in seen_map.keys()]
+        if not url_list:
+            print("No URLs provided. Use --urls or --url-file (or '-' for stdin).")
+            # Restore stdout and close log if used
+            try:
+                _sys.stdout = orig_stdout
+                if lf:
+                    lf.close()
+            except Exception:
+                pass
+            return
+        # Helper: extract numeric profile id from URL path
+        def _extract_pid(u: str) -> int | None:
+            try:
+                m = _re.search(r"/profile/(\d+)", u)
+                if m:
+                    return int(m.group(1))
+            except Exception:
+                return None
+            return None
+        # Lists selection
+        target_lists: set[str] | None = None
+        if getattr(args_expand, "only_profiles", False):
+            target_lists = {"profiles"}
+        elif isinstance(getattr(args_expand, "lists", None), str) and args_expand.lists:
+            target_lists = {s.strip() for s in args_expand.lists.split(",") if s.strip()}
+        store = PdbStorage()
+        total = 0
+        forced_kw = getattr(args_expand, "set_keyword", None)
+        for u, search_kw in url_list:
+            pid = _extract_pid(u)
+            seed_title: str | None = None
+            if isinstance(pid, int):
+                try:
+                    prof = await base_client.fetch_json(f"profiles/{pid}")
+                except Exception:
+                    prof = None
+                pobj = prof.get("data") if isinstance(prof, dict) else prof
+                if isinstance(pobj, dict):
+                    for kk in ("name","title","display_name","username","subcategory"):
+                        vv = pobj.get(kk)
+                        if isinstance(vv, str) and vv.strip():
+                            seed_title = vv.strip()
+                            break
+                    main_obj = {**pobj, "_source": "v2_profile", "_profile_id": pid, "_seed_url": u}
+                    kw_to_use = (forced_kw or search_kw)
+                    if isinstance(kw_to_use, str) and kw_to_use:
+                        main_obj["_search_keyword"] = kw_to_use
+                    if getattr(args_expand, "force_character_group", False):
+                        try:
+                            main_obj.setdefault("_from_character_group", True)
+                        except Exception:
+                            pass
+                    if getattr(args_expand, "filter_characters", False):
+                        is_char0 = main_obj.get("isCharacter") is True
+                        if not is_char0 and getattr(args_expand, "characters_relaxed", False):
+                            is_char0 = main_obj.get("_from_character_group") is True
+                        if is_char0:
+                            n0, u0 = store.upsert_raw([main_obj])
+                            total += (n0 + u0)
+                            print(f"url={u} pid={pid}: upserted profile new={n0} updated={u0}")
+                    else:
+                        n0, u0 = store.upsert_raw([main_obj])
+                        total += (n0 + u0)
+                        print(f"url={u} pid={pid}: upserted profile new={n0} updated={u0}")
+            # sub_cat_id extraction from URL query
+            sub_ids: list[int] = []
+            try:
+                _parsed = _urlparse(u)
+                q = _parse_qs(_parsed.query)
+                for key in ("sub_cat_id", "subCatId"):
+                    vals = q.get(key) or []
+                    for vv in vals:
+                        if isinstance(vv, str) and vv.isdigit():
+                            sub_ids.append(int(vv))
+            except Exception:
+                pass
+            # Fallback to meta if needed
+            if not sub_ids and isinstance(pid, int):
+                try:
+                    mdata = await meta_client.fetch_json(f"meta/profile/{pid}")
+                except Exception as e:
+                    print(f"meta fetch failed for pid={pid}: {e}")
+                    mdata = None
+                payload = mdata.get("data") if isinstance(mdata, dict) else mdata
+                if isinstance(payload, dict):
+                    entries = payload.get("data") if isinstance(payload.get("data"), list) else []
+                    for ent in entries:
+                        if not isinstance(ent, dict):
+                            continue
+                        if ent.get("tag") != "script":
+                            continue
+                        val = ent.get("value")
+                        if isinstance(val, str) and "sub_cat_id" in val:
+                            for mm in _re.finditer(r"sub_cat_id=(\d+)", val):
+                                try:
+                                    sid = int(mm.group(1))
+                                    sub_ids.append(sid)
+                                except Exception:
+                                    pass
+            sub_ids = list(dict.fromkeys([s for s in sub_ids if isinstance(s, int)]))
+            if not sub_ids:
+                print(f"url={u}: no sub_cat_id found (query or meta); skipping")
+                continue
+            for sid in sub_ids:
+                lists: dict[str, list] = {}
+                try:
+                    data = await base_client.fetch_json(f"profiles/{sid}/related")
+                except Exception as e:
+                    print(f"related fetch failed for sub_cat_id={sid}: {e}")
+                    data = None
+                rel_payload = data.get("data") if isinstance(data, dict) else data
+                if isinstance(rel_payload, dict):
+                    rel_list = (
+                        rel_payload.get("relatedProfiles")
+                        or rel_payload.get("profiles")
+                        or rel_payload.get("characters")
+                        or []
+                    )
+                    if isinstance(rel_list, list) and rel_list:
+                        lists["profiles"] = rel_list
+                if not lists.get("profiles") and meta_client is not None:
+                    mpayload = None
+                    try:
+                        mdata = await meta_client.fetch_json(f"meta/profile/{sid}")
+                        mpayload = mdata.get("data") if isinstance(mdata, dict) else mdata
+                    except Exception:
+                        mpayload = None
+                    if isinstance(mpayload, dict):
+                        merged: list = []
+                        for k in ("profiles", "relatedProfiles", "characters", "recommendProfiles"):
+                            v = mpayload.get(k)
+                            if isinstance(v, list) and v:
+                                if k in ("characters", "relatedProfiles"):
+                                    v = [({**it, "_from_character_group": True} if isinstance(it, dict) else it) for it in v]
+                                merged.extend(v)
+                        if not merged:
+                            prof_like: list[dict] = []
+                            def _walk(x):
+                                try:
+                                    if isinstance(x, dict):
+                                        has_name = any(
+                                            isinstance(x.get(k), str) and x.get(k)
+                                            for k in ("name","title","subcategory","display_name","username")
+                                        )
+                                        id_val = None
+                                        for kk in ("id","profileId","profile_id","profileID"):
+                                            vv = x.get(kk)
+                                            if isinstance(vv, int):
+                                                id_val = vv; break
+                                            if isinstance(vv, str) and vv.isdigit():
+                                                id_val = int(vv); break
+                                        if (has_name and id_val is not None) or (x.get("isCharacter") is True):
+                                            prof_like.append(x)
+                                        for v in x.values():
+                                            _walk(v)
+                                    elif isinstance(x, list):
+                                        for v in x:
+                                            _walk(v)
+                                except Exception:
+                                    return
+                            _walk(mpayload)
+                            if prof_like:
+                                merged.extend(prof_like)
+                        if merged:
+                            lists["profiles"] = merged
+                selected = set(lists.keys()) if target_lists is None else (set(lists.keys()) & set(target_lists))
+                batch: list[dict] = []
+                for key in sorted(selected):
+                    for it in lists.get(key, []) or []:
+                        if not isinstance(it, dict):
+                            continue
+                        obj = {**it, "_source": f"v2_related_from_url:{key}", "_seed_url": u, "_seed_pid": pid, "_seed_sub_cat_id": sid}
+                        kw_to_use = (forced_kw or search_kw)
+                        if isinstance(kw_to_use, str) and kw_to_use:
+                            obj["_search_keyword"] = kw_to_use
+                        if isinstance(seed_title, str) and seed_title:
+                            obj["_seed_profile_title"] = seed_title
+                        if getattr(args_expand, "force_character_group", False):
+                            try:
+                                obj.setdefault("_from_character_group", True)
+                            except Exception:
+                                pass
+                        if getattr(args_expand, "filter_characters", False):
+                            is_char = obj.get("isCharacter") is True
+                            if not is_char and getattr(args_expand, "characters_relaxed", False):
+                                is_char = obj.get("_from_character_group") is True
+                            if not is_char:
+                                continue
+                        batch.append(obj)
+                if not batch:
+                    print(f"url={u} sid={sid}: no items after filtering.")
+                    continue
+                n, u2 = store.upsert_raw(batch)
+                total += (n + u2)
+                print(f"url={u} sid={sid}: upserted new={n} updated={u2}")
+        print(f"Done. Upserted total rows: {total}")
+        # Restore stdout and close log if used
+        try:
+            _sys.stdout = orig_stdout
+            if lf:
+                lf.close()
+        except Exception:
+            pass
 
     args = parser.parse_args()
 
@@ -1198,7 +1651,11 @@ def main():
             wrote = False
             try:
                 import pandas as _pd  # type: ignore
-                _pd.DataFrame(results_rows).to_csv(csv_path, index=False)
+                df_out = _pd.DataFrame(results_rows)
+                if df_out.empty:
+                    # Ensure header exists even when there are zero rows
+                    df_out = _pd.DataFrame(columns=["rank", "score", "name", "cid", "aliases"])
+                df_out.to_csv(csv_path, index=False)
                 wrote = True
             except Exception:
                 # Fallback to Python csv module
@@ -1299,7 +1756,10 @@ def main():
         if not raw_path.exists():
             print(f"Missing raw parquet: {raw_path}")
             return
-        df = pd.read_parquet(raw_path)
+            df = pd.read_parquet(raw_path)
+    
+    if __name__ == "__main__":
+        main()
         contains = (args.contains or "").strip().lower()
         pattern = None
         if args.regex:
@@ -1709,34 +2169,32 @@ def main():
                 # If nothing surfaced for this keyword and html-fallback is enabled, run expand-from-url
                 if found_any == 0 and getattr(args, "html_fallback", False):
                     try:
-                        url = f"https://www.personality-database.com/search?keyword={q.replace(' ', '+')}"
-                        hdr = getattr(args, "headers_file", None)
-                        argv2 = ["pdb_cli.py"]
-                        if hdr:
-                            argv2 += ["--headers-file", hdr]
-                        argv2 += [
-                            "expand-from-url", "--urls", url,
-                            "--only-profiles",
-                        ]
-                        if getattr(args, "filter_characters", False):
-                            argv2.append("--filter-characters")
-                        if getattr(args, "characters_relaxed", False):
-                            argv2.append("--characters-relaxed")
-                        if getattr(args, "force_character_group", False):
-                            argv2.append("--force-character-group")
-                        # Pass render flag and limit for the fallback
-                        if getattr(args, "render_js", False):
-                            argv2.append("--render-js")
-                        lim = getattr(args, "html_limit", None) or getattr(args, "limit", None)
-                        if isinstance(lim, int) and lim > 0:
-                            argv2 += ["--limit", str(lim)]
-                        # Tag with the keyword for later alias enrichment
-                        argv2 += ["--set-keyword", q]
-                        import sys as _sys
-                        saved2 = list(_sys.argv)
-                        _sys.argv = argv2
-                        main()
-                        _sys.argv = saved2
+                        class _Obj:
+                            pass
+                        _a = _Obj()
+                        # propagate global HTTP/env settings
+                        setattr(_a, "rpm", getattr(args, "rpm", None))
+                        setattr(_a, "concurrency", getattr(args, "concurrency", None))
+                        setattr(_a, "timeout", getattr(args, "timeout", None))
+                        setattr(_a, "base_url", getattr(args, "base_url", None))
+                        setattr(_a, "headers", getattr(args, "headers", None))
+                        setattr(_a, "headers_file", getattr(args, "headers_file", None))
+                        # expand-from-url specific
+                        setattr(_a, "urls", f"https://www.personality-database.com/search?keyword={q.replace(' ', '+')}")
+                        setattr(_a, "url_file", None)
+                        setattr(_a, "lists", None)
+                        setattr(_a, "only_profiles", True)
+                        setattr(_a, "filter_characters", getattr(args, "filter_characters", False))
+                        setattr(_a, "characters_relaxed", getattr(args, "characters_relaxed", False))
+                        setattr(_a, "force_character_group", getattr(args, "force_character_group", False))
+                        setattr(_a, "dry_run", False)
+                        setattr(_a, "set_keyword", q)
+                        setattr(_a, "render_js", getattr(args, "render_js", False))
+                        setattr(_a, "limit", getattr(args, "html_limit", None) or getattr(args, "limit", None) or 20)
+                        setattr(_a, "html_file", None)
+                        setattr(_a, "html_stdin", False)
+                        setattr(_a, "log_file", None)
+                        await _expand_from_url_async(_a)
                     except Exception as e:
                         _log(f"[search-keywords] html-fallback failed for '{q}': {e}")
 
@@ -1788,7 +2246,7 @@ def main():
         if not raw_path.exists():
             print(f"Missing raw parquet: {raw_path}")
             return
-        df = pd.read_parquet(raw_path)
+    df = pd.read_parquet(raw_path)
         rows: list[dict] = []
         for _, row in df.iterrows():
             pb = row.get("payload_bytes")
@@ -2097,119 +2555,236 @@ def main():
         print(f"Wrote {len(lines)} names to {names_out}")
     elif args.cmd == "scan-seeds":
         from pathlib import Path as _Path
-        kw = [k.strip() for k in str(getattr(args, "keywords")).split(",") if k.strip()]
-        if not kw:
-            print("No keywords provided.")
-            return
-        # v2 keyword search across all seeds (with HTML fallback if v2 is sparse)
-        try:
-            headers_file = getattr(args, "headers_file", None)
-            argv = ["pdb_cli.py"]
-            # Important: pass global flags before the subcommand so nested parsing picks them up
-            if headers_file:
-                argv += ["--headers-file", headers_file]
-            argv += [
-                "search-keywords", "--keywords", ",".join(kw),
-                "--only-profiles", "--filter-characters", "--characters-relaxed",
-                "--expand-subcategories", "--force-character-group",
-                "--pages", str(getattr(args, "pages", 2)),
-                "--limit", str(getattr(args, "limit", 40)),
-                "--until-empty",
-                "--html-fallback",
-            ]
-            if not getattr(args, "no_render", False):
-                argv += ["--render-js"]
-            # Pass-through query expansion knobs when provided
-            if getattr(args, "append_terms", None):
-                argv += ["--append-terms", getattr(args, "append_terms")]
-            if getattr(args, "sweep_alnum", False):
-                argv += ["--expand-characters", "--expand-pages", str(getattr(args, "sweep_pages", 1))]
-            # Reuse main by invoking a sub-run
+        import sys as _sys
+        # Optional: tee stdout/stderr for the whole run so operators can inspect logs even if terminal output is truncated
+        _orig_stdout = _sys.stdout
+        _orig_stderr = _sys.stderr
+        _lf = None
+        if getattr(args, "log_file", None):
             try:
-                import sys as _sys
-                saved = list(_sys.argv)
-                _sys.argv = argv
-                main()
-            finally:
-                _sys.argv = saved
-        except Exception as e:
-            print(f"scan-seeds: v2 keyword search failed: {e}")
-        # HTML expand-from-url per seed
-        for k in kw:
-            url = f"https://www.personality-database.com/search?keyword={k.replace(' ', '+')}"
-            argv = ["pdb_cli.py"]
-            if headers_file:
-                argv += ["--headers-file", headers_file]
-            argv += [
-                "expand-from-url", "--urls", url,
-                "--only-profiles", "--filter-characters", "--characters-relaxed", "--force-character-group",
-            ]
-            if not getattr(args, "no_render", False):
-                argv += ["--render-js"]
-            # Tag with keyword for later alias enrichment
-            argv += ["--set-keyword", k]
+                _pth = _Path(args.log_file)
+                _pth.parent.mkdir(parents=True, exist_ok=True)
+                _lf = _pth.open("w", encoding="utf-8")
+                class _Tee:
+                    def __init__(self, a, b):
+                        self.a = a; self.b = b
+                    def write(self, s):
+                        try:
+                            self.a.write(s)
+                        except Exception:
+                            pass
+                        try:
+                            self.b.write(s)
+                        except Exception:
+                            pass
+                    def flush(self):
+                        try:
+                            self.a.flush()
+                        except Exception:
+                            pass
+                        try:
+                            self.b.flush()
+                        except Exception:
+                            pass
+                _sys.stdout = _Tee(_orig_stdout, _lf)
+                _sys.stderr = _Tee(_orig_stderr, _lf)
+            except Exception:
+                _lf = None
+        try:
+            # Ensure logs are not empty even if early failures occur
             try:
-                import sys as _sys
-                saved = list(_sys.argv)
-                _sys.argv = argv
-                main()
-            except Exception as e:
-                print(f"scan-seeds: expand-from-url failed for {k}: {e}")
-            finally:
-                _sys.argv = saved
-        # Export characters
-        try:
-            import sys as _sys
-            saved = list(_sys.argv)
-            _sys.argv = ["pdb_cli.py", "export-characters"]
-            main()
-        except Exception as e:
-            print(f"scan-seeds: export-characters failed: {e}")
-        finally:
-            _sys.argv = saved
-        # Embed characters with aliases/context
-        try:
-            import sys as _sys
-            saved = list(_sys.argv)
-            _sys.argv = ["pdb_cli.py", "embed", "--chars-only", "--force", "--include-aliases", "--include-context"]
-            main()
-        except Exception as e:
-            print(f"scan-seeds: embed failed: {e}")
-        finally:
-            _sys.argv = saved
-        # Index & refresh names
-        try:
-            import sys as _sys
-            saved = list(_sys.argv)
-            _sys.argv = ["pdb_cli.py", "index-characters", "--out", getattr(args, "index", "data/bot_store/pdb_faiss_char.index")]
-            main()
-        except Exception as e:
-            print(f"scan-seeds: index-characters failed: {e}")
-        finally:
-            _sys.argv = saved
-        try:
-            import sys as _sys
-            saved = list(_sys.argv)
-            _sys.argv = ["pdb_cli.py", "refresh-names", "--index", getattr(args, "index", "data/bot_store/pdb_faiss_char.index")]
-            main()
-        except Exception as e:
-            print(f"scan-seeds: refresh-names failed: {e}")
-        finally:
-            _sys.argv = saved
-        # Optional validation
-        if getattr(args, "validate", False):
+                print("scan-seeds: start", flush=True)
+            except Exception:
+                pass
+            # Build keywords from --keywords and/or --keywords-file
+            kw: list[str] = []
             try:
-                import sys as _sys
-                for k in kw:
+                kraw = getattr(args, "keywords", None)
+                if isinstance(kraw, str) and kraw.strip():
+                    kw.extend([k.strip() for k in kraw.split(",") if k.strip()])
+            except Exception:
+                pass
+            try:
+                kfile = getattr(args, "keywords_file", None)
+                if isinstance(kfile, str) and kfile.strip():
+                    import re as _re, sys as _sys
+                    if kfile.strip() == "-":
+                        src = _sys.stdin.read()
+                    else:
+                        src = _Path(kfile).read_text(encoding="utf-8")
+                    parts = [p.strip() for p in _re.split(r"[\s,]+", src or "") if p.strip()]
+                    kw.extend(parts)
+            except Exception:
+                pass
+            # De-duplicate while preserving order
+            _seen_kw = set()
+            _uniq: list[str] = []
+            for _k in kw:
+                if _k not in _seen_kw:
+                    _seen_kw.add(_k)
+                    _uniq.append(_k)
+            kw = _uniq
+            if not kw:
+                print("No keywords provided.")
+                return
+            # Apply --max-seeds limit when provided
+            try:
+                _mx = int(getattr(args, "max_seeds", 0) or 0)
+                if _mx > 0:
+                    kw = kw[:_mx]
+            except Exception:
+                pass
+            # Basic run header
+            try:
+                _render = not bool(getattr(args, "no_render", False))
+            except Exception:
+                _render = True
+            try:
+                print(
+                    f"scan-seeds: seeds={len(kw)} pages={getattr(args, 'pages', 2)} limit={getattr(args, 'limit', 40)} render={_render} validate={bool(getattr(args, 'validate', False))}",
+                    flush=True,
+                )
+            except Exception:
+                pass
+            # v2 keyword search across all seeds (with HTML fallback if v2 is sparse)
+            try:
+                headers_file = getattr(args, "headers_file", None)
+                argv = ["pdb_cli.py"]
+                # Important: pass global flags before the subcommand so nested parsing picks them up
+                if headers_file:
+                    argv += ["--headers-file", headers_file]
+                argv += [
+                    "search-keywords", "--keywords", ",".join(kw),
+                    "--only-profiles", "--filter-characters", "--characters-relaxed",
+                    "--expand-subcategories", "--force-character-group",
+                    "--pages", str(getattr(args, "pages", 2)),
+                    "--limit", str(getattr(args, "limit", 40)),
+                    "--until-empty",
+                    "--html-fallback",
+                ]
+                if not getattr(args, "no_render", False):
+                    argv += ["--render-js"]
+                # Add a top-level log file for search-keywords phase so we can inspect output post-run
+                try:
+                    argv += ["--log-file", "data/bot_store/scan_seeds_search.log"]
+                except Exception:
+                    pass
+                # Pass-through query expansion knobs when provided
+                if getattr(args, "append_terms", None):
+                    argv += ["--append-terms", getattr(args, "append_terms")]
+                if getattr(args, "sweep_alnum", False):
+                    argv += ["--expand-characters", "--expand-pages", str(getattr(args, "sweep_pages", 1))]
+                # Reuse main by invoking a sub-run
+                try:
+                    import sys as _sys
+                    try:
+                        print("scan-seeds: invoking search-keywords phase…")
+                    except Exception:
+                        pass
                     saved = list(_sys.argv)
-                    _sys.argv = [
-                        "pdb_cli.py", "search-characters", "--index", getattr(args, "index", "data/bot_store/pdb_faiss_char.index"),
-                        "--top", str(getattr(args, "validate_top", 10)), k,
-                    ]
+                    _sys.argv = argv
                     main()
+                finally:
                     _sys.argv = saved
             except Exception as e:
-                print(f"scan-seeds: validation failed: {e}")
+                print(f"scan-seeds: v2 keyword search failed: {e}")
+            # HTML expand-from-url per seed
+            for k in kw:
+                try:
+                    print(f"scan-seeds: expanding from search page for '{k}'…")
+                except Exception:
+                    pass
+                url = f"https://www.personality-database.com/search?keyword={k.replace(' ', '+')}"
+                argv = ["pdb_cli.py"]
+                if headers_file:
+                    argv += ["--headers-file", headers_file]
+                argv += [
+                    "expand-from-url", "--urls", url,
+                    "--only-profiles", "--filter-characters", "--characters-relaxed", "--force-character-group",
+                ]
+                if not getattr(args, "no_render", False):
+                    argv += ["--render-js"]
+                # Tag with keyword for later alias enrichment
+                argv += ["--set-keyword", k]
+                # Per-key log file to inspect rendering/scrape behavior
+                try:
+                    _slug = "".join(ch if ch.isalnum() else "_" for ch in k.lower())
+                    if len(_slug) > 60:
+                        _slug = _slug[:60]
+                    argv += ["--log-file", f"data/bot_store/expand_{_slug}.log"]
+                except Exception:
+                    pass
+                try:
+                    import sys as _sys
+                    saved = list(_sys.argv)
+                    _sys.argv = argv
+                    main()
+                except Exception as e:
+                    print(f"scan-seeds: expand-from-url failed for {k}: {e}")
+                finally:
+                    _sys.argv = saved
+            # Export characters
+            try:
+                import sys as _sys
+                saved = list(_sys.argv)
+                _sys.argv = ["pdb_cli.py", "export-characters"]
+                main()
+            except Exception as e:
+                print(f"scan-seeds: export-characters failed: {e}")
+            finally:
+                _sys.argv = saved
+            # Embed characters with aliases/context
+            try:
+                import sys as _sys
+                saved = list(_sys.argv)
+                _sys.argv = ["pdb_cli.py", "embed", "--chars-only", "--force", "--include-aliases", "--include-context"]
+                main()
+            except Exception as e:
+                print(f"scan-seeds: embed failed: {e}")
+            finally:
+                _sys.argv = saved
+            # Index & refresh names
+            try:
+                import sys as _sys
+                saved = list(_sys.argv)
+                _sys.argv = ["pdb_cli.py", "index-characters", "--out", getattr(args, "index", "data/bot_store/pdb_faiss_char.index")]
+                main()
+            except Exception as e:
+                print(f"scan-seeds: index-characters failed: {e}")
+            finally:
+                _sys.argv = saved
+            try:
+                import sys as _sys
+                saved = list(_sys.argv)
+                _sys.argv = ["pdb_cli.py", "refresh-names", "--index", getattr(args, "index", "data/bot_store/pdb_faiss_char.index")]
+                main()
+            except Exception as e:
+                print(f"scan-seeds: refresh-names failed: {e}")
+            finally:
+                _sys.argv = saved
+            # Optional validation
+            if getattr(args, "validate", False):
+                try:
+                    import sys as _sys
+                    for k in kw:
+                        saved = list(_sys.argv)
+                        _sys.argv = [
+                            "pdb_cli.py", "search-characters", "--index", getattr(args, "index", "data/bot_store/pdb_faiss_char.index"),
+                            "--top", str(getattr(args, "validate_top", 10)), k,
+                        ]
+                        main()
+                        _sys.argv = saved
+                except Exception as e:
+                    print(f"scan-seeds: validation failed: {e}")
+        finally:
+            # Restore stdout and close log if used
+            try:
+                _sys.stdout = _orig_stdout
+                _sys.stderr = _orig_stderr
+                if _lf:
+                    _lf.close()
+            except Exception:
+                pass
     elif args.cmd == "summarize":
         import pandas as pd
         from pathlib import Path
@@ -2429,7 +3004,8 @@ def main():
                         print(f"Indexed {len(rows)} vectors to {outp}")
                 except Exception as e:
                     print(f"Auto-index failed: {e}")
-        asyncio.run(_run())
+            asyncio.run(_run())
+            return
     elif args.cmd == "cache-clear":
         from pathlib import Path
         import shutil
@@ -2913,444 +3489,7 @@ def main():
         asyncio.run(_run())
         return
     elif args.cmd == "expand-from-url":
-        import re as _re
-        import sys as _sys
-        from pathlib import Path as _Path
-        from urllib.parse import urlparse as _urlparse, parse_qs as _parse_qs
-        async def _run():
-            # Optional: tee stdout to a log file so shell pipelines with --log-file work
-            import sys as _sys
-            orig_stdout = _sys.stdout
-            lf = None
-            if getattr(args, "log_file", None):
-                try:
-                    from pathlib import Path as _Path
-                    pth = _Path(args.log_file)
-                    pth.parent.mkdir(parents=True, exist_ok=True)
-                    lf = pth.open("w", encoding="utf-8")
-                    class _Tee:
-                        def __init__(self, a, b):
-                            self.a = a; self.b = b
-                        def write(self, s):
-                            try:
-                                self.a.write(s)
-                            except Exception:
-                                pass
-                            try:
-                                self.b.write(s)
-                            except Exception:
-                                pass
-                        def flush(self):
-                            try:
-                                self.a.flush()
-                            except Exception:
-                                pass
-                            try:
-                                self.b.flush()
-                            except Exception:
-                                pass
-                    _sys.stdout = _Tee(orig_stdout, lf)
-                except Exception:
-                    lf = None
-            base_client = _make_client(args)
-            # Build meta client reusing headers/limits
-            meta_client = None
-            try:
-                from .pdb_client import PdbClient as _PdbClient
-                meta_client = _PdbClient(
-                    base_url="https://meta.personality-database.com/api/v2",
-                    concurrency=getattr(base_client, "concurrency", 4),
-                    rate_per_minute=getattr(base_client, "rate_per_minute", 60),
-                    timeout_s=getattr(base_client, "timeout_s", 20.0),
-                    headers=getattr(base_client, "_extra_headers", None),
-                )
-            except Exception:
-                meta_client = None
-            if meta_client is None:
-                print("Meta client unavailable; cannot extract sub_cat_id from URLs.")
-                return
-            # Collect URLs
-            urls: list[str] = []
-            if getattr(args, "urls", None):
-                urls.extend([u.strip() for u in str(args.urls).split(",") if u.strip()])
-            if getattr(args, "url_file", None):
-                try:
-                    if args.url_file.strip() == "-":
-                        txt = _sys.stdin.read()
-                    else:
-                        txt = _Path(args.url_file).read_text(encoding="utf-8")
-                    for tok in _re.split(r"[\s,]+", txt):
-                        t = tok.strip()
-                        if t:
-                            urls.append(t)
-                except Exception:
-                    pass
-            # If any URLs are PDB search pages, expand them into profile/group links, keeping keyword context
-            from urllib.parse import unquote as _unquote
-            expanded_pairs: list[tuple[str, str | None]] = []  # (url, search_keyword)
-            # Optional HTML override content (from --html-file or --html-stdin)
-            html_override: str | None = None
-            try:
-                if getattr(args, "html_file", None):
-                    html_override = _Path(args.html_file).read_text(encoding="utf-8")
-                elif getattr(args, "html_stdin", False):
-                    html_override = _sys.stdin.read()
-            except Exception:
-                html_override = None
-            for u in urls:
-                try:
-                    parsed = _urlparse(u)
-                    if parsed.netloc.endswith("personality-database.com") and parsed.path == "/search":
-                        # Build best-effort headers, including user-provided cookies
-                        import urllib.request as _ur
-                        hdrs = {"User-Agent": "Mozilla/5.0"}
-                        try:
-                            _hdrs = getattr(base_client, "_extra_headers", {}) or {}
-                            if isinstance(_hdrs, dict):
-                                # copy only common HTTP header-ish keys
-                                for hk in ("User-Agent","Accept","Accept-Language","Cookie","Origin","Referer"):
-                                    v = _hdrs.get(hk) or _hdrs.get(hk.lower())
-                                    if isinstance(v, str) and v:
-                                        hdrs[hk] = v
-                        except Exception:
-                            pass
-                        html = html_override or ""
-                        # Optionally render via Playwright for JS-generated content
-                        if (not html) and getattr(args, "render_js", False):
-                            try:
-                                from playwright.async_api import async_playwright  # type: ignore
-                                async with async_playwright() as p:
-                                    browser = await p.chromium.launch(headless=True)
-                                    context = await browser.new_context(user_agent=hdrs.get("User-Agent") or None)
-                                    # set extra headers and cookies when available
-                                    extra = {k: v for k, v in hdrs.items() if k not in {"User-Agent", "Cookie"}}
-                                    if extra:
-                                        try:
-                                            await context.set_extra_http_headers(extra)  # type: ignore
-                                        except Exception:
-                                            pass
-                                    ck = hdrs.get("Cookie")
-                                    if isinstance(ck, str) and ck:
-                                        try:
-                                            # crude cookie parser: split by ; into name=value
-                                            cookies = []
-                                            for part in ck.split(";"):
-                                                part = part.strip()
-                                                if not part or "=" not in part:
-                                                    continue
-                                                name, value = part.split("=", 1)
-                                                cookies.append({
-                                                    "name": name.strip(),
-                                                    "value": value.strip(),
-                                                    "domain": parsed.hostname or ".personality-database.com",
-                                                    "path": "/",
-                                                })
-                                            if cookies:
-                                                await context.add_cookies(cookies)  # type: ignore
-                                        except Exception:
-                                            pass
-                                    page = await context.new_page()
-                                    await page.goto(u, wait_until="load", timeout=20000)
-                                    # give some time for client-side fetch to populate
-                                    await page.wait_for_timeout(2000)
-                                    html = await page.content()
-                                    await context.close()
-                                    await browser.close()
-                            except Exception as e:
-                                print(f"[expand-from-url] JS rendering failed or Playwright missing: {e}")
-                                print("Hint: pip install playwright && python -m playwright install chromium")
-                                html = ""
-                        if not html:
-                            req = _ur.Request(u, headers=hdrs)
-                            with _ur.urlopen(req, timeout=20) as resp:
-                                html = resp.read().decode("utf-8", errors="ignore")
-                        q = _parse_qs(parsed.query)
-                        kw = None
-                        try:
-                            kws = q.get("keyword") or q.get("q") or []
-                            for kk in kws:
-                                if isinstance(kk, str) and kk:
-                                    kw = _unquote(kk).strip() or None
-                                    if kw:
-                                        break
-                        except Exception:
-                            kw = None
-                        # Try v2 search/top directly using the keyword (more reliable than scraping)
-                        if kw:
-                            try:
-                                data2 = await base_client.fetch_json("search/top", {"limit": max(int(getattr(args, "limit", 20)), 1), "keyword": kw})
-                                payload2 = data2.get("data") if isinstance(data2, dict) else data2
-                                if isinstance(payload2, dict):
-                                    # Promote alt keys into profiles to retain via --only-profiles
-                                    profs = (payload2.get("profiles") or [])
-                                    for alt_key in ("recommendProfiles", "characters", "relatedProfiles"):
-                                        alt_list = payload2.get(alt_key) or []
-                                        if alt_list:
-                                            if alt_key in ("characters", "relatedProfiles"):
-                                                alt_list = [({**it, "_from_character_group": True} if isinstance(it, dict) else it) for it in alt_list]
-                                            profs = (profs or []) + alt_list
-                                    # Collect any explicit profile URLs via IDs (for completeness) and subcategory IDs for related
-                                    for it in profs or []:
-                                        if isinstance(it, dict):
-                                            pid = None
-                                            for kk in ("id","profileId","profile_id","profileID"):
-                                                vv = it.get(kk)
-                                                if isinstance(vv, int): pid = vv; break
-                                                if isinstance(vv, str) and vv.isdigit(): pid = int(vv); break
-                                            if isinstance(pid, int):
-                                                expanded_pairs.append((f"https://www.personality-database.com/profile/{pid}", kw))
-                                    for sc in (payload2.get("subcategories") or []):
-                                        if isinstance(sc, dict):
-                                            sid = None
-                                            for kk in ("id","profileId","profile_id","profileID"):
-                                                vv = sc.get(kk)
-                                                if isinstance(vv, int): sid = vv; break
-                                                if isinstance(vv, str) and vv.isdigit(): sid = int(vv); break
-                                            if isinstance(sid, int):
-                                                # synthesize a URL carrying sub_cat_id for later related expansion
-                                                expanded_pairs.append((f"https://www.personality-database.com/profile?sub_cat_id={sid}", kw))
-                            except Exception:
-                                pass
-                        # Match '/profile/...' anchors in double or single quotes
-                        for m in _re.finditer(r'href=[\"\'](/profile/[^\"\']+)[\"\']', html):
-                            href = m.group(1)
-                            expanded_pairs.append((f"https://www.personality-database.com{href}", kw))
-                        # Match '/profile?...sub_cat_id=...' in either quote style
-                        for m in _re.finditer(r'href=[\"\'](/profile\?[^\"\']*sub_cat_id=\d+[^\"\']*)[\"\']', html):
-                            href = m.group(1)
-                            expanded_pairs.append((f"https://www.personality-database.com{href}", kw))
-                        # Fallback: if no links found, try to extract sub_cat_id directly from inline scripts and synthesize a URL
-                        if not any('/profile' in p[0] for p in expanded_pairs):
-                            for mm in _re.finditer(r'sub_cat_id\s*[:=]\s*(\d+)', html):
-                                sid = mm.group(1)
-                                # Synthesize a pseudo URL that carries sub_cat_id for later related expansion
-                                synthetic = f"https://www.personality-database.com/profile?sub_cat_id={sid}"
-                                expanded_pairs.append((synthetic, kw))
-                    else:
-                        expanded_pairs.append((u, None))
-                except Exception:
-                    expanded_pairs.append((u, None))
-            # De-duplicate expanded list (prefer keeping a non-None keyword)
-            seen_map: dict[str, str | None] = {}
-            for u, kw in expanded_pairs:
-                if u not in seen_map or (kw and not seen_map.get(u)):
-                    seen_map[u] = kw
-            url_list = [(u, seen_map[u]) for u in seen_map.keys()]
-            if not url_list:
-                print("No URLs provided. Use --urls or --url-file (or '-' for stdin).")
-                return
-            # Helper: extract numeric profile id from URL path
-            def _extract_pid(u: str) -> int | None:
-                try:
-                    m = _re.search(r"/profile/(\d+)", u)
-                    if m:
-                        return int(m.group(1))
-                except Exception:
-                    return None
-                return None
-            # Lists selection
-            target_lists: set[str] | None = None
-            if args.only_profiles:
-                target_lists = {"profiles"}
-            elif isinstance(args.lists, str) and args.lists:
-                target_lists = {s.strip() for s in args.lists.split(",") if s.strip()}
-            store = PdbStorage()
-            total = 0
-            forced_kw = getattr(args, "set_keyword", None)
-            for u, search_kw in url_list:
-                pid = _extract_pid(u)
-                seed_title: str | None = None
-                if not isinstance(pid, int):
-                    # No PID in path; still try to read sub_cat_id directly from query
-                    pass
-                else:
-                    # Try to fetch and upsert the profile itself (v2)
-                    try:
-                        prof = await base_client.fetch_json(f"profiles/{pid}")
-                    except Exception:
-                        prof = None
-                    pobj = prof.get("data") if isinstance(prof, dict) else prof
-                    if isinstance(pobj, dict):
-                        # capture a human-readable seed title/name
-                        for kk in ("name","title","display_name","username","subcategory"):
-                            vv = pobj.get(kk)
-                            if isinstance(vv, str) and vv.strip():
-                                seed_title = vv.strip()
-                                break
-                        main_obj = {**pobj, "_source": "v2_profile", "_profile_id": pid, "_seed_url": u}
-                        kw_to_use = (forced_kw or search_kw)
-                        if isinstance(kw_to_use, str) and kw_to_use:
-                            main_obj["_search_keyword"] = kw_to_use
-                        if args.force_character_group:
-                            try:
-                                main_obj.setdefault("_from_character_group", True)
-                            except Exception:
-                                pass
-                        if args.filter_characters:
-                            is_char0 = main_obj.get("isCharacter") is True
-                            if not is_char0 and args.characters_relaxed:
-                                is_char0 = main_obj.get("_from_character_group") is True
-                            if is_char0:
-                                if not args.dry_run:
-                                    n0, u0 = store.upsert_raw([main_obj])
-                                    total += (n0 + u0)
-                                    print(f"url={u} pid={pid}: upserted profile new={n0} updated={u0}")
-                            # if filtered out, skip silently
-                        else:
-                            if not args.dry_run:
-                                n0, u0 = store.upsert_raw([main_obj])
-                                total += (n0 + u0)
-                                print(f"url={u} pid={pid}: upserted profile new={n0} updated={u0}")
-                # Attempt to extract sub_cat_id directly from URL query
-                sub_ids: list[int] = []
-                try:
-                    _parsed = _urlparse(u)
-                    q = _parse_qs(_parsed.query)
-                    for key in ("sub_cat_id", "subCatId"):
-                        vals = q.get(key) or []
-                        for vv in vals:
-                            if isinstance(vv, str) and vv.isdigit():
-                                sub_ids.append(int(vv))
-                except Exception:
-                    pass
-                # If not present in query, fetch meta to discover sub_cat_id from BreadcrumbList JSON-LD
-                if not sub_ids and isinstance(pid, int):
-                    try:
-                        mdata = await meta_client.fetch_json(f"meta/profile/{pid}")
-                    except Exception as e:
-                        print(f"meta fetch failed for pid={pid}: {e}")
-                        mdata = None
-                    payload = mdata.get("data") if isinstance(mdata, dict) else mdata
-                    if isinstance(payload, dict):
-                        # payload from meta has key 'data' containing tag entries (see peek-meta)
-                        entries = payload.get("data") if isinstance(payload.get("data"), list) else []
-                        for ent in entries:
-                            if not isinstance(ent, dict):
-                                continue
-                            if ent.get("tag") != "script":
-                                continue
-                            val = ent.get("value")
-                            if isinstance(val, str) and "sub_cat_id" in val:
-                                for mm in _re.finditer(r"sub_cat_id=(\d+)", val):
-                                    try:
-                                        sid = int(mm.group(1))
-                                        sub_ids.append(sid)
-                                    except Exception:
-                                        pass
-                # De-dup subcategory ids
-                sub_ids = list(dict.fromkeys([s for s in sub_ids if isinstance(s, int)]))
-                if not sub_ids:
-                    print(f"url={u}: no sub_cat_id found (query or meta); skipping")
-                    continue
-                # For each subcategory id, call profiles/{sid}/related and upsert
-                for sid in sub_ids:
-                    lists: dict[str, list] = {}
-                    try:
-                        data = await base_client.fetch_json(f"profiles/{sid}/related")
-                    except Exception as e:
-                        print(f"related fetch failed for sub_cat_id={sid}: {e}")
-                        data = None
-                    rel_payload = data.get("data") if isinstance(data, dict) else data
-                    if isinstance(rel_payload, dict):
-                        rel_list = (
-                            rel_payload.get("relatedProfiles")
-                            or rel_payload.get("profiles")
-                            or rel_payload.get("characters")
-                            or []
-                        )
-                        if isinstance(rel_list, list) and rel_list:
-                            lists["profiles"] = rel_list
-                    # Fallback: if no v2 related results, try meta endpoint to surface profiles
-                    if not lists.get("profiles") and meta_client is not None:
-                        mpayload = None
-                        try:
-                            mdata = await meta_client.fetch_json(f"meta/profile/{sid}")
-                            mpayload = mdata.get("data") if isinstance(mdata, dict) else mdata
-                        except Exception:
-                            mpayload = None
-                        if isinstance(mpayload, dict):
-                            # direct list keys first (promote all known alt keys)
-                            merged: list = []
-                            for k in ("profiles", "relatedProfiles", "characters", "recommendProfiles"):
-                                v = mpayload.get(k)
-                                if isinstance(v, list) and v:
-                                    if k in ("characters", "relatedProfiles"):
-                                        v = [({**it, "_from_character_group": True} if isinstance(it, dict) else it) for it in v]
-                                    merged.extend(v)
-                            # heuristic deep scan if still empty
-                            if not merged:
-                                prof_like: list[dict] = []
-                                def _walk(x):
-                                    try:
-                                        if isinstance(x, dict):
-                                            has_name = any(
-                                                isinstance(x.get(k), str) and x.get(k)
-                                                for k in ("name","title","subcategory","display_name","username")
-                                            )
-                                            id_val = None
-                                            for kk in ("id","profileId","profile_id","profileID"):
-                                                vv = x.get(kk)
-                                                if isinstance(vv, int):
-                                                    id_val = vv; break
-                                                if isinstance(vv, str) and vv.isdigit():
-                                                    id_val = int(vv); break
-                                            if (has_name and id_val is not None) or (x.get("isCharacter") is True):
-                                                prof_like.append(x)
-                                            for v in x.values():
-                                                _walk(v)
-                                        elif isinstance(x, list):
-                                            for v in x:
-                                                _walk(v)
-                                    except Exception:
-                                        return
-                                _walk(mpayload)
-                                if prof_like:
-                                    merged.extend(prof_like)
-                            if merged:
-                                lists["profiles"] = merged
-                    selected = set(lists.keys()) if target_lists is None else (set(lists.keys()) & set(target_lists))
-                    batch: list[dict] = []
-                    for key in sorted(selected):
-                        for it in lists.get(key, []) or []:
-                            if not isinstance(it, dict):
-                                continue
-                            obj = {**it, "_source": f"v2_related_from_url:{key}", "_seed_url": u, "_seed_pid": pid, "_seed_sub_cat_id": sid}
-                            kw_to_use = (forced_kw or search_kw)
-                            if isinstance(kw_to_use, str) and kw_to_use:
-                                obj["_search_keyword"] = kw_to_use
-                            if isinstance(seed_title, str) and seed_title:
-                                obj["_seed_profile_title"] = seed_title
-                            if args.force_character_group:
-                                try:
-                                    obj.setdefault("_from_character_group", True)
-                                except Exception:
-                                    pass
-                            if args.filter_characters:
-                                is_char = obj.get("isCharacter") is True
-                                if not is_char and args.characters_relaxed:
-                                    is_char = obj.get("_from_character_group") is True
-                                if not is_char:
-                                    continue
-                            batch.append(obj)
-                    if not batch:
-                        print(f"url={u} sid={sid}: no items after filtering.")
-                        continue
-                    if args.dry_run:
-                        print(f"url={u} sid={sid}: would upsert {len(batch)} items (dry-run)")
-                    else:
-                        n, u2 = store.upsert_raw(batch)
-                        total += (n + u2)
-                        print(f"url={u} sid={sid}: upserted new={n} updated={u2}")
-            if not args.dry_run:
-                print(f"Done. Upserted total rows: {total}")
-            # Restore stdout and close log if used
-            try:
-                _sys.stdout = orig_stdout
-                if lf:
-                    lf.close()
-            except Exception:
-                pass
-        asyncio.run(_run())
+        asyncio.run(_expand_from_url_async(args))
         return
     elif args.cmd == "peek-meta":
         import re as _re

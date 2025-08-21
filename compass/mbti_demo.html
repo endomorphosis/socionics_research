@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MBTI Sphere Demo</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #0b0e13; color: #eee; font-family: system-ui, sans-serif; }
+    #app { position: absolute; inset: 0; }
+    .hud { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.45); padding: 8px 10px; border-radius: 8px; font-size: 14px; }
+    .hud label { margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="hud">
+    <label><input type="checkbox" id="cCircles" checked> Circles</label>
+    <label><input type="checkbox" id="cRegions" checked> Regions</label>
+  </div>
+  <script type="module">
+    import { createMBTISphere } from './mbti_sphere.js';
+
+    const app = document.getElementById('app');
+    const sphere = createMBTISphere(app, { showCircles: true, showRegions: true });
+
+    const cCircles = document.getElementById('cCircles');
+    const cRegions = document.getElementById('cRegions');
+    cCircles.addEventListener('change', () => sphere.setOptions({ showCircles: cCircles.checked }));
+    cRegions.addEventListener('change', () => sphere.setOptions({ showRegions: cRegions.checked }));
+  </script>
+</body>
+</html>

@@ -4,7 +4,7 @@ export default defineConfig({
   root: '.',
   server: {
     port: 5173,
-    open: true,
+  open: '/?view=planet',
   },
   optimizeDeps: {
   include: ['hnswlib-wasm', './hnswlib_loader.js'],
@@ -16,6 +16,7 @@ export default defineConfig({
       input: {
         main: 'index.html',
   worker: 'vec_worker.js',
+  mbti_demo: 'mbti_demo.html',
       },
       output: {
         // Preserve readable names without hashes so worker relative imports resolve

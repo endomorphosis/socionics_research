@@ -68,13 +68,39 @@ const DuckVec = (() => {
     await init();
   const idColsBase = ['cid', 'pid', 'profile_cid', 'id', 'profile_id', 'uuid', 'uid', 'profile_uuid', 'profile_uid'];
   const vecCols = ['vector', 'embedding', 'embeddings', 'vec', 'values', 'vectors', 'features', 'feat', 'embedding_vector', 'vector_64', 'embedding_64'];
-    const absUrl = new URL(parquetUrl, (globalThis.location && globalThis.location.origin) || 'http://localhost:3000').toString();
+    // Resolve dataset URL: if relative and not on :3000, prefer Express http://<host>:3000
+    function resolveDatasetUrl(urlPath){
+      const loc = globalThis.location;
+      try { const u = new URL(urlPath, 'http://dummy'); if (/^https?:/i.test(u.protocol)) return urlPath; } catch {}
+      const host = (loc && loc.hostname) || 'localhost';
+      const scheme = (loc && loc.protocol) || 'http:';
+      const atPort = (loc && loc.port) || '';
+      const base = (atPort === '3000') ? `${scheme}//${host}:3000` : `${scheme}//${host}:3000`;
+      return new URL(urlPath, base).toString();
+    }
+    let absUrl = resolveDatasetUrl(parquetUrl);
     try {
       const head = await fetch(absUrl, { method: 'HEAD' });
       if (!head.ok) throw new Error(`HTTP ${head.status}`);
+      const ctype = head.headers.get('content-type') || '';
+      // Parquet should be served as octet-stream; bail if we likely hit HTML from vite dev
+      if (/text\/html/i.test(ctype)) throw new Error('Unexpected HTML content (are you hitting Vite dev instead of Express /dataset?)');
     } catch (e) {
-      console.error('DuckDB vectors: parquet not reachable at', absUrl, e && e.message || e);
-      throw new Error(`Parquet not found at ${absUrl}`);
+      // Retry once against window origin as fallback
+      try {
+        const loc = globalThis.location;
+        const alt = new URL(parquetUrl, (loc && loc.origin) || 'http://localhost:5173').toString();
+        const head2 = await fetch(alt, { method: 'HEAD' });
+        if (head2.ok && !/text\/html/i.test(head2.headers.get('content-type') || '')) {
+          absUrl = alt;
+        } else {
+          console.error('DuckDB vectors: parquet not reachable at', absUrl, e && e.message || e);
+          throw new Error(`Parquet not found at ${absUrl}`);
+        }
+      } catch (e2) {
+        console.error('DuckDB vectors: parquet not reachable at', absUrl, e && e.message || e);
+        throw new Error(`Parquet not found at ${absUrl}`);
+      }
     }
     const schema = await describeParquet(absUrl);
     // Expand id candidates dynamically based on schema
@@ -162,13 +188,37 @@ const DuckVec = (() => {
     const socCols = ['socionics', 'socionics_type', 'socionics_code'];
     const big5Cols = ['big5', 'bigfive', 'big_five', 'big5_code'];
     const descCols = ['description', 'bio', 'about', 'summary'];
-    const absUrl = new URL(parquetUrl, (globalThis.location && globalThis.location.origin) || 'http://localhost:3000').toString();
+    function resolveDatasetUrl(urlPath){
+      const loc = globalThis.location;
+      try { const u = new URL(urlPath, 'http://dummy'); if (/^https?:/i.test(u.protocol)) return urlPath; } catch {}
+      const host = (loc && loc.hostname) || 'localhost';
+      const scheme = (loc && loc.protocol) || 'http:';
+      const atPort = (loc && loc.port) || '';
+      const base = (atPort === '3000') ? `${scheme}//${host}:3000` : `${scheme}//${host}:3000`;
+      return new URL(urlPath, base).toString();
+    }
+    let absUrl = resolveDatasetUrl(parquetUrl);
     try {
       const head = await fetch(absUrl, { method: 'HEAD' });
       if (!head.ok) throw new Error(`HTTP ${head.status}`);
+      const ctype = head.headers.get('content-type') || '';
+      if (/text\/html/i.test(ctype)) throw new Error('Unexpected HTML content (are you hitting Vite dev instead of Express /dataset?)');
     } catch (e) {
-      console.error('DuckDB profiles: parquet not reachable at', absUrl, e && e.message || e);
-      throw new Error(`Parquet not found at ${absUrl}`);
+      // Retry once against window origin as fallback
+      try {
+        const loc = globalThis.location;
+        const alt = new URL(parquetUrl, (loc && loc.origin) || 'http://localhost:5173').toString();
+        const head2 = await fetch(alt, { method: 'HEAD' });
+        if (head2.ok && !/text\/html/i.test(head2.headers.get('content-type') || '')) {
+          absUrl = alt;
+        } else {
+          console.error('DuckDB profiles: parquet not reachable at', absUrl, e && e.message || e);
+          throw new Error(`Parquet not found at ${absUrl}`);
+        }
+      } catch (e2) {
+        console.error('DuckDB profiles: parquet not reachable at', absUrl, e && e.message || e);
+        throw new Error(`Parquet not found at ${absUrl}`);
+      }
     }
     const schema = await describeParquet(absUrl);
     const have = new Set(schema.map(c => c.name));
@@ -237,7 +287,16 @@ const DuckVec = (() => {
 
   async function fillNamesFromCsv(rows) {
     if (!rows || !rows.length) return;
-    const csvUrl = new URL('/dataset/pdb_profiles_flat.csv', (globalThis.location && globalThis.location.origin) || 'http://localhost:3000').toString();
+    function resolveDatasetUrl(urlPath){
+      const loc = globalThis.location;
+      try { const u = new URL(urlPath, 'http://dummy'); if (/^https?:/i.test(u.protocol)) return urlPath; } catch {}
+      const host = (loc && loc.hostname) || 'localhost';
+      const scheme = (loc && loc.protocol) || 'http:';
+      const port = (loc && loc.port) || '';
+      const datasetBase = (port === '5173') ? `${scheme}//${host}:3000` : `${scheme}//${host}${port ? ':'+port : ''}`;
+      return new URL(urlPath, datasetBase).toString();
+    }
+  const csvUrl = resolveDatasetUrl('/dataset/pdb_profiles_flat.csv');
     // Quick existence check
     try {
       const head = await fetch(csvUrl, { method: 'HEAD' });
