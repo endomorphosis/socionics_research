@@ -7,6 +7,21 @@ const DuckVec = (() => {
   let db = null;
   let conn = null;
 
+  // Resolve dataset URLs to absolute http://<host>:3000 when a relative 
+  // /dataset/... path is provided. Keeps same-origin if already absolute.
+  function resolveDatasetUrl(urlPath){
+    try {
+      const u = new URL(urlPath, 'http://dummy');
+      if (/^https?:/i.test(u.protocol)) return urlPath;
+    } catch {}
+    const loc = globalThis.location;
+    const host = (loc && loc.hostname) || 'localhost';
+    const scheme = (loc && loc.protocol) || 'http:';
+    const atPort = (loc && loc.port) || '';
+    const base = `${scheme}//${host}:3000`;
+    return new URL(urlPath, base).toString();
+  }
+
   async function init() {
     if (db) return;
     const mainWorkerUrl = new URL('@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js', import.meta.url);
@@ -33,7 +48,18 @@ const DuckVec = (() => {
     }
   }
 
-  async function describeParquet(absUrl) {
+  async function describeParquet(inputUrl) {
+    const absUrl = resolveDatasetUrl(inputUrl);
+    // Quick reachability check to avoid noisy worker errors
+    try {
+      const head = await fetch(absUrl, { method: 'HEAD' });
+      if (!head.ok) throw new Error(`HTTP ${head.status}`);
+      const ctype = head.headers.get('content-type') || '';
+      if (/text\/html/i.test(ctype)) throw new Error('Unexpected HTML content');
+    } catch (e) {
+      console.warn('DuckDB HEAD failed for', absUrl, e && e.message || e);
+      return [];
+    }
     const rows = [];
     try {
       const res = await conn.query(`DESCRIBE SELECT * FROM read_parquet('${absUrl}')`);
@@ -69,15 +95,6 @@ const DuckVec = (() => {
   const idColsBase = ['cid', 'pid', 'profile_cid', 'id', 'profile_id', 'uuid', 'uid', 'profile_uuid', 'profile_uid'];
   const vecCols = ['vector', 'embedding', 'embeddings', 'vec', 'values', 'vectors', 'features', 'feat', 'embedding_vector', 'vector_64', 'embedding_64'];
     // Resolve dataset URL: if relative and not on :3000, prefer Express http://<host>:3000
-    function resolveDatasetUrl(urlPath){
-      const loc = globalThis.location;
-      try { const u = new URL(urlPath, 'http://dummy'); if (/^https?:/i.test(u.protocol)) return urlPath; } catch {}
-      const host = (loc && loc.hostname) || 'localhost';
-      const scheme = (loc && loc.protocol) || 'http:';
-      const atPort = (loc && loc.port) || '';
-      const base = (atPort === '3000') ? `${scheme}//${host}:3000` : `${scheme}//${host}:3000`;
-      return new URL(urlPath, base).toString();
-    }
     let absUrl = resolveDatasetUrl(parquetUrl);
     try {
       const head = await fetch(absUrl, { method: 'HEAD' });
@@ -103,6 +120,9 @@ const DuckVec = (() => {
       }
     }
     const schema = await describeParquet(absUrl);
+    if (!schema || !schema.length) {
+      throw new Error(`Parquet not readable at ${absUrl}`);
+    }
     // Expand id candidates dynamically based on schema
     const dynId = Array.from(new Set(
       schema.map(s => s.name).filter(n => /(^|_)(cid|uuid|uid|id)$/i.test(n))
@@ -122,7 +142,7 @@ const DuckVec = (() => {
         if (isList) selects.push(`list_transform(${vc}, x -> CAST(x AS DOUBLE)) AS vector`);
         else if (isJsonish) selects.push(`list_transform(from_json(${vc}), x -> CAST(x AS DOUBLE)) AS vector`);
         else selects.push(`list_transform(${vc}, x -> CAST(x AS DOUBLE)) AS vector`);
-        const sql = `SELECT ${selects.join(', ')} FROM read_parquet('${absUrl}')`;
+          const sql = `SELECT ${selects.join(', ')} FROM read_parquet('${absUrl}')`;
         try {
           res = await conn.query(sql);
           used = { idc, vc };
@@ -188,15 +208,6 @@ const DuckVec = (() => {
     const socCols = ['socionics', 'socionics_type', 'socionics_code'];
     const big5Cols = ['big5', 'bigfive', 'big_five', 'big5_code'];
     const descCols = ['description', 'bio', 'about', 'summary'];
-    function resolveDatasetUrl(urlPath){
-      const loc = globalThis.location;
-      try { const u = new URL(urlPath, 'http://dummy'); if (/^https?:/i.test(u.protocol)) return urlPath; } catch {}
-      const host = (loc && loc.hostname) || 'localhost';
-      const scheme = (loc && loc.protocol) || 'http:';
-      const atPort = (loc && loc.port) || '';
-      const base = (atPort === '3000') ? `${scheme}//${host}:3000` : `${scheme}//${host}:3000`;
-      return new URL(urlPath, base).toString();
-    }
     let absUrl = resolveDatasetUrl(parquetUrl);
     try {
       const head = await fetch(absUrl, { method: 'HEAD' });
@@ -221,6 +232,9 @@ const DuckVec = (() => {
       }
     }
     const schema = await describeParquet(absUrl);
+    if (!schema || !schema.length) {
+      throw new Error(`Parquet not readable at ${absUrl}`);
+    }
     const have = new Set(schema.map(c => c.name));
     const dynId = Array.from(new Set(
       schema.map(s => s.name).filter(n => /(^|_)(cid|uuid|uid|id)$/i.test(n))

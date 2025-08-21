@@ -4,6 +4,18 @@
     if (legend && legend.parentElement) legend.parentElement.removeChild(legend);
     const addForm = document.getElementById('add-personality-form');
     if (addForm && addForm.parentElement) addForm.parentElement.removeChild(addForm);
+    // Remove filter and import/export controls from display (robustly handle duplicates)
+    const removeAllById = (id) => {
+      try {
+        let el;
+        while ((el = document.getElementById(id))) {
+          if (el.parentElement) el.parentElement.removeChild(el);
+          else break;
+        }
+      } catch {}
+    };
+    removeAllById('filter-controls');
+    removeAllById('import-export-controls');
   });
 // Search UI and logic for highlighting personalities
 
@@ -212,6 +224,103 @@ window.addEventListener('DOMContentLoaded', () => {
   <div id="search-results" style="max-height:260px;overflow-y:auto;"></div>
   `;
   document.body.appendChild(searchDiv);
+  // Inject an Advanced toggle and high-contrast styles to improve legibility
+  try {
+    // Advanced toggle button
+    const advBtn = document.createElement('button');
+    advBtn.id = 'btn-advanced-toggle';
+    advBtn.textContent = 'Advanced…';
+    advBtn.title = 'Show/hide advanced data controls';
+    advBtn.style.position = 'absolute';
+    advBtn.style.top = '8px';
+    advBtn.style.right = '8px';
+    advBtn.style.border = '1px solid #bbb';
+    advBtn.style.background = '#fff';
+    advBtn.style.borderRadius = '6px';
+    advBtn.style.padding = '0.2em 0.5em';
+    advBtn.style.cursor = 'pointer';
+    advBtn.style.fontSize = '12px';
+    advBtn.style.color = '#000';
+    advBtn.style.zIndex = '1';
+    searchDiv.style.position = 'fixed';
+    searchDiv.appendChild(advBtn);
+
+    // Sidebar legibility styles
+    const style = document.createElement('style');
+    style.id = 'compass-legibility-styles';
+    style.textContent = `
+      /* Improve readability in the right sidebar */
+      #planet-sidebar { color: #e6e9ef; font-size: 14px; line-height: 1.4; }
+      #planet-sidebar label { color: #e6e9ef !important; }
+  #planet-sidebar span { color: #e6e9ef !important; }
+      #planet-sidebar select, #planet-sidebar input[type="text"], #planet-sidebar input[type="number"],
+      #planet-sidebar input[type="range"], #planet-sidebar button {
+        color: #e6e9ef !important;
+        background: rgba(255,255,255,0.08) !important;
+        border: 1px solid rgba(255,255,255,0.22) !important;
+      }
+      #planet-sidebar button { cursor: pointer; }
+      #reinin-legend-view { color: #fff; }
+      #reinin-legend-view .row, #reinin-legend-view div { color: #fff; }
+    `;
+    document.head.appendChild(style);
+
+    // Collapse advanced controls by default
+    const advKey = 'compass_advanced_visible';
+    const actions = () => document.getElementById('search-actions');
+    const dbg = () => document.getElementById('debug-log');
+    const pbar = () => document.getElementById('progress-bar');
+    function applyAdvancedVisibility(v) {
+      const vis = !!v;
+      if (actions()) actions().style.display = vis ? 'flex' : 'none';
+      if (dbg()) dbg().style.display = vis ? 'block' : 'none';
+      if (pbar()) pbar().style.display = vis ? 'block' : 'none';
+      // Also toggle advanced globe controls in the right sidebar
+      try {
+        const advElts = [];
+        const pc = document.getElementById('planet-controls');
+        if (pc) {
+          function nearestLabel(el){ if (!el) return null; let n = el; while (n && n !== pc) { if (n.tagName === 'LABEL') return n; n = n.parentElement; } return el; }
+          function pushById(id, wrapLabel=true){ const el = document.getElementById(id); if (!el) return; advElts.push(wrapLabel ? (nearestLabel(el)||el) : el); }
+          // Great-circle and normals advanced knobs
+          pushById('sel-normals-preset');
+          advElts.push(document.getElementById('custom-normals'));
+          // Function-aware placement controls
+          pushById('chk-func-aware');
+          pushById('range-func-offset');
+          advElts.push(document.getElementById('func-weights'));
+          pushById('range-func-roll');
+          // Polar rotation controls
+          pushById('sel-polar-axis');
+          pushById('range-polar-angle');
+          // Reset/Import/Export Settings
+          const btnResetAxis = document.getElementById('btn-reset-axis'); if (btnResetAxis) advElts.push(btnResetAxis);
+          const btnResetGuides = document.getElementById('btn-reset-guides'); if (btnResetGuides) advElts.push(btnResetGuides);
+          const btnExportGlobeSettings = document.getElementById('btn-export-globe-settings'); if (btnExportGlobeSettings) advElts.push(btnExportGlobeSettings);
+          const lblImportGlobe = document.querySelector('label[for="file-import-globe-settings"]'); if (lblImportGlobe) advElts.push(lblImportGlobe);
+          // Auto globe and export
+          pushById('chk-auto-globe');
+          pushById('num-auto-threshold');
+          const btnExportPlanet = document.getElementById('btn-export-planet'); if (btnExportPlanet) advElts.push(btnExportPlanet);
+        }
+        advElts.filter(Boolean).forEach(el => { el.style.display = vis ? '' : 'none'; });
+      } catch {}
+      advBtn.textContent = vis ? 'Advanced ▲' : 'Advanced…';
+    }
+    let savedAdv = null;
+    try { savedAdv = localStorage.getItem(advKey); } catch {}
+    const initialAdv = savedAdv ? savedAdv === '1' : false;
+    applyAdvancedVisibility(initialAdv);
+    advBtn.onclick = () => {
+      const next = !(actions() && actions().style.display !== 'none');
+      applyAdvancedVisibility(next);
+      try { localStorage.setItem(advKey, next ? '1' : '0'); } catch {}
+    };
+
+    // Slightly larger base font for the search panel
+    searchDiv.style.fontSize = '14px';
+    searchDiv.style.lineHeight = '1.4';
+  } catch {}
   // Keep search panel above planet overlay
   try { searchDiv.style.zIndex = 1005; } catch {}
 
@@ -248,37 +357,56 @@ window.addEventListener('DOMContentLoaded', () => {
   const btnClearDebug = searchDiv.querySelector('#btn-clear-debug');
   const btnCopyDebug = searchDiv.querySelector('#btn-copy-debug');
   const progressFill = searchDiv.querySelector('#progress-bar-fill');
+  // Reference to planet controls (used by globe initialization and auto-show)
+  const planetControls = searchDiv.querySelector('#planet-controls');
+  // Helper: ensure planet controls and Reinin legend live in the right sidebar
+  function ensureRightPanelGrouping(){
+    try {
+      const pc = planetControls;
+      const ps = document.getElementById('planet-sidebar');
+      if (ps && pc && pc.parentElement !== ps) {
+        ps.insertBefore(pc, ps.firstChild);
+      }
+      if (ps && pc) {
+  pc.style.display = 'flex';
+  pc.style.marginBottom = '1.2em';
+  pc.style.background = 'rgba(255,255,255,0.06)';
+  pc.style.borderRadius = '14px';
+  pc.style.padding = '1em 1.2em 1em 1.2em';
+  pc.style.boxShadow = '0 8px 24px rgba(0,0,0,0.35)';
+  pc.style.flexWrap = 'wrap';
+  pc.style.gap = '1em';
+  pc.style.display = 'flex';
+  pc.style.alignItems = 'center';
+  pc.style.justifyContent = 'flex-start';
+  pc.style.backdropFilter = 'blur(8px)';
+  pc.style.border = '1px solid rgba(255,255,255,0.12)';
+      }
+      // Place legend right after controls when available
+      const legend = document.getElementById('reinin-legend-view');
+      if (ps && pc && legend && legend.parentElement !== ps) {
+        ps.insertBefore(legend, pc.nextSibling);
+      } else if (ps && pc && legend) {
+        // Reorder if needed
+        try { ps.insertBefore(legend, pc.nextSibling); } catch {}
+      }
+    } catch {}
+  }
   // Move planet-controls into the sidebar and apply modern styles after DOM is ready
   window.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
-      const planetSidebar = document.getElementById('planet-sidebar');
-      const planetControls = document.getElementById('planet-controls');
-      if (planetControls && planetSidebar && planetControls.parentElement !== planetSidebar) {
-        planetSidebar.insertBefore(planetControls, planetSidebar.firstChild);
-        planetControls.style.marginBottom = '1.2em';
-        planetControls.style.background = 'linear-gradient(120deg, rgba(255,255,255,0.18) 0%, rgba(200,220,255,0.22) 100%)';
-        planetControls.style.borderRadius = '14px';
-        planetControls.style.padding = '1em 1.2em 1em 1.2em';
-        planetControls.style.boxShadow = '0 4px 24px 0 rgba(120,180,255,0.13), 0 1.5px 6px rgba(0,0,0,0.07)';
-        planetControls.style.flexWrap = 'wrap';
-        planetControls.style.gap = '1em';
-        planetControls.style.display = 'flex';
-        planetControls.style.alignItems = 'center';
-        planetControls.style.justifyContent = 'flex-start';
-        planetControls.style.backdropFilter = 'blur(6px)';
-        planetControls.style.border = '1.5px solid rgba(255,255,255,0.18)';
-      }
+      ensureRightPanelGrouping();
       // Sidebar: glassy opalescent effect
       if (planetSidebar) {
-        planetSidebar.style.background = 'linear-gradient(120deg, rgba(255,255,255,0.22) 0%, rgba(180,220,255,0.18) 100%)';
-        planetSidebar.style.backdropFilter = 'blur(12px)';
-        planetSidebar.style.border = '1.5px solid rgba(255,255,255,0.18)';
-        planetSidebar.style.boxShadow = '0 8px 32px 0 rgba(120,180,255,0.18), 0 1.5px 6px rgba(0,0,0,0.07)';
+        planetSidebar.style.background = 'rgba(16, 22, 35, 0.92)';
+        planetSidebar.style.backdropFilter = 'blur(10px)';
+        planetSidebar.style.border = '1px solid rgba(255,255,255,0.10)';
+        planetSidebar.style.boxShadow = '0 8px 32px 0 rgba(0,0,0,0.35)';
       }
-      // Background: vibrant prismatic gradient
+      // Background: switch to dark gradient for readability
       const planetContainer = document.getElementById('planet-container');
       if (planetContainer) {
-        planetContainer.style.background = 'linear-gradient(135deg, #a8edea 0%, #fed6e3 40%, #fcb69f 70%, #a1c4fd 100%)';
+        planetContainer.style.background = 'linear-gradient(180deg, #0b132b 0%, #1c2541 60%, #0b132b 100%)';
       }
     }, 0);
   });
@@ -347,13 +475,13 @@ window.addEventListener('DOMContentLoaded', () => {
       planetSidebar.style.bottom = '16px';
       planetSidebar.style.width = '360px';
       planetSidebar.style.maxWidth = '80vw';
-      planetSidebar.style.background = 'linear-gradient(120deg, rgba(255,255,255,0.22) 0%, rgba(180,220,255,0.18) 100%)';
-      planetSidebar.style.backdropFilter = 'blur(12px)';
-      planetSidebar.style.border = '1.5px solid rgba(255,255,255,0.18)';
-      planetSidebar.style.borderRadius = '12px';
-      planetSidebar.style.overflow = 'auto';
-      planetSidebar.style.padding = '12px';
-      planetSidebar.style.boxShadow = '0 8px 32px 0 rgba(120,180,255,0.18), 0 1.5px 6px rgba(0,0,0,0.07)';
+  planetSidebar.style.background = 'rgba(16, 22, 35, 0.92)';
+  planetSidebar.style.backdropFilter = 'blur(10px)';
+  planetSidebar.style.border = '1px solid rgba(255,255,255,0.10)';
+  planetSidebar.style.borderRadius = '12px';
+  planetSidebar.style.overflow = 'auto';
+  planetSidebar.style.padding = '12px';
+  planetSidebar.style.boxShadow = '0 8px 32px 0 rgba(0,0,0,0.35)';
       planetContainer.appendChild(planetSidebar);
     }
     if (planetContainer) planetContainer.style.zIndex = '50';
@@ -439,6 +567,51 @@ window.addEventListener('DOMContentLoaded', () => {
   let reininColorsLocal = null;
   // Persisted/customizable Reinin names (24 strings)
   let reininNamesLocal = null;
+
+  // Global-safe helper: ensure Reinin surface is configured and palette seeded
+  // Mirrors the inner ensureReininSurface() but is always in scope
+  function ensureReininSurfaceGlobal() {
+    try {
+      let colors = null;
+      if (Array.isArray(reininColorsLocal) && reininColorsLocal.length === 24) {
+        colors = reininColorsLocal;
+      } else {
+        const hex = [
+          0x1f77b4,0xff7f0e,0x2ca02c,0xd62728,
+          0x9467bd,0x8c564b,0xe377c2,0x7f7f7f,
+          0xbcbd22,0x17becf,0x8dd3c7,0xffffb3,
+          0xbebada,0xfb8072,0x80b1d3,0xfdb462,
+          0xa6cee3,0x1f78b4,0xb2df8a,0x33a02c,
+          0xfb9a99,0xe31a1c,0xfdbf6f,0xff7f00
+        ];
+        colors = hex.map(h => [((h>>16)&255)/255, ((h>>8)&255)/255, (h&255)/255]);
+        reininColorsLocal = colors;
+      }
+      if (window.GLOBE && window.GLOBE.setSurfaceReinin) window.GLOBE.setSurfaceReinin({ colors });
+      try { renderReininLegendView(); } catch {}
+    } catch {}
+  }
+
+  // Fallback alias: if a local ensureReininSurface() isn't in scope in this module,
+  // define one that delegates to the global-safe implementation. This prevents
+  // ReferenceError in handlers that assume a top-level function exists.
+  try {
+    if (typeof ensureReininSurface === 'undefined') {
+      // eslint-disable-next-line no-var
+      var ensureReininSurface = ensureReininSurfaceGlobal;
+    }
+  } catch {}
+
+  // Small helper to quietly check if a parquet URL is reachable and not HTML
+  async function isParquetReachable(url) {
+    try {
+      const res = await fetch(url, { method: 'HEAD' });
+      if (!res.ok) return false;
+      const ct = (res.headers && res.headers.get && res.headers.get('content-type')) || '';
+      if (/text\/html/i.test(ct)) return false;
+      return true;
+    } catch { return false; }
+  }
   // Density preference for compact Reinin legend: 'compact' | 'cozy'
   let reininLegendDensity = (function(){ try { return localStorage.getItem('compass_reinin_legend_density') || 'compact'; } catch { return 'compact'; } })();
 
@@ -598,7 +771,14 @@ window.addEventListener('DOMContentLoaded', () => {
         if (planetSidebar) planetSidebar.appendChild(v); else document.body.appendChild(v);
       }
       // If sidebar exists now, ensure legend lives inside it
-      try { if (planetSidebar && v.parentElement !== planetSidebar) { v.parentElement && v.parentElement.removeChild(v); planetSidebar.appendChild(v); } } catch {}
+      try {
+        if (planetSidebar && v.parentElement !== planetSidebar) {
+          v.parentElement && v.parentElement.removeChild(v);
+          planetSidebar.appendChild(v);
+        }
+      } catch {}
+      // Group legend after controls
+      try { ensureRightPanelGrouping(); } catch {}
       return v;
     } catch { return null; }
   }
@@ -1142,10 +1322,20 @@ window.addEventListener('DOMContentLoaded', () => {
       const prefs = loadPrefs();
       if (prefs && prefs.autoParquet) {
         try {
-          if (prefs.vectors) await window.VEC.loadFromParquet(prefs.vectors);
+          const ok = prefs.vectors && await isParquetReachable(prefs.vectors);
+          if (ok) {
+            await window.VEC.loadFromParquet(prefs.vectors);
+          } else if (prefs.vectors) {
+            if (statusDiv) statusDiv.innerHTML += `<div style='color:#666;margin-top:4px;'>Auto Parquet: vectors not found at ${prefs.vectors} (skipped)</div>`;
+          }
         } catch {}
         try {
-          if (prefs.profiles) await window.KNN.loadFromParquet(prefs.profiles);
+          const ok2 = prefs.profiles && await isParquetReachable(prefs.profiles);
+          if (ok2) {
+            await window.KNN.loadFromParquet(prefs.profiles);
+          } else if (prefs.profiles) {
+            if (statusDiv) statusDiv.innerHTML += `<div style='color:#666;margin-top:4px;'>Auto Parquet: profiles not found at ${prefs.profiles} (skipped)</div>`;
+          }
         } catch {}
       }
   updateStatus(n);
@@ -1722,7 +1912,9 @@ window.addEventListener('DOMContentLoaded', () => {
     try {
       planetSidebar = planetContainer.querySelector('#planet-sidebar') || planetSidebar;
     } catch {}
-    if (planetControls) planetControls.style.display = 'flex';
+  if (planetControls) planetControls.style.display = 'flex';
+  // Always ensure right-side grouping when globe is (re)initialized
+  try { ensureRightPanelGrouping(); } catch {}
     planetVisible = true;
   // Apply stored globe options
   try {
@@ -1780,6 +1972,34 @@ window.addEventListener('DOMContentLoaded', () => {
   }
   function hideGlobe(){ try { if (window.GLOBE && window.GLOBE.setReininHighlight) window.GLOBE.setReininHighlight(-1); } catch {} if (planetContainer) planetContainer.style.display = 'none'; if (planetControls) planetControls.style.display = 'none'; planetVisible = false; }
   if (btnHideGlobe) btnHideGlobe.onclick = hideGlobe;
+  // Wire Show on Globe to initialize and reveal the globe with current surface selection
+  if (btnShowGlobe) btnShowGlobe.onclick = () => {
+    try {
+      if (ensureGlobe()) {
+        const surf = (selSurface && selSurface.value) || 'reinin';
+        if (surf === 'mbti') { ensureMbtiSurface(); window.GLOBE.setSurfaceMode('mbti'); }
+        else if (surf === 'reinin') { ensureReininSurface(); window.GLOBE.setSurfaceMode('reinin'); try { renderReininLegendView(); } catch {} }
+        else { window.GLOBE.setSurfaceMode('prismatic'); }
+      }
+    } catch (e) { console.warn('ShowGlobe failed:', e); }
+  };
+
+  // Auto-show the globe on load with Reinin surface by default for immediate visual feedback
+  try {
+    // Delay to ensure DOM nodes are attached
+    setTimeout(() => {
+      try {
+        if (!planetVisible) {
+          if (ensureGlobe()) {
+            if (selSurface) selSurface.value = 'reinin';
+            ensureReininSurface();
+            window.GLOBE.setSurfaceMode('reinin');
+            try { renderReininLegendView(); } catch {}
+          }
+        }
+      } catch (e) { console.warn('Auto-show globe failed:', e); }
+    }, 0);
+  } catch {}
   // --- 4D mapping helpers (Socionics/MBTI -> S^3 -> S^2 via Hopf map) ---
   function normalizeTypeToMBTI(t) {
     if (!t || typeof t !== 'string') return null;
