@@ -320,6 +320,7 @@ function setupQueryPanelListeners() {
     const exportJsonBtn = document.getElementById('export-json-btn');
     const exportParquetBtn = document.getElementById('export-parquet-btn');
     const datasetSelect = document.getElementById('dataset-select');
+    const reloadDatasetListBtn = document.getElementById('reload-dataset-list-btn');
     const sqlQuery = document.getElementById('sql-query');
     const templateBtns = document.querySelectorAll('.template-btn');
 
@@ -350,6 +351,36 @@ function setupQueryPanelListeners() {
 
     // Dataset selector handling
     if (datasetSelect) {
+        // Populate options dynamically from /dataset
+        (async () => {
+            try {
+                const resp = await fetch('/dataset');
+                const info = await resp.json();
+                const baseOptions = [
+                    { value: '/dataset/pdb_profiles.parquet', label: 'Main (pdb_profiles.parquet)' },
+                    { value: '/dataset/pdb_profiles_normalized.parquet', label: 'Normalized (pdb_profiles_normalized.parquet)' },
+                    { value: '/dataset/pdb_profiles_merged.parquet', label: 'Merged (pdb_profiles_merged.parquet)' }
+                ];
+                // Start fresh
+                datasetSelect.innerHTML = '';
+                for (const opt of baseOptions) {
+                    const o = document.createElement('option'); o.value = opt.value; o.textContent = opt.label; datasetSelect.appendChild(o);
+                }
+                const exportsList = Array.isArray(info.exports) ? info.exports : [];
+                if (exportsList.length) {
+                    // Add an optgroup for Exports
+                    const group = document.createElement('optgroup'); group.label = 'Exports';
+                    for (const rel of exportsList) {
+                        const full = '/dataset/' + rel;
+                        const o = document.createElement('option'); o.value = full; o.textContent = rel; group.appendChild(o);
+                    }
+                    datasetSelect.appendChild(group);
+                }
+            } catch (e) {
+                console.warn('Failed to list datasets:', e);
+            }
+        })();
+
         // Initialize from saved choice
         const saved = localStorage.getItem('viewer.dataset.path');
         if (saved) datasetSelect.value = saved;
@@ -361,6 +392,7 @@ function setupQueryPanelListeners() {
         if (saved) {
             switchDataset(saved).catch(() => {});
         }
+        if (reloadDatasetListBtn) reloadDatasetListBtn.addEventListener('click', () => { refreshDatasetSelect().catch(() => {}); });
     }
 
     templateBtns.forEach(btn => {
@@ -1192,9 +1224,10 @@ async function reloadDatasets() {
         const path = (select && select.value) || '/dataset/pdb_profiles.parquet';
         const meta = await duckdbLoader.loadParquetFile(path, 'profiles');
         if (!meta?.success) throw new Error(meta?.error || 'Failed to reload dataset');
-        const status = document.getElementById('dataset-status');
+    const status = document.getElementById('dataset-status');
         if (status) status.textContent = `Dataset: ${meta.filePath} (${meta.rowCount} rows)`;
         showToast('Datasets reloaded', 'success');
+    try { await refreshDatasetSelect(); } catch {}
     } catch (e) {
         console.error('Reload datasets failed:', e);
         showToast('Reload failed: ' + e.message, 'error');
@@ -1238,7 +1271,39 @@ function exportQueryResults(fmt) {
             }).then(async (resp) => {
                 const json = await resp.json();
                 if (!resp.ok || !json.success) throw new Error(json.error || 'Export failed');
-                showToast(`Exported Parquet: ${json.file}`, 'success');
+                showToast(`Exported Parquet: ${json.filename}`, 'success');
+                // Offer to load the exported file into Query Builder
+                const loadNow = confirm('Load exported Parquet into Query Builder now?');
+                if (loadNow) {
+                    try {
+                        await duckdbLoader.init();
+                        const rel = (json && (json.relative || ('exports/' + json.filename))) || ('exports/' + json.filename);
+                        const exportedUrl = '/dataset/' + rel;
+                        // Ensure it appears in selector under Exports
+                        const select = document.getElementById('dataset-select');
+                        if (select) {
+                            let group = Array.from(select.children).find(n => n.tagName === 'OPTGROUP' && n.label === 'Exports');
+                            if (!group) { group = document.createElement('optgroup'); group.label = 'Exports'; select.appendChild(group); }
+                            // Add option if missing
+                            const exists = Array.from(group.children).some(o => o.value === exportedUrl);
+                            if (!exists) { const o = document.createElement('option'); o.value = exportedUrl; o.textContent = rel; group.appendChild(o); }
+                        }
+                        const meta = await duckdbLoader.loadParquetFile(exportedUrl, 'profiles');
+                        if (meta?.success) {
+                            if (select) { select.value = exportedUrl; localStorage.setItem('viewer.dataset.path', exportedUrl); }
+                            const status = document.getElementById('dataset-status');
+                            if (status) status.textContent = `Dataset: ${exportedUrl} (${meta.rowCount} rows)`;
+                            showToast(`Loaded exported dataset (${meta.rowCount} rows)`, 'success');
+                        } else {
+                            showToast('Exported file saved, but failed to load in DuckDB', 'error');
+                        }
+                    } catch (e) {
+                        console.error('Auto-load exported parquet failed:', e);
+                        showToast('Failed to load exported parquet: ' + e.message, 'error');
+                    }
+                }
+                // Refresh selector listing to include the new export
+                try { await refreshDatasetSelect(); } catch {}
             }).catch(e => {
                 console.error('Parquet export failed:', e);
                 showToast('Parquet export failed: ' + e.message, 'error');
@@ -1263,4 +1328,40 @@ function download(url, filename) {
     const a = document.createElement('a');
     a.href = url; a.download = filename; a.style.display = 'none';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+// Refresh dataset selector options from /dataset while preserving selection when possible
+async function refreshDatasetSelect() {
+    const select = document.getElementById('dataset-select');
+    if (!select) return;
+    const current = select.value;
+    try {
+        const resp = await fetch('/dataset');
+        const info = await resp.json();
+        const baseOptions = [
+            { value: '/dataset/pdb_profiles.parquet', label: 'Main (pdb_profiles.parquet)' },
+            { value: '/dataset/pdb_profiles_normalized.parquet', label: 'Normalized (pdb_profiles_normalized.parquet)' },
+            { value: '/dataset/pdb_profiles_merged.parquet', label: 'Merged (pdb_profiles_merged.parquet)' }
+        ];
+        select.innerHTML = '';
+        for (const opt of baseOptions) {
+            const o = document.createElement('option'); o.value = opt.value; o.textContent = opt.label; select.appendChild(o);
+        }
+        const exportsList = Array.isArray(info.exports) ? info.exports : [];
+        if (exportsList.length) {
+            const group = document.createElement('optgroup'); group.label = 'Exports';
+            for (const rel of exportsList) {
+                const full = '/dataset/' + rel;
+                const o = document.createElement('option'); o.value = full; o.textContent = rel; group.appendChild(o);
+            }
+            select.appendChild(group);
+        }
+        // Restore selection if still available
+        const allOptions = Array.from(select.querySelectorAll('option'));
+        if (allOptions.some(o => o.value === current)) {
+            select.value = current;
+        }
+    } catch (e) {
+        console.warn('Failed to refresh dataset selector:', e);
+    }
 }

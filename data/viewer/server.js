@@ -15,12 +15,18 @@ const PYTHON_EXEC = fssync.existsSync(VENV_PY) ? VENV_PY : (process.env.PYTHON |
 
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '5mb' }));
+// Apply JSON parser to all routes except the export-parquet endpoint, which handles raw text
+const jsonParser = express.json({ limit: '5mb' });
+app.use((req, res, next) => {
+    if (req.path === '/api/data/export-parquet') return next();
+    return jsonParser(req, res, next);
+});
 // Note: static serving is configured later to avoid bypassing Vite transforms in dev
 
 // Expose dataset directory for parquet loading
 const DATASET_DIR = path.join(__dirname, '..', 'bot_store');
 const OVERLAY_FILE = path.join(DATASET_DIR, 'pdb_profiles_overrides.json');
+const EXPORTS_DIR = path.join(DATASET_DIR, 'exports');
 
 // Simple caches to avoid heavy reloads each request
 let profilesCache = { data: null, mtimeMs: 0 };
@@ -70,7 +76,12 @@ app.use('/dataset', express.static(DATASET_DIR, {
 app.get('/dataset', async (req, res) => {
     try {
         const files = await fs.readdir(DATASET_DIR);
-        res.json({ dir: DATASET_DIR, files });
+        let exportsList = [];
+        try {
+            const ex = await fs.readdir(EXPORTS_DIR);
+            exportsList = ex.filter(f => f.endsWith('.parquet')).map(f => `exports/${f}`);
+        } catch {}
+        res.json({ dir: DATASET_DIR, files, exports: exportsList });
     } catch (err) {
         res.status(500).json({ error: String(err) });
     }
@@ -493,14 +504,25 @@ app.get('/api/data/export', async (req, res) => {
 });
 
 // Export arbitrary rows to a parquet file in dataset dir
-app.post('/api/data/export-parquet', async (req, res) => {
+app.post('/api/data/export-parquet', express.text({ type: '*/*', limit: '25mb' }), async (req, res) => {
     try {
-        const { rows, filename } = req.body || {};
+        // Ensure exports directory exists
+        try { fssync.mkdirSync(EXPORTS_DIR, { recursive: true }); } catch {}
+        let payload = req.body;
+        if (typeof payload === 'string') {
+            try { payload = JSON.parse(payload); }
+            catch (e) { return res.status(400).json({ success: false, error: 'Invalid JSON body' }); }
+        }
+        const { rows, filename } = payload || {};
         if (!Array.isArray(rows) || rows.length === 0) {
             return res.status(400).json({ success: false, error: 'rows array required' });
         }
-        const outFile = filename && typeof filename === 'string' ? filename : `query_export_${Date.now()}.parquet`;
-        const destPath = path.join(DATASET_DIR, outFile);
+        // Sanitize filename
+        const rawName = (typeof filename === 'string' ? filename : '').trim();
+        const baseName = rawName ? path.basename(rawName) : `query_export_${Date.now()}.parquet`;
+        let safeName = baseName.replace(/[^a-zA-Z0-9._-]/g, '_');
+        if (!safeName.toLowerCase().endsWith('.parquet')) safeName = safeName + '.parquet';
+    const destPath = path.join(EXPORTS_DIR, safeName);
 
         const python = spawn(PYTHON_EXEC, ['-c', `
 import pandas as pd
@@ -527,7 +549,7 @@ print(json.dumps({'ok': True, 'rows': int(len(df))}))
                 const parsed = JSON.parse(out);
                 // Invalidate caches so UI can pick up new file if needed
                 profilesCache.mtimeMs = -1; vectorsCache.mtimeMs = -1;
-                res.json({ success: true, file: destPath, ...parsed });
+                res.json({ success: true, file: destPath, filename: safeName, relative: `exports/${safeName}`, ...parsed });
             } catch (e) {
                 res.status(500).json({ success: false, error: 'export parse failed' });
             }
