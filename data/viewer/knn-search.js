@@ -13,13 +13,7 @@ class KNNSearch {
         try {
             console.log('Loading vectors for KNN search...');
             
-            // Try to get vectors from dataset endpoint
-            const vectorResponse = await fetch('/dataset/pdb_profile_vectors.parquet');
-            if (!vectorResponse.ok) {
-                throw new Error('Vectors not available');
-            }
-            
-            // For now, we'll create a simpler API endpoint to get vectors as JSON
+            // Load vectors via API as JSON
             const response = await fetch('/api/data/vectors');
             if (!response.ok) {
                 throw new Error(`Failed to load vectors: ${response.status}`);

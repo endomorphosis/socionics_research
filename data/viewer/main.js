@@ -1,5 +1,6 @@
 import './scraper-client.js';
 import { knnSearch } from './knn-search.js';
+import { duckdbLoader } from './duckdb-loader.js';
 
 // Global state
 let currentData = [];
@@ -35,7 +36,7 @@ const elements = {
 async function init() {
     try {
         showLoading(true);
-        await loadSampleData();
+    await loadSampleData();
         setupEventListeners();
         showPanel('search-panel');
         showToast('Personality Database Viewer initialized successfully', 'success');
@@ -54,7 +55,7 @@ async function loadSampleData() {
         const hasData = await checkDataFiles();
         
         if (hasData) {
-            // Load real data from parquet files
+            // Load real data from parquet files via API
             await loadParquetData();
         } else {
             // Create sample data for demonstration
@@ -120,12 +121,28 @@ async function loadParquetData() {
         }
         
         currentData = data.profiles || [];
-        
-        // Set profiles in KNN search and try to load vectors
+
+        // Attempt to load vectors through API, else fallback to none
         knnSearch.setProfiles(currentData);
-        const hasVectors = await knnSearch.loadVectors();
-        
-        elements.dataStats.textContent = `Loaded ${data.count || currentData.length} profiles from parquet files${hasVectors ? ' (with KNN vectors)' : ''}`;
+        let hasVectors = await knnSearch.loadVectors();
+
+        // Initialize DuckDB client for Query Builder
+        try {
+            await duckdbLoader.init();
+            // Load profiles parquet into DuckDB for SQL queries (fallback to normalized handled later)
+            const meta = await duckdbLoader.loadParquetFile('/dataset/pdb_profiles.parquet', 'profiles');
+            if (!meta?.success) {
+                // Try normalized file if main unavailable
+                const meta2 = await duckdbLoader.loadParquetFile('/dataset/pdb_profiles_normalized.parquet', 'profiles');
+                if (!meta2?.success) {
+                    console.warn('DuckDB could not load profiles parquet:', meta?.error, meta2?.error);
+                }
+            }
+        } catch (e) {
+            console.warn('DuckDB client init failed:', e?.message || e);
+        }
+
+        elements.dataStats.textContent = `Loaded ${data.count || currentData.length} profiles from parquet files${hasVectors ? ' (KNN enabled)' : ''}`;
         
         console.log(`Successfully loaded ${currentData.length} profiles${hasVectors ? ' with KNN search capabilities' : ''}`);
         
@@ -139,8 +156,11 @@ async function loadParquetData() {
 async function checkDataFiles() {
     try {
         // Check for the parquet files in the bot_store directory
-        const response = await fetch('/dataset/pdb_profiles.parquet');
-        return response.ok;
+        const response = await fetch('/dataset');
+        if (!response.ok) return false;
+        const json = await response.json();
+        const files = json?.files || [];
+        return files.includes('pdb_profiles.parquet') || files.includes('pdb_profiles_normalized.parquet');
     } catch (error) {
         console.warn('Cannot access parquet files:', error);
         return false;
@@ -306,8 +326,8 @@ async function performSearch() {
 
     try {
         showLoading(true);
-        let searchResults = [];
-        let searchMethod = 'none';
+    let searchResults = [];
+    let searchMethod = 'none';
         
         // Try KNN search first if available
         if (knnSearch.isAvailable()) {
@@ -324,17 +344,26 @@ async function performSearch() {
             // For now, fall through to bag-of-words search
         }
         
-        // Fall back to bag-of-words search if KNN didn't return results
-        if (searchResults.length === 0) {
-            const queryLower = query.toLowerCase();
-            searchResults = currentData.filter(item => {
-                return (item.name && item.name.toLowerCase().includes(queryLower)) ||
-                       (item.mbti && item.mbti.toLowerCase().includes(queryLower)) ||
-                       (item.socionics && item.socionics.toLowerCase().includes(queryLower)) ||
-                       (item.description && item.description.toLowerCase().includes(queryLower)) ||
-                       (item.category && item.category.toLowerCase().includes(queryLower)) ||
-                       (item.cid && item.cid.includes(query)); // Exact CID match
-            });
+        // Bag-of-words search
+        const queryLower = query.toLowerCase();
+        const bowResults = currentData.filter(item => {
+            return (item.name && item.name.toLowerCase().includes(queryLower)) ||
+                   (item.mbti && item.mbti.toLowerCase().includes(queryLower)) ||
+                   (item.socionics && item.socionics.toLowerCase().includes(queryLower)) ||
+                   (item.description && item.description.toLowerCase().includes(queryLower)) ||
+                   (item.category && item.category.toLowerCase().includes(queryLower)) ||
+                   (item.cid && item.cid.includes(query)); // Exact CID match
+        });
+
+        // Fuse results: prefer KNN if present; else use BoW
+        if (searchResults.length > 0) {
+            const knnCids = new Set(searchResults.map(r => r.cid));
+            const fused = [...searchResults];
+            for (const r of bowResults) if (!knnCids.has(r.cid)) fused.push(r);
+            searchResults = fused;
+            if (searchMethod === 'none') searchMethod = 'bag-of-words';
+        } else {
+            searchResults = bowResults;
             searchMethod = 'bag-of-words';
         }
         
@@ -594,7 +623,23 @@ function showToast(message, type = 'success') {
 
 // Placeholder functions for features to be implemented
 async function exportData() {
-    showToast('Export functionality coming soon', 'info');
+    try {
+        showLoading(true);
+        const fileName = prompt('Enter output parquet filename', 'pdb_profiles_merged.parquet') || 'pdb_profiles_merged.parquet';
+        const resp = await fetch('/api/data/commit-overlay', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: fileName })
+        });
+        const json = await resp.json();
+        if (!resp.ok || !json.success) throw new Error(json.error || 'Commit failed');
+        showToast(`Overlay committed: ${json.out_file} (${json.merged_count} rows)`, 'success');
+    } catch (e) {
+        console.error('Commit overlay failed:', e);
+        showToast('Commit failed: ' + e.message, 'error');
+    } finally {
+        showLoading(false);
+    }
 }
 
 async function createBackup() {
@@ -940,6 +985,29 @@ function addScraperLog(message) {
     }
 }
 
+function renderQueryResults(arrayRows) {
+    const container = document.getElementById('query-results-container');
+    if (!arrayRows || arrayRows.length === 0) {
+        container.innerHTML = '<p class="no-results">No rows returned</p>';
+        return;
+    }
+    const cols = Object.keys(arrayRows[0]);
+    const table = document.createElement('table');
+    table.className = 'results-table';
+    const thead = document.createElement('thead');
+    const trh = document.createElement('tr');
+    cols.forEach(c => { const th = document.createElement('th'); th.textContent = c; trh.appendChild(th); });
+    thead.appendChild(trh);
+    const tbody = document.createElement('tbody');
+    arrayRows.forEach(r => {
+        const tr = document.createElement('tr');
+        cols.forEach(c => { const td = document.createElement('td'); td.textContent = r[c]; tr.appendChild(td); });
+        tbody.appendChild(tr);
+    });
+    table.appendChild(thead); table.appendChild(tbody);
+    container.innerHTML = ''; container.appendChild(table);
+}
+
 async function executeQuery() {
     const query = document.getElementById('sql-query').value.trim();
     if (!query) {
@@ -949,20 +1017,24 @@ async function executeQuery() {
     
     try {
         showLoading(true);
-        
-        // For now, show a message that SQL querying requires DuckDB
-        const resultsContainer = document.getElementById('query-results-container');
-        resultsContainer.innerHTML = `
-            <div style="padding: 2rem; text-align: center; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px;">
-                <h3>SQL Query Feature</h3>
-                <p>SQL querying requires DuckDB integration. This feature will be available when data files are loaded.</p>
-                <p><strong>Your query:</strong></p>
-                <pre style="background: #f8f9fa; padding: 1rem; border-radius: 4px; text-align: left; margin: 1rem 0;">${query}</pre>
-                <p>For now, use the Search & Browse panel for data exploration.</p>
-            </div>
-        `;
-        
-        showToast('SQL query feature coming soon with DuckDB integration', 'info');
+        // Ensure DuckDB is initialized
+        await duckdbLoader.init();
+        // Ensure a profiles table exists (load if needed)
+        try {
+            await duckdbLoader.query('SELECT 1 FROM profiles LIMIT 1');
+        } catch {
+            const meta = await duckdbLoader.loadParquetFile('/dataset/pdb_profiles.parquet', 'profiles');
+            if (!meta?.success) {
+                const meta2 = await duckdbLoader.loadParquetFile('/dataset/pdb_profiles_normalized.parquet', 'profiles');
+                if (!meta2?.success) throw new Error('Unable to load profiles parquet for SQL');
+            }
+        }
+
+        // Execute the query
+        const result = await duckdbLoader.query(query);
+        const rows = result.toArray().map(r => Object.fromEntries(r));
+        renderQueryResults(rows);
+        showToast(`Query returned ${rows.length} row(s)`, 'success');
         
     } catch (error) {
         console.error('Query failed:', error);

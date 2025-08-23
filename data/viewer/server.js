@@ -3,17 +3,47 @@ const cors = require('cors');
 const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs').promises;
+const fssync = require('fs');
 
 const app = express();
-const PORT = process.env.PORT || 3000; // Change to single port
+const PORT = process.env.PORT || 3000; // Single port for frontend + backend
+let viteServer = null;
+
+// Detect Python executable (prefer repo venv)
+const VENV_PY = path.resolve(__dirname, '../../.venv/bin/python');
+const PYTHON_EXEC = fssync.existsSync(VENV_PY) ? VENV_PY : (process.env.PYTHON || 'python3');
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 app.use(express.static(__dirname));
 
 // Expose dataset directory for parquet loading
 const DATASET_DIR = path.join(__dirname, '..', 'bot_store');
+const OVERLAY_FILE = path.join(DATASET_DIR, 'pdb_profiles_overrides.json');
+
+// Simple caches to avoid heavy reloads each request
+let profilesCache = { data: null, mtimeMs: 0 };
+let vectorsCache = { data: null, mtimeMs: 0 };
+
+async function readOverlay() {
+    try {
+        const raw = await fs.readFile(OVERLAY_FILE, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') return parsed;
+        return { profiles: {} };
+    } catch (e) {
+        if (e.code === 'ENOENT') return { profiles: {} };
+        throw e;
+    }
+}
+
+async function writeOverlay(obj) {
+    const data = JSON.stringify(obj || { profiles: {} }, null, 2);
+    const tmp = OVERLAY_FILE + '.tmp';
+    await fs.writeFile(tmp, data);
+    await fs.rename(tmp, OVERLAY_FILE);
+}
 
 // Helper: set no-store cache headers to avoid stale content in dev/preview
 function setNoStore(res) {
@@ -452,6 +482,153 @@ app.get('/api/data/export', async (req, res) => {
     }
 });
 
+// Commit overlay into a new parquet file
+app.post('/api/data/commit-overlay', async (req, res) => {
+    try {
+        const outFile = (req.body && req.body.filename) || 'pdb_profiles_merged.parquet';
+        const destPath = path.join(DATASET_DIR, outFile);
+
+        // Prepare overlay JSON
+        const overlay = await readOverlay();
+        const overlayJson = JSON.stringify(overlay || { profiles: {} });
+
+        const { spawn } = require('child_process');
+        const python = spawn(PYTHON_EXEC, ['-c', `
+import pandas as pd
+import json
+import sys
+import pyarrow.parquet as pq
+import pyarrow as pa
+
+DATASET_DIR = r'''${DATASET_DIR.replace(/\\/g, '/')}'''
+OUT_PATH = r'''${destPath.replace(/\\/g, '/')}'''
+
+def load_profiles_df():
+    main = f"{DATASET_DIR}/pdb_profiles.parquet"
+    norm = f"{DATASET_DIR}/pdb_profiles_normalized.parquet"
+    df = None
+    try:
+        df = pd.read_parquet(main)
+    except Exception:
+        try:
+            df = pd.read_parquet(norm)
+        except Exception as e:
+            print(json.dumps({'error': f'Cannot read base parquet: {e}'}), file=sys.stderr)
+            sys.exit(1)
+    # Normalize to simple columns
+    rows = []
+    for _, row in df.iterrows():
+        try:
+            cid = row.get('cid', None)
+            name = None
+            mbti = None
+            socionics = None
+            description = None
+            category = None
+
+            payload = None
+            try:
+                if 'payload_bytes' in row.index and row['payload_bytes'] is not None:
+                    payload = row['payload_bytes']
+                    if isinstance(payload, (bytes, bytearray)):
+                        payload = payload.decode('utf-8', errors='ignore')
+                    payload = json.loads(payload)
+                elif 'payload' in row.index and row['payload'] is not None:
+                    payload = row['payload']
+                    if not isinstance(payload, dict):
+                        payload = json.loads(payload)
+            except Exception:
+                payload = None
+
+            if payload is not None:
+                name = payload.get('name', payload.get('title'))
+                mbti = payload.get('mbti')
+                socionics = payload.get('socionics')
+                description = payload.get('description', payload.get('bio'))
+                category = payload.get('category')
+
+            if name is None and 'name' in row.index: name = row['name']
+            if mbti is None and 'mbti' in row.index: mbti = row['mbti']
+            if socionics is None and 'socionics' in row.index: socionics = row['socionics']
+            if description is None and 'description' in row.index: description = row['description']
+            if category is None and 'category' in row.index: category = row['category']
+
+            if cid is not None:
+                rows.append({
+                    'cid': cid,
+                    'name': name or 'Unknown',
+                    'mbti': mbti or '',
+                    'socionics': socionics or '',
+                    'description': description or '',
+                    'category': category or 'Scraped Profile'
+                })
+        except Exception:
+            continue
+    return pd.DataFrame(rows)
+
+try:
+    base_df = load_profiles_df()
+    base_count = len(base_df)
+    # Overlay
+    overlay = json.loads(r'''${overlayJson.replace(/'/g, "''")}''')
+    over = overlay.get('profiles', {}) if isinstance(overlay, dict) else {}
+
+    if over:
+        base_df = base_df.set_index('cid', drop=False)
+        for cid, patch in over.items():
+            if cid in base_df.index:
+                for col in ['name','mbti','socionics','description','category']:
+                    val = patch.get(col)
+                    if val is not None:
+                        base_df.at[cid, col] = val
+            else:
+                base_df.loc[cid] = {
+                    'cid': cid,
+                    'name': patch.get('name','Unknown'),
+                    'mbti': patch.get('mbti',''),
+                    'socionics': patch.get('socionics',''),
+                    'description': patch.get('description',''),
+                    'category': patch.get('category','User Created')
+                }
+        base_df = base_df.reset_index(drop=True)
+
+    merged_count = len(base_df)
+    # Write parquet
+    table = pa.Table.from_pandas(base_df)
+    pq.write_table(table, OUT_PATH)
+
+    print(json.dumps({'base_count': int(base_count), 'merged_count': int(merged_count), 'out_file': OUT_PATH}))
+except Exception as e:
+    print(json.dumps({'error': str(e)}), file=sys.stderr)
+    sys.exit(1)
+        `]);
+
+        let data = '';
+        let error = '';
+        python.stdout.on('data', (c) => data += c.toString());
+        python.stderr.on('data', (c) => error += c.toString());
+        python.on('close', async (code) => {
+            if (code !== 0) {
+                console.error('Commit overlay error:', error);
+                return res.status(500).json({ success: false, error: error || 'Commit failed' });
+            }
+            try {
+                const parsed = JSON.parse(data);
+                // Invalidate cache to reflect new file on next request
+                profilesCache.mtimeMs = -1;
+                return res.json({ success: true, ...parsed });
+            } catch (e) {
+                console.error('Commit parse error:', e);
+                return res.status(500).json({ success: false, error: 'Commit parse failed' });
+            }
+        });
+
+    } catch (error) {
+        console.error('Error committing overlay:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Helper function to add logs to process
 function addProcessLog(processId, message) {
     if (!processLogs.has(processId)) {
@@ -485,37 +662,92 @@ setInterval(() => {
 // API endpoint to load parquet data as JSON
 app.get('/api/data/profiles', async (req, res) => {
     try {
-        // Try to use pandas to read parquet file
-        const { spawn } = require('child_process');
-        const python = spawn('python3', ['-c', `
+        // Serve from cache if parquet unchanged
+        const parquetPath = path.join(DATASET_DIR, 'pdb_profiles.parquet');
+        let parquetMtime = 0;
+        try {
+            const st = await fs.stat(parquetPath);
+            parquetMtime = st.mtimeMs;
+        } catch {}
+
+        if (profilesCache.data && profilesCache.mtimeMs === parquetMtime) {
+            return res.json(profilesCache.data);
+        }
+
+        // Try to use pandas to read parquet file robustly
+    const { spawn } = require('child_process');
+    const python = spawn(PYTHON_EXEC, ['-c', `
 import pandas as pd
 import json
 import sys
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 try:
-    # Read the profiles parquet file
-    df_profiles = pd.read_parquet('${DATASET_DIR}/pdb_profiles.parquet')
+    # Read the profiles parquet file (fallback to normalized if needed)
+    path_main = '${DATASET_DIR.replace(/\\/g, '/').replace(/'/g, "'")}/pdb_profiles.parquet'
+    path_norm = '${DATASET_DIR.replace(/\\/g, '/').replace(/'/g, "'")}/pdb_profiles_normalized.parquet'
+    try:
+        df_profiles = pd.read_parquet(path_main)
+    except Exception as e:
+        df_profiles = pd.read_parquet(path_norm)
     
     # Convert to records
     profiles = []
     for _, row in df_profiles.iterrows():
         try:
-            payload = json.loads(row['payload_bytes'])
+            cid = row.get('cid', None)
+            name = None
+            mbti = None
+            socionics = None
+            description = None
+            category = None
+
+            if 'payload_bytes' in row.index and row['payload_bytes'] is not None:
+                try:
+                    payload = json.loads(row['payload_bytes'])
+                except Exception:
+                    payload = None
+            elif 'payload' in row.index and row['payload'] is not None:
+                try:
+                    payload = row['payload'] if isinstance(row['payload'], dict) else json.loads(row['payload'])
+                except Exception:
+                    payload = None
+            else:
+                payload = None
+
+            if payload is not None:
+                name = payload.get('name', payload.get('title'))
+                mbti = payload.get('mbti')
+                socionics = payload.get('socionics')
+                description = payload.get('description', payload.get('bio'))
+                category = payload.get('category')
+
+            # Fallback to columns if present
+            if name is None and 'name' in row.index:
+                name = row['name']
+            if mbti is None and 'mbti' in row.index:
+                mbti = row['mbti']
+            if socionics is None and 'socionics' in row.index:
+                socionics = row['socionics']
+            if description is None and 'description' in row.index:
+                description = row['description']
+            if category is None and 'category' in row.index:
+                category = row['category']
+
             profiles.append({
-                'cid': row['cid'],
-                'name': payload.get('name', payload.get('title', 'Unknown')),
-                'mbti': payload.get('mbti', ''),
-                'socionics': payload.get('socionics', ''),
-                'description': payload.get('description', payload.get('bio', '')),
-                'category': payload.get('category', 'Scraped Profile'),
-                'big5': payload.get('big5', ''),
-                **payload
+                'cid': cid,
+                'name': name or 'Unknown',
+                'mbti': mbti or '',
+                'socionics': socionics or '',
+                'description': description or '',
+                'category': category or 'Scraped Profile'
             })
         except Exception as e:
             print(f"Error parsing profile {row['cid']}: {e}", file=sys.stderr)
             continue
     
-    print(json.dumps(profiles, indent=None, separators=(',', ':')))
+    print(json.dumps({'profiles': profiles, 'count': len(profiles)}, indent=None, separators=(',', ':')))
 except Exception as e:
     print(json.dumps({'error': str(e)}), file=sys.stderr)
     sys.exit(1)
@@ -532,7 +764,7 @@ except Exception as e:
             error += chunk.toString();
         });
         
-        python.on('close', (code) => {
+        python.on('close', async (code) => {
             if (code !== 0) {
                 console.error('Python error:', error);
                 res.status(500).json({ error: 'Failed to load parquet data: ' + error });
@@ -540,8 +772,26 @@ except Exception as e:
             }
             
             try {
-                const profiles = JSON.parse(data);
-                res.json({ profiles, count: profiles.length });
+                const parsed = JSON.parse(data);
+                let profiles = parsed.profiles || [];
+                // Merge overlay
+                let overlay = await readOverlay();
+                const over = overlay.profiles || {};
+                if (over && Object.keys(over).length) {
+                    const byCid = new Map();
+                    for (const p of profiles) if (p && p.cid) byCid.set(p.cid, p);
+                    for (const [cid, op] of Object.entries(over)) {
+                        if (byCid.has(cid)) {
+                            byCid.set(cid, { ...byCid.get(cid), ...op, cid });
+                        } else {
+                            byCid.set(cid, { ...op, cid });
+                        }
+                    }
+                    profiles = Array.from(byCid.values());
+                }
+                const result = { profiles, count: profiles.length };
+                profilesCache = { data: result, mtimeMs: parquetMtime };
+                res.json(result);
             } catch (parseError) {
                 console.error('JSON parse error:', parseError);
                 res.status(500).json({ error: 'Failed to parse parquet data' });
@@ -557,9 +807,20 @@ except Exception as e:
 // API endpoint to load vectors data as JSON
 app.get('/api/data/vectors', async (req, res) => {
     try {
+        // Serve from cache if unchanged
+        const vecPath = path.join(DATASET_DIR, 'pdb_profile_vectors.parquet');
+        let vecMtime = 0;
+        try {
+            const st = await fs.stat(vecPath);
+            vecMtime = st.mtimeMs;
+        } catch {}
+        if (vectorsCache.data && vectorsCache.mtimeMs === vecMtime) {
+            return res.json(vectorsCache.data);
+        }
+
         // Try to use pandas to read vector parquet file
-        const { spawn } = require('child_process');
-        const python = spawn('python3', ['-c', `
+    const { spawn } = require('child_process');
+    const python = spawn(PYTHON_EXEC, ['-c', `
 import pandas as pd
 import json
 import sys
@@ -613,6 +874,7 @@ except Exception as e:
             
             try {
                 const result = JSON.parse(data);
+                vectorsCache = { data: result, mtimeMs: vecMtime };
                 res.json(result);
             } catch (parseError) {
                 console.error('JSON parse error (vectors):', parseError);
@@ -631,28 +893,26 @@ except Exception as e:
 // Create new profile
 app.post('/api/data/profiles', async (req, res) => {
     try {
-        const { name, mbti, socionics, description, category } = req.body;
-        
-        // Generate a new CID (simplified version - in production you'd want proper CID generation)
-        const newCid = `Qm${Date.now()}${Math.random().toString(36).substr(2, 20)}`;
-        
-        const newProfile = {
+        const { name, mbti, socionics, description, category } = req.body || {};
+        if (!name || typeof name !== 'string') {
+            return res.status(400).json({ success: false, error: 'name is required' });
+        }
+        // Generate overlay CID
+        const newCid = `ovr_${Date.now().toString(36)}_${Math.floor(Math.random()*1e6).toString(36)}`;
+        const overlay = await readOverlay();
+        overlay.profiles[newCid] = {
+            cid: newCid,
             name: name || 'Unknown',
             mbti: mbti || '',
             socionics: socionics || '',
             description: description || '',
-            category: category || 'User Created'
+            category: category || 'User Created',
+            _source: 'overlay'
         };
-        
-        // For now, just respond with success - in a real implementation,
-        // you'd write to the parquet file or database
-        res.json({ 
-            success: true, 
-            cid: newCid,
-            profile: newProfile,
-            message: 'Profile created successfully (note: persistence not yet implemented)'
-        });
-        
+        await writeOverlay(overlay);
+        // Invalidate cache so next GET includes new entry
+        profilesCache.mtimeMs = -1;
+        res.json({ success: true, cid: newCid });
     } catch (error) {
         console.error('Error creating profile:', error);
         res.status(500).json({ error: error.message });
@@ -663,25 +923,14 @@ app.post('/api/data/profiles', async (req, res) => {
 app.put('/api/data/profiles/:cid', async (req, res) => {
     try {
         const { cid } = req.params;
-        const { name, mbti, socionics, description, category } = req.body;
-        
-        const updatedProfile = {
-            cid,
-            name: name || 'Unknown',
-            mbti: mbti || '',
-            socionics: socionics || '',
-            description: description || '',
-            category: category || 'User Modified'
-        };
-        
-        // For now, just respond with success - in a real implementation,
-        // you'd update the parquet file or database
-        res.json({ 
-            success: true, 
-            profile: updatedProfile,
-            message: 'Profile updated successfully (note: persistence not yet implemented)'
-        });
-        
+        if (!cid) return res.status(400).json({ success: false, error: 'cid required' });
+        const patch = req.body || {};
+        const overlay = await readOverlay();
+        const existing = overlay.profiles[cid] || { cid };
+        overlay.profiles[cid] = { ...existing, ...patch, cid, _source: 'overlay' };
+        await writeOverlay(overlay);
+        profilesCache.mtimeMs = -1;
+        res.json({ success: true });
     } catch (error) {
         console.error('Error updating profile:', error);
         res.status(500).json({ error: error.message });
@@ -692,24 +941,54 @@ app.put('/api/data/profiles/:cid', async (req, res) => {
 app.delete('/api/data/profiles/:cid', async (req, res) => {
     try {
         const { cid } = req.params;
-        
-        // For now, just respond with success - in a real implementation,
-        // you'd remove from the parquet file or database
-        res.json({ 
-            success: true, 
-            message: 'Profile deleted successfully (note: persistence not yet implemented)'
-        });
-        
+        if (!cid) return res.status(400).json({ success: false, error: 'cid required' });
+        const overlay = await readOverlay();
+        if (overlay.profiles[cid]) {
+            delete overlay.profiles[cid];
+            await writeOverlay(overlay);
+            profilesCache.mtimeMs = -1;
+        }
+        res.json({ success: true });
     } catch (error) {
         console.error('Error deleting profile:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// Start server
-app.listen(PORT, () => {
-    console.log(`Personality Database Viewer server running on http://localhost:${PORT}`);
-    console.log('Make sure the bot store data is available at ../bot_store/');
+// Expose overlay for debugging
+app.get('/api/data/overrides', async (req, res) => {
+    try {
+        const data = await readOverlay();
+        res.json({ success: true, ...data });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
 });
+
+// Start server with optional Vite middleware for single-port dev
+async function startServer() {
+    if (process.env.NODE_ENV !== 'production') {
+        try {
+            const vite = require('vite');
+            viteServer = await vite.createServer({
+                root: __dirname,
+                server: { middlewareMode: true },
+                appType: 'custom'
+            });
+            app.use(viteServer.middlewares);
+            console.log('Vite dev middleware attached on same port');
+        } catch (e) {
+            console.warn('Vite middleware not attached:', e?.message || e);
+        }
+    }
+
+    app.listen(PORT, () => {
+        console.log(`Personality Database Viewer server running on http://localhost:${PORT}`);
+        console.log('Datasets available at /dataset (', DATASET_DIR, ')');
+        console.log('Python executable for parquet:', PYTHON_EXEC);
+    });
+}
+
+startServer();
 
 module.exports = app;
