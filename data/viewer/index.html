@@ -30,7 +30,7 @@
                 
                 <div class="search-controls">
                     <div class="search-bar">
-                        <input type="text" id="search-input" placeholder="Search profiles by name, MBTI, Socionics type...">
+                        <input type="text" id="search-input" placeholder="Search by name, MBTI, Socionics, description, or CID for similarity...">
                         <button id="search-btn">Search</button>
                         <button id="clear-search-btn">Clear</button>
                     </div>
@@ -52,6 +52,7 @@
                     <div class="results-header">
                         <span id="results-count">0 results</span>
                         <div class="view-controls">
+                            <button id="add-profile-btn" onclick="addNewProfile()">Add New Profile</button>
                             <button id="table-view-btn" class="view-btn active">Table</button>
                             <button id="card-view-btn" class="view-btn">Cards</button>
                         </div>

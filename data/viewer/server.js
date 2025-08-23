@@ -554,6 +554,158 @@ except Exception as e:
     }
 });
 
+// API endpoint to load vectors data as JSON
+app.get('/api/data/vectors', async (req, res) => {
+    try {
+        // Try to use pandas to read vector parquet file
+        const { spawn } = require('child_process');
+        const python = spawn('python3', ['-c', `
+import pandas as pd
+import json
+import sys
+import numpy as np
+
+try:
+    # Read the vectors parquet file
+    df_vectors = pd.read_parquet('${DATASET_DIR}/pdb_profile_vectors.parquet')
+    
+    # Convert to records
+    vectors = []
+    for _, row in df_vectors.iterrows():
+        try:
+            vector_array = row['vector']
+            if hasattr(vector_array, 'tolist'):
+                vector_list = vector_array.tolist()
+            else:
+                vector_list = list(vector_array)
+            
+            vectors.append({
+                'cid': row['cid'],
+                'vector': vector_list
+            })
+        except Exception as e:
+            print(f"Error processing vector {row['cid']}: {e}", file=sys.stderr)
+            continue
+    
+    print(json.dumps({'vectors': vectors, 'count': len(vectors)}, indent=None, separators=(',', ':')))
+except Exception as e:
+    print(json.dumps({'error': str(e)}), file=sys.stderr)
+    sys.exit(1)
+`]);
+
+        let data = '';
+        let error = '';
+        
+        python.stdout.on('data', (chunk) => {
+            data += chunk.toString();
+        });
+        
+        python.stderr.on('data', (chunk) => {
+            error += chunk.toString();
+        });
+        
+        python.on('close', (code) => {
+            if (code !== 0) {
+                console.error('Python error (vectors):', error);
+                res.status(500).json({ error: 'Failed to load vector data: ' + error });
+                return;
+            }
+            
+            try {
+                const result = JSON.parse(data);
+                res.json(result);
+            } catch (parseError) {
+                console.error('JSON parse error (vectors):', parseError);
+                res.status(500).json({ error: 'Failed to parse vector data' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error loading vector data:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// CRUD API endpoints for profiles
+
+// Create new profile
+app.post('/api/data/profiles', async (req, res) => {
+    try {
+        const { name, mbti, socionics, description, category } = req.body;
+        
+        // Generate a new CID (simplified version - in production you'd want proper CID generation)
+        const newCid = `Qm${Date.now()}${Math.random().toString(36).substr(2, 20)}`;
+        
+        const newProfile = {
+            name: name || 'Unknown',
+            mbti: mbti || '',
+            socionics: socionics || '',
+            description: description || '',
+            category: category || 'User Created'
+        };
+        
+        // For now, just respond with success - in a real implementation,
+        // you'd write to the parquet file or database
+        res.json({ 
+            success: true, 
+            cid: newCid,
+            profile: newProfile,
+            message: 'Profile created successfully (note: persistence not yet implemented)'
+        });
+        
+    } catch (error) {
+        console.error('Error creating profile:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update existing profile
+app.put('/api/data/profiles/:cid', async (req, res) => {
+    try {
+        const { cid } = req.params;
+        const { name, mbti, socionics, description, category } = req.body;
+        
+        const updatedProfile = {
+            cid,
+            name: name || 'Unknown',
+            mbti: mbti || '',
+            socionics: socionics || '',
+            description: description || '',
+            category: category || 'User Modified'
+        };
+        
+        // For now, just respond with success - in a real implementation,
+        // you'd update the parquet file or database
+        res.json({ 
+            success: true, 
+            profile: updatedProfile,
+            message: 'Profile updated successfully (note: persistence not yet implemented)'
+        });
+        
+    } catch (error) {
+        console.error('Error updating profile:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete profile
+app.delete('/api/data/profiles/:cid', async (req, res) => {
+    try {
+        const { cid } = req.params;
+        
+        // For now, just respond with success - in a real implementation,
+        // you'd remove from the parquet file or database
+        res.json({ 
+            success: true, 
+            message: 'Profile deleted successfully (note: persistence not yet implemented)'
+        });
+        
+    } catch (error) {
+        console.error('Error deleting profile:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Start server
 app.listen(PORT, () => {
     console.log(`Personality Database Viewer server running on http://localhost:${PORT}`);
