@@ -52,7 +52,10 @@ async function loadSampleData() {
         // Check if we have actual data files
         const hasData = await checkDataFiles();
         
-        if (!hasData) {
+        if (hasData) {
+            // Load real data from parquet files
+            await loadParquetData();
+        } else {
             // Create sample data for demonstration
             currentData = [
                 {
@@ -94,19 +97,46 @@ async function loadSampleData() {
 
     } catch (error) {
         console.error('Failed to load data:', error);
-        elements.dataStats.textContent = 'No data files found - Ready for scraping';
+        elements.dataStats.textContent = 'Error loading data: ' + error.message;
         filteredData = [];
         renderResults();
+    }
+}
+
+// Load actual data from parquet files using server API
+async function loadParquetData() {
+    try {
+        console.log('Loading parquet data via API...');
+        
+        const response = await fetch('/api/data/profiles');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        currentData = data.profiles || [];
+        elements.dataStats.textContent = `Loaded ${data.count || currentData.length} profiles from parquet files`;
+        
+        console.log(`Successfully loaded ${currentData.length} profiles`);
+        
+    } catch (error) {
+        console.error('Failed to load parquet data:', error);
+        throw error;
     }
 }
 
 // Check if actual data files exist
 async function checkDataFiles() {
     try {
-        // This would check for the actual parquet files
-        // For now, return false to use sample data
-        return false;
+        // Check for the parquet files in the bot_store directory
+        const response = await fetch('/dataset/pdb_profiles.parquet');
+        return response.ok;
     } catch (error) {
+        console.warn('Cannot access parquet files:', error);
         return false;
     }
 }

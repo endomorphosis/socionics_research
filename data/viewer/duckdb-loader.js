@@ -1,5 +1,7 @@
-// DuckDB loader utilities - reused from compass
+// DuckDB loader utilities - adapted from compass
 // Simplified version focusing on parquet file loading
+
+import * as duckdb from '@duckdb/duckdb-wasm';
 
 export class DuckDBLoader {
     constructor() {
@@ -9,17 +11,49 @@ export class DuckDBLoader {
 
     async init() {
         if (this.db) return;
-
-        const JSDELIVR_BUNDLES = {
-            '@duckdb/duckdb-wasm': `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/dist/duckdb-browser-eh.worker.js`
-        };
-
-        const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
-        const worker = new Worker(bundle.mainWorker);
-        const logger = new duckdb.ConsoleLogger();
+        
+        const mainWorkerUrl = new URL('@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js', import.meta.url);
+        const wasmUrl = new URL('@duckdb/duckdb-wasm/dist/duckdb-eh.wasm', import.meta.url);
+        const worker = new Worker(mainWorkerUrl);
+        
+        // Quiet logger
+        let logger;
+        try {
+            if (duckdb.ConsoleLogger) {
+                logger = new duckdb.ConsoleLogger(duckdb.LogLevel && (duckdb.LogLevel.ERROR || duckdb.LogLevel.WARNING));
+                if (logger && typeof logger.setLogLevel === 'function') {
+                    logger.setLogLevel((duckdb.LogLevel && (duckdb.LogLevel.ERROR || duckdb.LogLevel.WARNING)) || 2);
+                }
+            }
+        } catch {}
+        if (!logger) logger = { debug(){}, info(){}, warn(){}, error(){}, log(){} };
+        
         this.db = new duckdb.AsyncDuckDB(logger, worker);
-        await this.db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+        await this.db.instantiate(wasmUrl.toString());
         this.conn = await this.db.connect();
+        
+        try {
+            await this.conn.query('INSTALL httpfs;');
+            await this.conn.query('LOAD httpfs;');
+            await this.conn.query('SET enable_http_metadata_cache=true;');
+        } catch (e) {
+            console.warn('DuckDB httpfs install/load failed (may already be loaded):', e?.message || e);
+        }
+    }
+
+    // Resolve dataset URLs to absolute paths
+    resolveDatasetUrl(urlPath) {
+        try {
+            const u = new URL(urlPath, 'http://dummy');
+            if (/^https?:/i.test(u.protocol)) return urlPath;
+        } catch {}
+        
+        const loc = globalThis.location;
+        const host = (loc && loc.hostname) || 'localhost';
+        const scheme = (loc && loc.protocol) || 'http:';
+        const port = (loc && loc.port) || '3000';
+        const base = `${scheme}//${host}:${port}`;
+        return new URL(urlPath, base).toString();
     }
 
     async loadParquetFile(filePath, tableName = 'data') {
@@ -28,9 +62,20 @@ export class DuckDBLoader {
         }
 
         try {
+            // Resolve the URL
+            const absUrl = this.resolveDatasetUrl(filePath);
+            
+            // Quick reachability check
+            try {
+                const head = await fetch(absUrl, { method: 'HEAD' });
+                if (!head.ok) throw new Error(`HTTP ${head.status}`);
+            } catch (e) {
+                throw new Error(`Cannot access parquet file: ${e.message}`);
+            }
+            
             // Try to load the parquet file
-            await this.conn.query(`CREATE OR REPLACE TABLE ${tableName} AS SELECT * FROM read_parquet('${filePath}')`);
-            console.log(`Loaded ${tableName} from ${filePath}`);
+            await this.conn.query(`CREATE OR REPLACE TABLE ${tableName} AS SELECT * FROM read_parquet('${absUrl}')`);
+            console.log(`Loaded ${tableName} from ${absUrl}`);
             
             // Get row count
             const countResult = await this.conn.query(`SELECT COUNT(*) as count FROM ${tableName}`);
@@ -39,7 +84,7 @@ export class DuckDBLoader {
             return {
                 success: true,
                 tableName,
-                filePath,
+                filePath: absUrl,
                 rowCount: count
             };
         } catch (error) {
