@@ -1,0 +1,500 @@
+# Comprehensive keywords for personality database scraping
+# Focus on high-yield terms that are likely to surface many character profiles
+
+# Major entertainment franchises (high character density)
+Marvel Comics
+DC Comics
+Marvel Cinematic Universe
+Batman
+Superman
+Spider-Man
+X-Men
+Avengers
+Justice League
+Watchmen
+The Walking Dead
+Game of Thrones
+House of the Dragon
+Lord of the Rings
+The Hobbit
+Middle-earth
+Star Trek
+Star Wars
+Jedi
+Sith
+Disney
+Pixar
+Studio Ghibli
+Final Fantasy
+Dragon Quest
+Kingdom Hearts
+Persona
+Danganronpa
+Fire Emblem
+Legend of Zelda
+Pokemon
+One Piece
+Naruto
+Dragon Ball
+Attack on Titan
+My Hero Academia
+Demon Slayer
+Jujutsu Kaisen
+Hunter x Hunter
+Death Note
+Fullmetal Alchemist
+Code Geass
+Evangelion
+Cowboy Bebop
+Ghost in the Shell
+
+# TV Shows and series with rich character development
+Breaking Bad
+Better Call Saul
+The Sopranos
+The Wire
+Friends
+The Office
+How I Met Your Mother
+Sherlock
+Doctor Who
+Supernatural
+Criminal Minds
+Grey's Anatomy
+House MD
+Lost
+Prison Break
+24
+Homeland
+Dexter
+True Detective
+Westworld
+Stranger Things
+The Crown
+Black Mirror
+Euphoria
+Succession
+Ozark
+Yellowstone
+The Mandalorian
+Bridgerton
+Wednesday
+Avatar The Last Airbender
+Legend of Korra
+
+# Movies and film franchises
+The Godfather
+Pulp Fiction
+The Dark Knight
+Inception
+Interstellar
+The Matrix
+Blade Runner
+Terminator
+Alien
+Predator
+John Wick
+Fast and Furious
+Mission Impossible
+James Bond
+Indiana Jones
+Back to the Future
+Ghostbusters
+Jurassic Park
+E.T.
+Jaws
+Rocky
+Rambo
+Die Hard
+Lethal Weapon
+The Shining
+Halloween
+Friday the 13th
+Nightmare on Elm Street
+Scream
+Saw
+The Conjuring
+It
+Joker
+Deadpool
+Wonder Woman
+Aquaman
+The Flash
+Green Lantern
+Captain America
+Iron Man
+Thor
+Hulk
+Black Widow
+Guardians of the Galaxy
+
+# Literature and classic characters
+Shakespeare
+Romeo
+Juliet
+Hamlet
+Macbeth
+Othello
+King Lear
+Pride and Prejudice
+Jane Austen
+Elizabeth Bennet
+Mr Darcy
+Harry Potter
+Hermione Granger
+Ron Weasley
+Dumbledore
+Snape
+Voldemort
+Draco Malfoy
+The Great Gatsby
+Jay Gatsby
+Daisy Buchanan
+To Kill a Mockingbird
+Atticus Finch
+1984
+Winston Smith
+Big Brother
+Brave New World
+Aldous Huxley
+The Catcher in the Rye
+Holden Caulfield
+Lord of the Flies
+Animal Farm
+Fahrenheit 451
+The Hunger Games
+Katniss Everdeen
+Twilight
+Bella Swan
+Edward Cullen
+Fifty Shades of Grey
+
+# Video game franchises
+Call of Duty
+Grand Theft Auto
+Red Dead Redemption
+The Last of Us
+God of War
+Assassin's Creed
+Mass Effect
+Elder Scrolls
+Skyrim
+Fallout
+Witcher
+Geralt
+Cyberpunk
+Minecraft
+Fortnite
+League of Legends
+Overwatch
+World of Warcraft
+Halo
+Master Chief
+Mario
+Luigi
+Princess Peach
+Bowser
+Sonic
+Tails
+Knuckles
+Pac-Man
+Street Fighter
+Mortal Kombat
+Tekken
+Metal Gear Solid
+Silent Hill
+Resident Evil
+Dead Space
+Bioshock
+Portal
+Half-Life
+Counter-Strike
+Dota
+Valorant
+Apex Legends
+
+# Mythologies and folklore (rich character sources)
+Greek mythology
+Roman mythology
+Norse mythology
+Egyptian mythology
+Celtic mythology
+Japanese mythology
+Chinese mythology
+Hindu mythology
+Zeus
+Poseidon
+Hades
+Athena
+Apollo
+Artemis
+Aphrodite
+Ares
+Hercules
+Perseus
+Theseus
+Odysseus
+Achilles
+Hector
+Thor
+Loki
+Odin
+Freya
+Heimdall
+Egyptian gods
+Ra
+Anubis
+Isis
+Osiris
+Hindu gods
+Vishnu
+Shiva
+Brahma
+Krishna
+Rama
+
+# Character types and personality descriptors
+protagonist
+antagonist
+hero
+villain
+anti-hero
+mentor
+sidekick
+love interest
+comic relief
+wise old man
+femme fatale
+mad scientist
+detective
+soldier
+warrior
+knight
+wizard
+mage
+sorcerer
+witch
+vampire
+werewolf
+zombie
+alien
+robot
+android
+cyborg
+superhero
+supervillain
+assassin
+spy
+thief
+pirate
+cowboy
+samurai
+ninja
+monk
+priest
+king
+queen
+prince
+princess
+emperor
+dictator
+rebel
+revolutionary
+explorer
+adventurer
+scholar
+scientist
+doctor
+lawyer
+teacher
+student
+artist
+musician
+writer
+journalist
+photographer
+chef
+mechanic
+farmer
+businessman
+politician
+diplomat
+ambassador
+
+# Personality and psychological terms
+introvert
+extrovert
+ambivert
+narcissist
+psychopath
+sociopath
+genius
+prodigy
+savant
+empath
+leader
+follower
+rebel
+conformist
+optimist
+pessimist
+realist
+idealist
+perfectionist
+procrastinator
+workaholic
+creative
+analytical
+logical
+emotional
+intuitive
+sensing
+thinking
+feeling
+judging
+perceiving
+confident
+insecure
+brave
+coward
+loyal
+traitor
+honest
+liar
+kind
+cruel
+generous
+selfish
+patient
+impatient
+calm
+anxious
+organized
+chaotic
+disciplined
+impulsive
+responsible
+irresponsible
+
+# Common names and surnames (for discovering character profiles)
+Alexander
+Alexandra
+Nicholas
+Victoria
+Christopher
+Catherine
+Benjamin
+Samantha
+Jonathan
+Elizabeth
+Matthew
+Margaret
+Anthony
+Jennifer
+William
+Patricia
+Michael
+Barbara
+Richard
+Dorothy
+Charles
+Helen
+Thomas
+Nancy
+Daniel
+Betty
+David
+Sandra
+Paul
+Donna
+Mark
+Carol
+Donald
+Ruth
+Steven
+Sharon
+Kenneth
+Michelle
+Joshua
+Emily
+Kevin
+Kimberly
+Brian
+Deborah
+George
+Lisa
+Edward
+Nancy
+Ronald
+Karen
+Timothy
+Susan
+
+# International names
+Alessandro
+Alejandro
+Andre
+Andreas
+Antoine
+Antonio
+Carlos
+Diego
+Eduardo
+Emilio
+Enrique
+Fernando
+Francisco
+Guillermo
+Ignacio
+Javier
+Leonardo
+Lorenzo
+Luis
+Manuel
+Marco
+Mario
+Miguel
+Pablo
+Pedro
+Rafael
+Ricardo
+Roberto
+Santiago
+Sebastian
+Valentina
+Isabella
+Camila
+Sofia
+Gabriela
+Maria
+Ana
+Carmen
+Elena
+Laura
+Monica
+Patricia
+Rosa
+Teresa
+Victoria
+Akira
+Hiroshi
+Kenji
+Takeshi
+Yuki
+Satoshi
+Ryu
+Sakura
+Yuki
+Mei
+Li
+Wei
+Chen
+Zhang
+Wang
+Liu
+Yang
+Kim
+Park
+Lee
+Choi
+Jung
