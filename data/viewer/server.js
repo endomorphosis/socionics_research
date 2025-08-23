@@ -16,7 +16,7 @@ const PYTHON_EXEC = fssync.existsSync(VENV_PY) ? VENV_PY : (process.env.PYTHON |
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
-app.use(express.static(__dirname));
+// Note: static serving is configured later to avoid bypassing Vite transforms in dev
 
 // Expose dataset directory for parquet loading
 const DATASET_DIR = path.join(__dirname, '..', 'bot_store');
@@ -81,8 +81,18 @@ const activeProcesses = new Map();
 const processLogs = new Map();
 
 // Serve the main dashboard
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+app.get('/', async (req, res) => {
+    try {
+        if (viteServer) {
+            const html = await fs.readFile(path.join(__dirname, 'index.html'), 'utf8');
+            const transformed = await viteServer.transformIndexHtml(req.originalUrl || '/', html);
+            res.setHeader('Content-Type', 'text/html');
+            return res.status(200).send(transformed);
+        }
+    } catch (e) {
+        console.warn('Vite transform failed, falling back to static index:', e?.message || e);
+    }
+    return res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 // API Routes
@@ -975,12 +985,16 @@ async function startServer() {
                 server: { middlewareMode: true },
                 appType: 'custom'
             });
+            // Attach Vite first so it can transform index.html and modules
             app.use(viteServer.middlewares);
             console.log('Vite dev middleware attached on same port');
         } catch (e) {
             console.warn('Vite middleware not attached:', e?.message || e);
         }
     }
+
+    // Static assets (only after Vite in dev, always in production)
+    app.use(express.static(__dirname));
 
     app.listen(PORT, () => {
         console.log(`Personality Database Viewer server running on http://localhost:${PORT}`);

@@ -294,12 +294,30 @@ function setupQueryPanelListeners() {
     const executeQueryBtn = document.getElementById('execute-query-btn');
     const clearQueryBtn = document.getElementById('clear-query-btn');
     const saveQueryBtn = document.getElementById('save-query-btn');
+    const useMergedBtn = document.getElementById('use-merged-dataset-btn');
     const sqlQuery = document.getElementById('sql-query');
     const templateBtns = document.querySelectorAll('.template-btn');
 
     executeQueryBtn.addEventListener('click', executeQuery);
     clearQueryBtn.addEventListener('click', () => sqlQuery.value = '');
     saveQueryBtn.addEventListener('click', saveQuery);
+    if (useMergedBtn) {
+        useMergedBtn.addEventListener('click', async () => {
+            try {
+                showLoading(true);
+                await duckdbLoader.init();
+                // Create/replace the profiles table from merged parquet
+                const meta = await duckdbLoader.loadParquetFile('/dataset/pdb_profiles_merged.parquet', 'profiles');
+                if (!meta?.success) throw new Error(meta?.error || 'Failed to load merged parquet');
+                showToast(`Switched to merged dataset (${meta.rowCount} rows)`, 'success');
+            } catch (e) {
+                console.error('Use merged dataset failed:', e);
+                showToast('Failed to use merged dataset: ' + e.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        });
+    }
 
     templateBtns.forEach(btn => {
         btn.addEventListener('click', (e) => {

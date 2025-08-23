@@ -11,12 +11,12 @@ export class DuckDBLoader {
 
     async init() {
         if (this.db) return;
-        
-        const mainWorkerUrl = new URL('@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js', import.meta.url);
-        const wasmUrl = new URL('@duckdb/duckdb-wasm/dist/duckdb-eh.wasm', import.meta.url);
-        const worker = new Worker(mainWorkerUrl);
-        
-        // Quiet logger
+
+        // Select best bundle (includes httpfs extension)
+        const bundles = duckdb.getJsDelivrBundles();
+        const bundle = await duckdb.selectBundle(bundles);
+        const worker = new Worker(bundle.mainWorker);
+
         let logger;
         try {
             if (duckdb.ConsoleLogger) {
@@ -27,17 +27,17 @@ export class DuckDBLoader {
             }
         } catch {}
         if (!logger) logger = { debug(){}, info(){}, warn(){}, error(){}, log(){} };
-        
+
         this.db = new duckdb.AsyncDuckDB(logger, worker);
-        await this.db.instantiate(wasmUrl.toString());
+        await this.db.instantiate(bundle.mainModule, bundle.pthreadWorker);
         this.conn = await this.db.connect();
-        
+
         try {
-            await this.conn.query('INSTALL httpfs;');
+            // In wasm bundles, httpfs is available to LOAD (INSTALL may not be needed)
             await this.conn.query('LOAD httpfs;');
             await this.conn.query('SET enable_http_metadata_cache=true;');
         } catch (e) {
-            console.warn('DuckDB httpfs install/load failed (may already be loaded):', e?.message || e);
+            console.warn('DuckDB httpfs load failed:', e?.message || e);
         }
     }
 
