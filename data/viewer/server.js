@@ -492,6 +492,64 @@ app.get('/api/data/export', async (req, res) => {
     }
 });
 
+// Export arbitrary rows to a parquet file in dataset dir
+app.post('/api/data/export-parquet', async (req, res) => {
+    try {
+        const { rows, filename } = req.body || {};
+        if (!Array.isArray(rows) || rows.length === 0) {
+            return res.status(400).json({ success: false, error: 'rows array required' });
+        }
+        const outFile = filename && typeof filename === 'string' ? filename : `query_export_${Date.now()}.parquet`;
+        const destPath = path.join(DATASET_DIR, outFile);
+
+        const python = spawn(PYTHON_EXEC, ['-c', `
+import pandas as pd
+import json
+import sys
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+rows = json.loads(sys.stdin.read())
+df = pd.DataFrame(rows)
+table = pa.Table.from_pandas(df)
+pq.write_table(table, r'''${destPath.replace(/\\/g,'/')}''')
+print(json.dumps({'ok': True, 'rows': int(len(df))}))
+        `]);
+
+        let out = '', err = '';
+        python.stdout.on('data', (c) => out += c.toString());
+        python.stderr.on('data', (c) => err += c.toString());
+        python.on('close', (code) => {
+            if (code !== 0) {
+                return res.status(500).json({ success: false, error: err || 'pyarrow write failed' });
+            }
+            try {
+                const parsed = JSON.parse(out);
+                // Invalidate caches so UI can pick up new file if needed
+                profilesCache.mtimeMs = -1; vectorsCache.mtimeMs = -1;
+                res.json({ success: true, file: destPath, ...parsed });
+            } catch (e) {
+                res.status(500).json({ success: false, error: 'export parse failed' });
+            }
+        });
+        python.stdin.write(JSON.stringify(rows));
+        python.stdin.end();
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Clear simple data caches
+app.post('/api/data/reload', async (req, res) => {
+    try {
+        profilesCache = { data: null, mtimeMs: 0 };
+        vectorsCache = { data: null, mtimeMs: 0 };
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // Commit overlay into a new parquet file
 app.post('/api/data/commit-overlay', async (req, res) => {
     try {

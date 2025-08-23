@@ -8,6 +8,7 @@ let filteredData = [];
 let currentPage = 1;
 let itemsPerPage = 50;
 let isCardView = false;
+let lastQueryRows = [];
 
 // DOM elements
 const elements = {
@@ -133,7 +134,14 @@ async function loadParquetData() {
             let ok = false;
             for (const p of ['/dataset/pdb_profiles.parquet', '/dataset/pdb_profiles_normalized.parquet', '/dataset/pdb_profiles_merged.parquet']) {
                 const meta = await duckdbLoader.loadParquetFile(p, 'profiles');
-                if (meta?.success) { ok = true; break; }
+                if (meta?.success) {
+                    ok = true;
+                    try {
+                        const status = document.getElementById('dataset-status');
+                        if (status) status.textContent = `Dataset: ${meta.filePath} (${meta.rowCount} rows)`;
+                    } catch {}
+                    break;
+                }
             }
             if (!ok) console.warn('DuckDB could not load any profiles parquet (main/normalized/merged).');
         } catch (e) {
@@ -307,6 +315,10 @@ function setupQueryPanelListeners() {
     const clearQueryBtn = document.getElementById('clear-query-btn');
     const saveQueryBtn = document.getElementById('save-query-btn');
     const useMergedBtn = document.getElementById('use-merged-dataset-btn');
+    const reloadDatasetsBtn = document.getElementById('reload-datasets-btn');
+    const exportCsvBtn = document.getElementById('export-csv-btn');
+    const exportJsonBtn = document.getElementById('export-json-btn');
+    const exportParquetBtn = document.getElementById('export-parquet-btn');
     const datasetSelect = document.getElementById('dataset-select');
     const sqlQuery = document.getElementById('sql-query');
     const templateBtns = document.querySelectorAll('.template-btn');
@@ -314,6 +326,10 @@ function setupQueryPanelListeners() {
     executeQueryBtn.addEventListener('click', executeQuery);
     clearQueryBtn.addEventListener('click', () => sqlQuery.value = '');
     saveQueryBtn.addEventListener('click', saveQuery);
+    if (reloadDatasetsBtn) reloadDatasetsBtn.addEventListener('click', reloadDatasets);
+    if (exportCsvBtn) exportCsvBtn.addEventListener('click', () => exportQueryResults('csv'));
+    if (exportJsonBtn) exportJsonBtn.addEventListener('click', () => exportQueryResults('json'));
+    if (exportParquetBtn) exportParquetBtn.addEventListener('click', () => exportQueryResults('parquet'));
     if (useMergedBtn) {
         useMergedBtn.addEventListener('click', async () => {
             try {
@@ -1086,6 +1102,7 @@ function addScraperLog(message) {
 
 function renderQueryResults(arrayRows) {
     const container = document.getElementById('query-results-container');
+    lastQueryRows = Array.isArray(arrayRows) ? arrayRows : [];
     if (!arrayRows || arrayRows.length === 0) {
         container.innerHTML = '<p class="no-results">No rows returned</p>';
         return;
@@ -1162,3 +1179,88 @@ async function saveQuery() {
 document.addEventListener('DOMContentLoaded', init);
 
 export { init, showToast, showLoading };
+
+// Reload datasets: clears server caches and reloads DuckDB table
+async function reloadDatasets() {
+    try {
+        showLoading(true);
+        // Clear server-side caches if implemented
+        try { await fetch('/api/data/reload', { method: 'POST' }); } catch {}
+        // Reload selected dataset into DuckDB
+        await duckdbLoader.init();
+        const select = document.getElementById('dataset-select');
+        const path = (select && select.value) || '/dataset/pdb_profiles.parquet';
+        const meta = await duckdbLoader.loadParquetFile(path, 'profiles');
+        if (!meta?.success) throw new Error(meta?.error || 'Failed to reload dataset');
+        const status = document.getElementById('dataset-status');
+        if (status) status.textContent = `Dataset: ${meta.filePath} (${meta.rowCount} rows)`;
+        showToast('Datasets reloaded', 'success');
+    } catch (e) {
+        console.error('Reload datasets failed:', e);
+        showToast('Reload failed: ' + e.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// Export last query results as CSV or JSON
+function exportQueryResults(fmt) {
+    try {
+        if (!lastQueryRows || lastQueryRows.length === 0) {
+            showToast('No results to export', 'error');
+            return;
+        }
+    if (fmt === 'json') {
+            const blob = new Blob([JSON.stringify(lastQueryRows, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            download(url, 'query_results.json');
+            URL.revokeObjectURL(url);
+            showToast('Exported JSON', 'success');
+        } else if (fmt === 'csv') {
+            const cols = Object.keys(lastQueryRows[0]);
+            const lines = [];
+            lines.push(cols.join(','));
+            for (const row of lastQueryRows) {
+                const vals = cols.map(c => csvEscape(row[c]));
+                lines.push(vals.join(','));
+            }
+            const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            download(url, 'query_results.csv');
+            URL.revokeObjectURL(url);
+            showToast('Exported CSV', 'success');
+        } else if (fmt === 'parquet') {
+            const filename = prompt('Enter parquet filename', `query_export_${Date.now()}.parquet`) || `query_export_${Date.now()}.parquet`;
+            fetch('/api/data/export-parquet', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rows: lastQueryRows, filename })
+            }).then(async (resp) => {
+                const json = await resp.json();
+                if (!resp.ok || !json.success) throw new Error(json.error || 'Export failed');
+                showToast(`Exported Parquet: ${json.file}`, 'success');
+            }).catch(e => {
+                console.error('Parquet export failed:', e);
+                showToast('Parquet export failed: ' + e.message, 'error');
+            });
+        }
+    } catch (e) {
+        console.error('Export failed:', e);
+        showToast('Export failed: ' + e.message, 'error');
+    }
+}
+
+function csvEscape(val) {
+    if (val === null || val === undefined) return '';
+    const s = String(val);
+    if (s.includes('"') || s.includes(',') || s.includes('\n')) {
+        return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+}
+
+function download(url, filename) {
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.style.display = 'none';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
