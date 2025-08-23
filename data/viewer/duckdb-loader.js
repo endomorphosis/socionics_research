@@ -42,17 +42,12 @@ export class DuckDBLoader {
 
     // Resolve dataset URLs to absolute paths
     resolveDatasetUrl(urlPath) {
-        try {
-            const u = new URL(urlPath, 'http://dummy');
-            if (/^https?:/i.test(u.protocol)) return urlPath;
-        } catch {}
-        
-        const loc = globalThis.location;
-        const host = (loc && loc.hostname) || 'localhost';
-        const scheme = (loc && loc.protocol) || 'http:';
-        const port = (loc && loc.port) || '3000';
-        const base = `${scheme}//${host}:${port}`;
-        return new URL(urlPath, base).toString();
+        // Already absolute
+        if (typeof urlPath === 'string' && /^https?:\/\//i.test(urlPath)) {
+            return urlPath;
+        }
+        const origin = (globalThis.location && globalThis.location.origin) || 'http://localhost:3000';
+        return new URL(urlPath, origin).toString();
     }
 
     async loadParquetFile(filePath, tableName = 'data') {
