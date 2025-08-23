@@ -24,6 +24,25 @@
 
 **For Community Members**: The Discord bot documentation is at [`bot/README.md`](bot/README.md). For data contribution and consent information, see [`docs/ethics_consent_outline.md`](docs/ethics_consent_outline.md).
 
+**Compass Visualization Quickstart**:
+```bash
+# navigate to compass directory
+cd compass
+
+# install dependencies and build
+npm install
+npm run build
+
+# start server (single port)
+npm start
+# open http://localhost:3000
+
+# or development mode with hot reload
+npm run dev
+# open http://localhost:5173
+```
+Explore 3D personality clusters, toggle between globe and compass modes, export data in multiple formats. See [`compass/README.md`](compass/README.md) for detailed features.
+
 **PDB CLI (Ingestion) Quickstart**:
 ```bash
 # one-time setup
@@ -80,17 +99,24 @@ See [`docs/pdb_pipeline.md`](docs/pdb_pipeline.md) for full pipeline details and
 
 ### Completed ✓
 1. ✓ Discord bot v0.2 core implementation with privacy-first design
-2. ✓ Basic JSON schemas for person/session/annotation/typing entities
-3. ✓ Operational indicators framework and seed definitions (20+ indicators)
-4. ✓ Literature review matrix with quality scoring methodology
-5. ✓ Ethics and consent framework draft
+2. ✓ Comprehensive PDB data pipeline with relationship analysis and graph components
+3. ✓ Advanced 3D compass and globe visualization system with K-means clustering
+4. ✓ HNSW vector search with IndexedDB caching and real-time progress tracking  
+5. ✓ Multi-format data export/import suite (JSON/CSV/Parquet) with health reporting
+6. ✓ Basic JSON schemas for person/session/annotation/typing entities
+7. ✓ Operational indicators framework and seed definitions (20+ indicators)
+8. ✓ Literature review matrix with quality scoring methodology
+9. ✓ Ethics and consent framework draft
+10. ✓ Comprehensive scraping system with discovery-first approach and stateful operation
 
 ### In Progress 🔄
-1. 🔄 Finalize v0.2 JSON schemas with enhanced validation rules
-2. 🔄 Expand indicator catalogue (target: 120 definitions; current: ~25 seed definitions)
-3. 🔄 Discord community governance plan and moderation guidelines
-4. 🔄 LLM chatbot guardrails testing and evaluation harness
-5. 🔄 Reliability calibration dataset preparation (target: 50 segments × 3 raters)
+1. 🔄 Enhanced PDB CLI features and edge analysis optimization
+2. 🔄 Advanced globe visualization surface modes (MBTI/Reinin/Prismatic)
+3. 🔄 Finalize v0.2 JSON schemas with enhanced validation rules
+4. 🔄 Expand indicator catalogue (target: 120 definitions; current: ~25 seed definitions)
+5. 🔄 Discord community governance plan and moderation guidelines
+6. 🔄 LLM chatbot guardrails testing and evaluation harness
+7. 🔄 Reliability calibration dataset preparation (target: 50 segments × 3 raters)
 
 ### Next Steps 📋
 1. 📋 Deploy Discord server with initial community guidelines
@@ -109,7 +135,7 @@ Safeguards: explicit tagging for research-use messages; PII scrubbing pipeline; 
 
 ## Bot & Research Infrastructure (Implemented v0.2 Core)
 
-**Status**: Production-ready core features with ongoing enhancements
+**Status**: Production-ready core features with comprehensive data pipeline
 
 ### Current Bot Features (Privacy-First Design)
 - **Vector Ingestion** (`/ingest_channel`): Stores ONLY embeddings + hashed user & token hashes
@@ -121,6 +147,23 @@ Safeguards: explicit tagging for research-use messages; PII scrubbing pipeline; 
 - **Context Assembly** (`/llm_context`): Returns metadata JSON only (no raw content exposure)
 - **Structured Logging**: Optional JSON logs with privacy controls (`SOCIONICS_JSON_LOGS=true`)
 - **Metrics Endpoint**: Prometheus scrape endpoint (optional) for operational monitoring
+
+### Comprehensive PDB CLI Pipeline
+- **Multi-API Support**: Full v1 and v2 Personality Database API integration with authentication management
+- **Discovery-First Scraping**: Intelligent keyword search with relationship expansion and stateful operation
+- **Graph Analysis**: Profile relationship network analysis with connected components and centrality metrics
+- **Vector Search**: FAISS indexing with semantic similarity search and embedding generation
+- **Data Export**: Multiple format support (JSON/CSV/Parquet) for profiles, vectors, and relationships
+- **Character Filtering**: Advanced character-focused dataset extraction and optimization
+- **Progress Monitoring**: Real-time scanning progress with health reports and coverage analysis
+- **Edge Management**: Comprehensive relationship tracking and graph export capabilities
+
+### 3D Visualization System
+- **Globe Visualization**: Interactive "Personality Planet" with celestial personality exploration
+- **K-means Clustering**: Automatic personality group detection with smart cluster suggestions
+- **Surface Modes**: MBTI, Reinin, and prismatic theoretical perspective visualizations
+- **Real-time Processing**: Client-side PCA projection with WASM HNSW acceleration
+- **Advanced Export**: Comprehensive data export suite with health reporting and manifest generation
 
 ### Planned Service Enhancements (Roadmap)
 - **API Layer**: FastAPI integration for external tool compatibility
