@@ -2,6 +2,8 @@ const PlaywrightScraper = require('./playwright-scraper');
 const SeleniumScraper = require('./selenium-scraper');
 const HttpScraper = require('./http-scraper');
 const DataEnhancer = require('./data-enhancer');
+const PythonBotScraper = require('./python-bot-scraper');
+const ScrapingReportGenerator = require('./report-generator');
 
 class ScraperManager {
     constructor(options = {}) {
@@ -29,23 +31,39 @@ class ScraperManager {
                 this.activeScraper = new HttpScraper(this.options);
                 await this.activeScraper.init();
                 return this.activeScraper;
+            } else if (scraperType === 'python-bot') {
+                console.log('Attempting to create Python Bot scraper...');
+                this.activeScraper = new PythonBotScraper(this.options);
+                await this.activeScraper.init();
+                return this.activeScraper;
             } else {
                 throw new Error(`Unknown scraper type: ${scraperType}`);
             }
         } catch (error) {
             console.error(`Failed to create ${scraperType} scraper:`, error);
             
-            // Fallback logic - try HTTP scraper if others fail
-            if (scraperType !== 'http') {
-                console.log('Falling back to HTTP scraper...');
+            // Fallback logic - try Python bot first, then HTTP scraper if others fail
+            if (scraperType !== 'python-bot') {
+                console.log('Falling back to Python Bot scraper...');
                 try {
-                    this.activeScraper = new HttpScraper(this.options);
+                    this.activeScraper = new PythonBotScraper(this.options);
                     await this.activeScraper.init();
-                    this.scraperType = 'http';
+                    this.scraperType = 'python-bot';
                     return this.activeScraper;
                 } catch (fallbackError) {
-                    console.error('HTTP fallback also failed:', fallbackError);
-                    throw new Error('All scrapers failed to initialize');
+                    console.error('Python Bot fallback also failed:', fallbackError);
+                    
+                    // Final fallback to HTTP
+                    console.log('Falling back to HTTP scraper...');
+                    try {
+                        this.activeScraper = new HttpScraper(this.options);
+                        await this.activeScraper.init();
+                        this.scraperType = 'http';
+                        return this.activeScraper;
+                    } catch (httpError) {
+                        console.error('All scrapers failed to initialize');
+                        throw new Error('All scrapers failed to initialize');
+                    }
                 }
             } else {
                 throw error;
@@ -104,12 +122,14 @@ async function main() {
     
     if (!command) {
         console.log('Usage:');
-        console.log('  node scraper/index.js full-scrape [--browser playwright|selenium|http]');
-        console.log('  node scraper/index.js profile <url> [--browser playwright|selenium|http]');
-        console.log('  node scraper/index.js search <query> [--browser playwright|selenium|http]');
-        console.log('  node scraper/index.js category <url> [--browser playwright|selenium|http]');
+        console.log('  node scraper/index.js full-scrape [--browser playwright|selenium|http|python-bot]');
+        console.log('  node scraper/index.js profile <url> [--browser playwright|selenium|http|python-bot]');
+        console.log('  node scraper/index.js search <query> [--browser playwright|selenium|http|python-bot]');
+        console.log('  node scraper/index.js category <url> [--browser playwright|selenium|http|python-bot]');
         console.log('  node scraper/index.js enhance-data');
         console.log('  node scraper/index.js analyze-missing');
+        console.log('  node scraper/index.js generate-report');
+        console.log('  node scraper/index.js quick-summary');
         process.exit(1);
     }
 
@@ -120,7 +140,9 @@ async function main() {
     const scraper = new ScraperManager({
         browser: browser,
         delay: 1500,
-        maxPages: 10
+        maxPages: 10,
+        concurrency: 3,
+        ratePerMinute: 90
     });
 
     try {
@@ -175,6 +197,20 @@ async function main() {
                 const missingProfiles = await analyzer.findMissingProfiles();
                 console.log(`Analysis completed. Found ${missingProfiles.length} profiles with missing data.`);
                 await analyzer.close();
+                break;
+
+            case 'generate-report':
+                console.log('Generating comprehensive improvement report...');
+                const reportGen = new ScrapingReportGenerator();
+                const report = await reportGen.generateComprehensiveReport();
+                console.log('Report generation completed.');
+                break;
+
+            case 'quick-summary':
+                console.log('Generating quick data summary...');
+                const summaryGen = new ScrapingReportGenerator();
+                const summary = await summaryGen.quickDataSummary();
+                console.log('Summary completed.');
                 break;
 
             default:
