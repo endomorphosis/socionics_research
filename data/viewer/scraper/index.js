@@ -1,5 +1,7 @@
 const PlaywrightScraper = require('./playwright-scraper');
 const SeleniumScraper = require('./selenium-scraper');
+const HttpScraper = require('./http-scraper');
+const DataEnhancer = require('./data-enhancer');
 
 class ScraperManager {
     constructor(options = {}) {
@@ -22,36 +24,31 @@ class ScraperManager {
                 this.activeScraper = new SeleniumScraper(this.options);
                 await this.activeScraper.init();
                 return this.activeScraper;
+            } else if (scraperType === 'http') {
+                console.log('Attempting to create HTTP scraper...');
+                this.activeScraper = new HttpScraper(this.options);
+                await this.activeScraper.init();
+                return this.activeScraper;
             } else {
                 throw new Error(`Unknown scraper type: ${scraperType}`);
             }
         } catch (error) {
             console.error(`Failed to create ${scraperType} scraper:`, error);
             
-            // Fallback logic
-            if (scraperType === 'playwright') {
-                console.log('Falling back to Selenium scraper...');
+            // Fallback logic - try HTTP scraper if others fail
+            if (scraperType !== 'http') {
+                console.log('Falling back to HTTP scraper...');
                 try {
-                    this.activeScraper = new SeleniumScraper(this.options);
+                    this.activeScraper = new HttpScraper(this.options);
                     await this.activeScraper.init();
-                    this.scraperType = 'selenium';
+                    this.scraperType = 'http';
                     return this.activeScraper;
                 } catch (fallbackError) {
-                    console.error('Selenium fallback also failed:', fallbackError);
-                    throw new Error('Both Playwright and Selenium scrapers failed to initialize');
+                    console.error('HTTP fallback also failed:', fallbackError);
+                    throw new Error('All scrapers failed to initialize');
                 }
             } else {
-                // If selenium failed, try playwright
-                console.log('Falling back to Playwright scraper...');
-                try {
-                    this.activeScraper = new PlaywrightScraper(this.options);
-                    await this.activeScraper.init();
-                    this.scraperType = 'playwright';
-                    return this.activeScraper;
-                } catch (fallbackError) {
-                    console.error('Playwright fallback also failed:', fallbackError);
-                    throw new Error('Both Selenium and Playwright scrapers failed to initialize');
-                }
+                throw error;
             }
         }
     }
@@ -107,10 +104,12 @@ async function main() {
     
     if (!command) {
         console.log('Usage:');
-        console.log('  node scraper/index.js full-scrape [--browser playwright|selenium]');
-        console.log('  node scraper/index.js profile <url> [--browser playwright|selenium]');
-        console.log('  node scraper/index.js search <query> [--browser playwright|selenium]');
-        console.log('  node scraper/index.js category <url> [--browser playwright|selenium]');
+        console.log('  node scraper/index.js full-scrape [--browser playwright|selenium|http]');
+        console.log('  node scraper/index.js profile <url> [--browser playwright|selenium|http]');
+        console.log('  node scraper/index.js search <query> [--browser playwright|selenium|http]');
+        console.log('  node scraper/index.js category <url> [--browser playwright|selenium|http]');
+        console.log('  node scraper/index.js enhance-data');
+        console.log('  node scraper/index.js analyze-missing');
         process.exit(1);
     }
 
@@ -162,16 +161,34 @@ async function main() {
                 console.log(`Found ${categoryProfiles.length} profiles in category.`);
                 break;
 
+            case 'enhance-data':
+                console.log('Enhancing existing data...');
+                const enhancer = new DataEnhancer();
+                const enhancementResult = await enhancer.enhanceData();
+                console.log(`Data enhancement completed. Enhanced ${enhancementResult.enhancedCount} profiles.`);
+                await enhancer.close();
+                break;
+
+            case 'analyze-missing':
+                console.log('Analyzing missing data...');
+                const analyzer = new DataEnhancer();
+                const missingProfiles = await analyzer.findMissingProfiles();
+                console.log(`Analysis completed. Found ${missingProfiles.length} profiles with missing data.`);
+                await analyzer.close();
+                break;
+
             default:
                 console.error(`Unknown command: ${command}`);
                 process.exit(1);
         }
 
     } catch (error) {
-        console.error('Scraping failed:', error);
+        console.error('Operation failed:', error);
         process.exit(1);
     } finally {
-        await scraper.close();
+        if (scraper) {
+            await scraper.close();
+        }
     }
 }
 
