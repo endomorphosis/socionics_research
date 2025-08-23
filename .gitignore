@@ -53,4 +53,5 @@ data/bot_store/backup_*/
 __pycache__
 .secrets
 
-node_modules/
+node_modules/bot/test_venv/
+compass/node_modules/
