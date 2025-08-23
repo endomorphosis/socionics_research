@@ -7,19 +7,27 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://localhost:3000',
         changeOrigin: true
       }
     }
   },
   build: {
     outDir: 'dist',
-    sourcemap: true
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        // Preserve readable names without hashes so worker relative imports resolve
+        entryFileNames: 'assets/[name].js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: 'assets/[name][extname]'
+      }
+    }
   },
   define: {
     global: 'globalThis',
   },
   optimizeDeps: {
-    exclude: ['@duckdb/duckdb-wasm']
+    include: ['@duckdb/duckdb-wasm']
   }
 });

@@ -1,4 +1,5 @@
 import './scraper-client.js';
+import { knnSearch } from './knn-search.js';
 
 // Global state
 let currentData = [];
@@ -52,7 +53,10 @@ async function loadSampleData() {
         // Check if we have actual data files
         const hasData = await checkDataFiles();
         
-        if (!hasData) {
+        if (hasData) {
+            // Load real data from parquet files
+            await loadParquetData();
+        } else {
             // Create sample data for demonstration
             currentData = [
                 {
@@ -94,19 +98,51 @@ async function loadSampleData() {
 
     } catch (error) {
         console.error('Failed to load data:', error);
-        elements.dataStats.textContent = 'No data files found - Ready for scraping';
+        elements.dataStats.textContent = 'Error loading data: ' + error.message;
         filteredData = [];
         renderResults();
+    }
+}
+
+// Load actual data from parquet files using server API
+async function loadParquetData() {
+    try {
+        console.log('Loading parquet data via API...');
+        
+        const response = await fetch('/api/data/profiles');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        currentData = data.profiles || [];
+        
+        // Set profiles in KNN search and try to load vectors
+        knnSearch.setProfiles(currentData);
+        const hasVectors = await knnSearch.loadVectors();
+        
+        elements.dataStats.textContent = `Loaded ${data.count || currentData.length} profiles from parquet files${hasVectors ? ' (with KNN vectors)' : ''}`;
+        
+        console.log(`Successfully loaded ${currentData.length} profiles${hasVectors ? ' with KNN search capabilities' : ''}`);
+        
+    } catch (error) {
+        console.error('Failed to load parquet data:', error);
+        throw error;
     }
 }
 
 // Check if actual data files exist
 async function checkDataFiles() {
     try {
-        // This would check for the actual parquet files
-        // For now, return false to use sample data
-        return false;
+        // Check for the parquet files in the bot_store directory
+        const response = await fetch('/dataset/pdb_profiles.parquet');
+        return response.ok;
     } catch (error) {
+        console.warn('Cannot access parquet files:', error);
         return false;
     }
 }
@@ -198,6 +234,21 @@ function setupEditPanelListeners() {
     document.getElementById('normalize-btn').addEventListener('click', normalizeData);
     document.getElementById('dedupe-btn').addEventListener('click', deduplicateData);
     document.getElementById('validate-btn').addEventListener('click', validateData);
+    
+    // Profile form handling
+    const profileForm = document.getElementById('profile-form');
+    const cancelEditBtn = document.getElementById('cancel-edit-btn');
+    const deleteProfileBtn = document.getElementById('delete-profile-btn');
+    
+    if (profileForm) {
+        profileForm.addEventListener('submit', handleProfileSave);
+    }
+    if (cancelEditBtn) {
+        cancelEditBtn.addEventListener('click', cancelProfileEdit);
+    }
+    if (deleteProfileBtn) {
+        deleteProfileBtn.addEventListener('click', handleProfileDelete);
+    }
 }
 
 // Setup scraper panel event listeners
@@ -245,9 +296,9 @@ function showPanel(panelId) {
     document.getElementById(panelId).classList.add('active');
 }
 
-// Perform search
+// Perform search with KNN and bag-of-words fallback
 async function performSearch() {
-    const query = elements.searchInput.value.trim().toLowerCase();
+    const query = elements.searchInput.value.trim();
     if (!query) {
         applyFilters();
         return;
@@ -255,17 +306,46 @@ async function performSearch() {
 
     try {
         showLoading(true);
+        let searchResults = [];
+        let searchMethod = 'none';
         
-        // Filter data based on search query
-        filteredData = currentData.filter(item => {
-            return (item.name && item.name.toLowerCase().includes(query)) ||
-                   (item.mbti && item.mbti.toLowerCase().includes(query)) ||
-                   (item.socionics && item.socionics.toLowerCase().includes(query)) ||
-                   (item.description && item.description.toLowerCase().includes(query));
-        });
+        // Try KNN search first if available
+        if (knnSearch.isAvailable()) {
+            // Check if query looks like a profile CID for similarity search
+            if (query.startsWith('Qm') && query.length > 20) {
+                // CID-based similarity search
+                searchResults = knnSearch.findSimilarProfiles(query, 20);
+                if (searchResults.length > 0) {
+                    searchMethod = 'KNN similarity';
+                }
+            }
+            
+            // TODO: Implement vector-based text search when we have text encoding capability
+            // For now, fall through to bag-of-words search
+        }
         
+        // Fall back to bag-of-words search if KNN didn't return results
+        if (searchResults.length === 0) {
+            const queryLower = query.toLowerCase();
+            searchResults = currentData.filter(item => {
+                return (item.name && item.name.toLowerCase().includes(queryLower)) ||
+                       (item.mbti && item.mbti.toLowerCase().includes(queryLower)) ||
+                       (item.socionics && item.socionics.toLowerCase().includes(queryLower)) ||
+                       (item.description && item.description.toLowerCase().includes(queryLower)) ||
+                       (item.category && item.category.toLowerCase().includes(queryLower)) ||
+                       (item.cid && item.cid.includes(query)); // Exact CID match
+            });
+            searchMethod = 'bag-of-words';
+        }
+        
+        filteredData = searchResults;
         currentPage = 1;
         renderResults();
+        
+        // Update status with search method used
+        if (searchMethod !== 'none') {
+            elements.dataStats.textContent = `Found ${searchResults.length} results using ${searchMethod} search`;
+        }
         
     } catch (error) {
         console.error('Search failed:', error);
@@ -536,6 +616,146 @@ async function deduplicateData() {
 async function validateData() {
     showToast('Data validation coming soon', 'info');
 }
+
+// CRUD Operations for profiles
+
+// Handle profile save (Create/Update)
+async function handleProfileSave(event) {
+    event.preventDefault();
+    
+    try {
+        showLoading(true);
+        
+        const formData = {
+            cid: document.getElementById('profile-id').value,
+            name: document.getElementById('profile-name').value,
+            mbti: document.getElementById('profile-mbti').value,
+            socionics: document.getElementById('profile-socionics').value,
+            description: document.getElementById('profile-description').value
+        };
+        
+        const isUpdate = !!formData.cid;
+        const method = isUpdate ? 'PUT' : 'POST';
+        const url = isUpdate ? `/api/data/profiles/${formData.cid}` : '/api/data/profiles';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            // Update local data
+            if (isUpdate) {
+                // Find and update existing profile
+                const index = currentData.findIndex(p => p.cid === formData.cid);
+                if (index !== -1) {
+                    currentData[index] = { ...currentData[index], ...formData };
+                }
+            } else {
+                // Add new profile with generated CID
+                const newProfile = { ...formData, cid: result.cid };
+                currentData.push(newProfile);
+            }
+            
+            // Update KNN search data
+            knnSearch.setProfiles(currentData);
+            
+            // Refresh current view
+            applyFilters();
+            
+            // Hide edit form and show success
+            cancelProfileEdit();
+            showToast(isUpdate ? 'Profile updated successfully' : 'Profile created successfully', 'success');
+        } else {
+            throw new Error(result.error || 'Save failed');
+        }
+        
+    } catch (error) {
+        console.error('Profile save failed:', error);
+        showToast('Failed to save profile: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// Cancel profile editing
+function cancelProfileEdit() {
+    document.getElementById('edit-form').style.display = 'none';
+    document.getElementById('profile-form').reset();
+    showPanel('search-panel');
+    elements.navBtns.forEach(btn => btn.classList.remove('active'));
+    document.getElementById('nav-search').classList.add('active');
+}
+
+// Handle profile deletion
+async function handleProfileDelete() {
+    const cid = document.getElementById('profile-id').value;
+    if (!cid) {
+        showToast('No profile selected for deletion', 'error');
+        return;
+    }
+    
+    if (!confirm('Are you sure you want to delete this profile? This action cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        showLoading(true);
+        
+        const response = await fetch(`/api/data/profiles/${cid}`, {
+            method: 'DELETE'
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            // Remove from local data
+            currentData = currentData.filter(p => p.cid !== cid);
+            
+            // Update KNN search data
+            knnSearch.setProfiles(currentData);
+            
+            // Refresh current view
+            applyFilters();
+            
+            // Hide edit form and show success
+            cancelProfileEdit();
+            showToast('Profile deleted successfully', 'success');
+        } else {
+            throw new Error(result.error || 'Delete failed');
+        }
+        
+    } catch (error) {
+        console.error('Profile deletion failed:', error);
+        showToast('Failed to delete profile: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// Add new profile function
+function addNewProfile() {
+    showPanel('edit-panel');
+    elements.navBtns.forEach(btn => btn.classList.remove('active'));
+    document.getElementById('nav-edit').classList.add('active');
+    
+    // Clear form for new profile
+    document.getElementById('profile-form').reset();
+    document.getElementById('profile-id').value = ''; // Empty CID means new profile
+    
+    document.getElementById('edit-form').style.display = 'block';
+    showToast('Create new profile', 'info');
+}
+
+// Make addNewProfile available globally
+window.addNewProfile = addNewProfile;
+
+// CRUD Operations for profiles
 
 async function startScraping(mode) {
     try {

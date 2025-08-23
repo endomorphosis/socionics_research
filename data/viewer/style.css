@@ -190,6 +190,23 @@ button:disabled {
 .view-controls {
     display: flex;
     gap: 0.5rem;
+    align-items: center;
+}
+
+#add-profile-btn {
+    background: #28a745;
+    color: white;
+    border: 2px solid #28a745;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    margin-right: 1rem;
+}
+
+#add-profile-btn:hover {
+    background: #218838;
+    border-color: #1e7e34;
 }
 
 .view-btn {
