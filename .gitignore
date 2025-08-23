@@ -54,3 +54,4 @@ __pycache__
 .secrets
 
 node_modules/bot/test_venv/
+compass/node_modules/
