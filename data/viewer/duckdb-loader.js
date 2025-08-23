@@ -12,10 +12,10 @@ export class DuckDBLoader {
     async init() {
         if (this.db) return;
 
-        // Select best bundle (includes httpfs extension)
-        const bundles = duckdb.getJsDelivrBundles();
-        const bundle = await duckdb.selectBundle(bundles);
-        const worker = new Worker(bundle.mainWorker);
+        // Use locally served worker/wasm so we avoid cross-origin Worker restrictions
+        const workerUrl = new URL('@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js', import.meta.url);
+        const wasmUrl = new URL('@duckdb/duckdb-wasm/dist/duckdb-eh.wasm', import.meta.url);
+        const worker = new Worker(workerUrl);
 
         let logger;
         try {
@@ -29,11 +29,10 @@ export class DuckDBLoader {
         if (!logger) logger = { debug(){}, info(){}, warn(){}, error(){}, log(){} };
 
         this.db = new duckdb.AsyncDuckDB(logger, worker);
-        await this.db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+        await this.db.instantiate(wasmUrl.toString());
         this.conn = await this.db.connect();
 
         try {
-            // In wasm bundles, httpfs is available to LOAD (INSTALL may not be needed)
             await this.conn.query('LOAD httpfs;');
             await this.conn.query('SET enable_http_metadata_cache=true;');
         } catch (e) {

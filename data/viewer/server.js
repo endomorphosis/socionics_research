@@ -578,6 +578,9 @@ def load_profiles_df():
 
 try:
     base_df = load_profiles_df()
+    # Ensure single row per cid before overlay merge
+    if 'cid' in base_df.columns:
+        base_df = base_df.drop_duplicates(subset=['cid'], keep='first')
     base_count = len(base_df)
     # Overlay
     overlay = json.loads(r'''${overlayJson.replace(/'/g, "''")}''')
@@ -601,6 +604,9 @@ try:
                     'category': patch.get('category','User Created')
                 }
         base_df = base_df.reset_index(drop=True)
+        # Deduplicate again after merge to be safe
+        if 'cid' in base_df.columns:
+            base_df = base_df.drop_duplicates(subset=['cid'], keep='first')
 
     merged_count = len(base_df)
     # Write parquet

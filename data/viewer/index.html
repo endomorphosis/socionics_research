@@ -194,6 +194,12 @@
                             <button id="clear-query-btn">Clear</button>
                             <button id="save-query-btn">Save Query</button>
                             <button id="use-merged-dataset-btn" title="Switch DuckDB 'profiles' table to the merged parquet">Use Merged Dataset</button>
+                            <label style="margin-left:0.5rem; font-size:0.85rem; color:#4a5568;">Dataset:</label>
+                            <select id="dataset-select" title="Choose which parquet to query" style="min-width: 220px;">
+                                <option value="/dataset/pdb_profiles.parquet">Main (pdb_profiles.parquet)</option>
+                                <option value="/dataset/pdb_profiles_normalized.parquet">Normalized (pdb_profiles_normalized.parquet)</option>
+                                <option value="/dataset/pdb_profiles_merged.parquet">Merged (pdb_profiles_merged.parquet)</option>
+                            </select>
                         </div>
                     </div>
                     
@@ -209,6 +215,7 @@
                     
                     <div class="query-results">
                         <h3>Results</h3>
+                        <div id="dataset-status" class="stats" style="margin-bottom:0.5rem;">Dataset: unknown</div>
                         <div id="query-results-container">
                             <p class="no-results">No query executed yet</p>
                         </div>

@@ -89,7 +89,7 @@ async function loadSampleData() {
             elements.dataStats.textContent = 'Sample data loaded (3 profiles) - Ready for scraping real data';
         }
         
-        filteredData = [...currentData];
+    filteredData = dedupeByCid(currentData);
         
         // Populate filter dropdowns
         populateFilters();
@@ -129,15 +129,13 @@ async function loadParquetData() {
         // Initialize DuckDB client for Query Builder
         try {
             await duckdbLoader.init();
-            // Load profiles parquet into DuckDB for SQL queries (fallback to normalized handled later)
-            const meta = await duckdbLoader.loadParquetFile('/dataset/pdb_profiles.parquet', 'profiles');
-            if (!meta?.success) {
-                // Try normalized file if main unavailable
-                const meta2 = await duckdbLoader.loadParquetFile('/dataset/pdb_profiles_normalized.parquet', 'profiles');
-                if (!meta2?.success) {
-                    console.warn('DuckDB could not load profiles parquet:', meta?.error, meta2?.error);
-                }
+            // Load profiles parquet into DuckDB for SQL queries
+            let ok = false;
+            for (const p of ['/dataset/pdb_profiles.parquet', '/dataset/pdb_profiles_normalized.parquet', '/dataset/pdb_profiles_merged.parquet']) {
+                const meta = await duckdbLoader.loadParquetFile(p, 'profiles');
+                if (meta?.success) { ok = true; break; }
             }
+            if (!ok) console.warn('DuckDB could not load any profiles parquet (main/normalized/merged).');
         } catch (e) {
             console.warn('DuckDB client init failed:', e?.message || e);
         }
@@ -181,6 +179,20 @@ function populateFilters() {
     } catch (error) {
         console.warn('Could not populate filters:', error);
     }
+}
+
+// Dedupe helper by cid (prefers first occurrence)
+function dedupeByCid(arr) {
+    const seen = new Set();
+    const out = [];
+    for (const item of arr) {
+        const cid = item && item.cid;
+        if (!cid) { out.push(item); continue; }
+        if (seen.has(cid)) continue;
+        seen.add(cid);
+        out.push(item);
+    }
+    return out;
 }
 
 // Populate select element with options
@@ -295,6 +307,7 @@ function setupQueryPanelListeners() {
     const clearQueryBtn = document.getElementById('clear-query-btn');
     const saveQueryBtn = document.getElementById('save-query-btn');
     const useMergedBtn = document.getElementById('use-merged-dataset-btn');
+    const datasetSelect = document.getElementById('dataset-select');
     const sqlQuery = document.getElementById('sql-query');
     const templateBtns = document.querySelectorAll('.template-btn');
 
@@ -317,6 +330,21 @@ function setupQueryPanelListeners() {
                 showLoading(false);
             }
         });
+    }
+
+    // Dataset selector handling
+    if (datasetSelect) {
+        // Initialize from saved choice
+        const saved = localStorage.getItem('viewer.dataset.path');
+        if (saved) datasetSelect.value = saved;
+        datasetSelect.addEventListener('change', async (e) => {
+            const path = e.target.value;
+            await switchDataset(path);
+        });
+        // If user had a saved dataset, try to load it on startup
+        if (saved) {
+            switchDataset(saved).catch(() => {});
+        }
     }
 
     templateBtns.forEach(btn => {
@@ -385,7 +413,7 @@ async function performSearch() {
             searchMethod = 'bag-of-words';
         }
         
-        filteredData = searchResults;
+    filteredData = dedupeByCid(searchResults);
         currentPage = 1;
         renderResults();
         
@@ -408,7 +436,7 @@ function clearSearch() {
     elements.mbtiFilter.value = '';
     elements.socionicsFilter.value = '';
     elements.dataSourceFilter.value = '';
-    filteredData = [...currentData];
+    filteredData = dedupeByCid(currentData);
     currentPage = 1;
     renderResults();
 }
@@ -430,7 +458,8 @@ async function applyFilters() {
             return matches;
         });
         
-        currentPage = 1;
+    filteredData = dedupeByCid(filteredData);
+    currentPage = 1;
         renderResults();
         
     } catch (error) {
@@ -652,9 +681,45 @@ async function exportData() {
         const json = await resp.json();
         if (!resp.ok || !json.success) throw new Error(json.error || 'Commit failed');
         showToast(`Overlay committed: ${json.out_file} (${json.merged_count} rows)`, 'success');
+        // Auto-switch DuckDB 'profiles' table to the new merged parquet
+        try {
+            await duckdbLoader.init();
+            const mergedUrl = '/dataset/' + (fileName || 'pdb_profiles_merged.parquet');
+            const meta = await duckdbLoader.loadParquetFile(mergedUrl, 'profiles');
+            if (meta?.success) {
+                showToast(`Query Builder now using merged dataset (${meta.rowCount} rows)`, 'success');
+                try { 
+                    const select = document.getElementById('dataset-select');
+                    if (select) { select.value = mergedUrl; localStorage.setItem('viewer.dataset.path', mergedUrl); }
+                    const status = document.getElementById('dataset-status');
+                    if (status) status.textContent = `Dataset: ${mergedUrl} (${meta.rowCount} rows)`;
+                } catch {}
+            }
+        } catch (e) {
+            console.warn('Auto-switch to merged dataset failed:', e?.message || e);
+        }
     } catch (e) {
         console.error('Commit overlay failed:', e);
         showToast('Commit failed: ' + e.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// Switch dataset helper
+async function switchDataset(path) {
+    try {
+        showLoading(true);
+        await duckdbLoader.init();
+        const meta = await duckdbLoader.loadParquetFile(path, 'profiles');
+        if (!meta?.success) throw new Error(meta?.error || 'Failed to load dataset');
+        localStorage.setItem('viewer.dataset.path', path);
+        const status = document.getElementById('dataset-status');
+        if (status) status.textContent = `Dataset: ${path} (${meta.rowCount} rows)`;
+        showToast(`Switched dataset (${meta.rowCount} rows)`, 'success');
+    } catch (e) {
+        console.error('Switch dataset failed:', e);
+        showToast('Failed to switch dataset: ' + e.message, 'error');
     } finally {
         showLoading(false);
     }
@@ -673,7 +738,22 @@ async function normalizeData() {
 }
 
 async function deduplicateData() {
-    showToast('Deduplication coming soon', 'info');
+    try {
+        showLoading(true);
+        const before = currentData.length;
+        currentData = dedupeByCid(currentData);
+        const after = currentData.length;
+        // Update KNN search data
+        knnSearch.setProfiles(currentData);
+        // Reapply current filters/search
+        applyFilters();
+        showToast(`Removed duplicates: ${before - after} entries`, 'success');
+    } catch (e) {
+        console.error('Deduplication failed:', e);
+        showToast('Deduplication failed: ' + e.message, 'error');
+    } finally {
+        showLoading(false);
+    }
 }
 
 async function validateData() {
@@ -723,6 +803,7 @@ async function handleProfileSave(event) {
                 // Add new profile with generated CID
                 const newProfile = { ...formData, cid: result.cid };
                 currentData.push(newProfile);
+                currentData = dedupeByCid(currentData);
             }
             
             // Update KNN search data
@@ -1009,7 +1090,18 @@ function renderQueryResults(arrayRows) {
         container.innerHTML = '<p class="no-results">No rows returned</p>';
         return;
     }
-    const cols = Object.keys(arrayRows[0]);
+    // Dedupe by cid when present
+    const seen = new Set();
+    const deduped = [];
+    for (const r of arrayRows) {
+        const cid = r && (r.cid || r.CID || r.Cid);
+        if (cid) {
+            if (seen.has(cid)) continue;
+            seen.add(cid);
+        }
+        deduped.push(r);
+    }
+    const cols = Object.keys(deduped[0]);
     const table = document.createElement('table');
     table.className = 'results-table';
     const thead = document.createElement('thead');
@@ -1017,7 +1109,7 @@ function renderQueryResults(arrayRows) {
     cols.forEach(c => { const th = document.createElement('th'); th.textContent = c; trh.appendChild(th); });
     thead.appendChild(trh);
     const tbody = document.createElement('tbody');
-    arrayRows.forEach(r => {
+    deduped.forEach(r => {
         const tr = document.createElement('tr');
         cols.forEach(c => { const td = document.createElement('td'); td.textContent = r[c]; tr.appendChild(td); });
         tbody.appendChild(tr);
@@ -1049,10 +1141,10 @@ async function executeQuery() {
         }
 
         // Execute the query
-        const result = await duckdbLoader.query(query);
-        const rows = result.toArray().map(r => Object.fromEntries(r));
-        renderQueryResults(rows);
-        showToast(`Query returned ${rows.length} row(s)`, 'success');
+    const result = await duckdbLoader.query(query);
+    const rows = result.toArray().map(r => Object.fromEntries(r));
+    renderQueryResults(rows);
+    showToast(`Query returned ${rows.length} row(s) (deduplicated in view)`, 'success');
         
     } catch (error) {
         console.error('Query failed:', error);
