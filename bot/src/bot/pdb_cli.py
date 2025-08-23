@@ -128,6 +128,9 @@ def cmd_embed(args) -> None:
                                 name = _unq(val).strip() or name
                     except Exception:
                         pass
+
+                    if __name__ == "__main__":  # pragma: no cover
+                        main()
         if not isinstance(name, str) or not name:
             continue
         cid = str(row.get("cid"))
@@ -1145,6 +1148,11 @@ def main():
                         _to = max(int(_t_s * 2), 10)
                         with _ur.urlopen(req, timeout=_to) as resp:
                             html = resp.read().decode("utf-8", errors="ignore")
+                    try:
+                        _has_links = ("/profile/" in html)
+                        print(f"[expand-from-url] fetched search page html_len={len(html)} has_profile_links={_has_links}")
+                    except Exception:
+                        pass
                     q = _parse_qs(parsed.query)
                     kw = None
                     try:
@@ -1211,7 +1219,13 @@ def main():
                 seen_map[u] = kw
         url_list = [(u, seen_map[u]) for u in seen_map.keys()]
         if not url_list:
-            print("No URLs provided. Use --urls or --url-file (or '-' for stdin).")
+            if urls:
+                try:
+                    print(f"[expand-from-url] No profile links extracted from provided URL(s); first={urls[0]}")
+                except Exception:
+                    print("[expand-from-url] No profile links extracted from provided URL(s)")
+            else:
+                print("No URLs provided. Use --urls or --url-file (or '-' for stdin).")
             # Restore stdout and close log if used
             try:
                 _sys.stdout = orig_stdout
@@ -1756,10 +1770,7 @@ def main():
         if not raw_path.exists():
             print(f"Missing raw parquet: {raw_path}")
             return
-            df = pd.read_parquet(raw_path)
-    
-    if __name__ == "__main__":
-        main()
+        df = pd.read_parquet(raw_path)
         contains = (args.contains or "").strip().lower()
         pattern = None
         if args.regex:
@@ -2246,7 +2257,7 @@ def main():
         if not raw_path.exists():
             print(f"Missing raw parquet: {raw_path}")
             return
-    df = pd.read_parquet(raw_path)
+        df = pd.read_parquet(raw_path)
         rows: list[dict] = []
         for _, row in df.iterrows():
             pb = row.get("payload_bytes")
@@ -2256,7 +2267,7 @@ def main():
                 obj = None
             if not isinstance(obj, dict):
                 continue
-            is_char = obj.get("isCharacter") is True or obj.get("_from_character_group") is True
+            is_char = obj.get("isCharacter") is True or obj.get("_from_character_group") is True or obj.get("_seed_sub_cat_id") is not None
             if not is_char:
                 continue
             # Build candidate names and pick the most descriptive
@@ -2278,37 +2289,19 @@ def main():
                     for kw in kws:
                         if isinstance(kw, str) and kw:
                             s = _unquote(kw).strip()
-                            if s:
-                                # Only keep query keyword as alias when it appears in primary labels
-                                if any(
-                                    isinstance(x, str) and s.lower() in x.lower()
-                                    for x in (obj.get("name"), obj.get("title"), obj.get("subcategory"))
-                                ):
-                                    candidates.append(s)
-                # Capture seed profile's title/name if present for alias enrichment
+                            if s and any(isinstance(x, str) and s.lower() in x.lower() for x in (obj.get("name"), obj.get("title"), obj.get("subcategory"))):
+                                candidates.append(s)
                 stitle = obj.get("_seed_profile_title")
                 if isinstance(stitle, str) and stitle.strip():
                     candidates.append(stitle.strip())
-                # Conservative propagation of explicit keywords: only include when reflected in labels
-                kw2 = obj.get("_search_keyword")
-                if isinstance(kw2, str) and kw2.strip():
-                    s2 = kw2.strip()
-                    if any(
-                        isinstance(x, str) and s2.lower() in x.lower()
-                        for x in (obj.get("name"), obj.get("title"), obj.get("subcategory"), stitle)
-                    ):
-                        candidates.append(s2)
-                kw3 = obj.get("_keyword")
-                if isinstance(kw3, str) and kw3.strip():
-                    s3 = kw3.strip()
-                    if any(
-                        isinstance(x, str) and s3.lower() in x.lower()
-                        for x in (obj.get("name"), obj.get("title"), obj.get("subcategory"), stitle)
-                    ):
-                        candidates.append(s3)
+                for kkw in ("_search_keyword", "_keyword"):
+                    kwv = obj.get(kkw)
+                    if isinstance(kwv, str) and kwv.strip():
+                        s2 = kwv.strip()
+                        if any(isinstance(x, str) and s2.lower() in x.lower() for x in (obj.get("name"), obj.get("title"), obj.get("subcategory"), stitle)):
+                            candidates.append(s2)
             except Exception:
                 pass
-            # Fallback: derive a readable name from the profile URL slug if no labels found
             if not candidates:
                 try:
                     seed_url = obj.get("_seed_url")
@@ -2316,59 +2309,37 @@ def main():
                         from urllib.parse import urlparse as _urlparse, unquote as _unquote
                         up = _urlparse(seed_url)
                         parts = [p for p in up.path.split("/") if p]
-                        slug = None
-                        # Expect path like /profile/<id>/<slug>
-                        if parts:
-                            slug = parts[-1]
-                            # if last is numeric id (rare), try previous
-                            if slug.isdigit() and len(parts) >= 2:
-                                slug = parts[-2]
+                        slug = parts[-1] if parts else None
+                        if isinstance(slug, str) and slug.isdigit() and len(parts) >= 2:
+                            slug = parts[-2]
                         if isinstance(slug, str) and slug:
                             s = _unquote(slug)
                             low = s.lower()
-                            # strip common SEO tails
-                            for tail in (
-                                "-mbti-personality-type",
-                                "-personality-type",
-                                "-mbti",
-                                "-personality",
-                                "-enneagram",
-                                "-big-five",
-                                "-big5",
-                                "-pdb-profiles",
-                            ):
+                            for tail in ("-mbti-personality-type","-personality-type","-mbti","-personality","-enneagram","-big-five","-big5","-pdb-profiles"):
                                 if tail in low:
                                     idx = low.find(tail)
                                     s = s[:idx]
                                     low = s.lower()
                             s = s.replace("-", " ").strip()
-                            # collapse multiple spaces
                             s = " ".join([t for t in s.split() if t])
                             if s:
-                                # Title-case conservatively
                                 s_tc = " ".join(w.capitalize() if len(w) > 2 else w for w in s.split())
                                 candidates.append(s_tc)
                 except Exception:
                     pass
-            # Derive aliases from quoted segments, parentheses, and slashes
             try:
                 import re as _re
-                base_strs = []
-                if candidates:
-                    base_strs = candidates[:]
+                base_strs = candidates[:]
                 for s in base_strs:
-                    # Straight quotes and curly quotes
                     for pat in [r'"([^"]+)"', r'“([^”]+)”', r'‘([^’]+)’']:
                         for m in _re.finditer(pat, s):
                             al = m.group(1).strip()
                             if al:
                                 candidates.append(al)
-                    # Parenthetical nicknames
                     for m in _re.finditer(r'\(([^)]+)\)', s):
                         al = m.group(1).strip()
                         if al:
                             candidates.append(al)
-                    # Slashes indicating alternative names
                     if "/" in s:
                         for part in s.split("/"):
                             al = part.strip()
@@ -2376,18 +2347,20 @@ def main():
                                 candidates.append(al)
             except Exception:
                 pass
-            # Deduplicate while preserving order
+            # Deduplicate, remove known MBTI codes
             seen_c = set()
             uniq_candidates: list[str] = []
             for c in candidates:
-                if c not in seen_c:
-                    seen_c.add(c)
-                    uniq_candidates.append(c)
-            nm = uniq_candidates[0] if uniq_candidates else None
-            if isinstance(nm, str) and nm.strip().upper() in {
-                "INTJ","INTP","ENTJ","ENTP","INFJ","INFP","ENFJ","ENFP",
-                "ISTJ","ISFJ","ESTJ","ESFJ","ISTP","ISFP","ESTP","ESFP",
-            }:
+                if not isinstance(c, str):
+                    continue
+                if c in seen_c:
+                    continue
+                seen_c.add(c)
+                uniq_candidates.append(c)
+            if not uniq_candidates:
+                continue
+            nm0 = uniq_candidates[0].strip().upper()
+            if nm0 in {"INTJ","INTP","ENTJ","ENTP","INFJ","INFP","ENFJ","ENFP","ISTJ","ISFJ","ESTJ","ESFJ","ISTP","ISFP","ESTP","ESFP"}:
                 continue
             rec: dict = {"cid": str(row.get("cid")), "_source": obj.get("_source")}
             pid = None
@@ -2402,15 +2375,13 @@ def main():
                         pass
             if pid is not None:
                 rec["pid"] = pid
-            # Choose the best label and always store alternates (even if single) for schema stability
-            if uniq_candidates:
-                best = max(uniq_candidates, key=lambda s: len(s))
+            best = max(uniq_candidates, key=lambda s: len(s)) if uniq_candidates else None
+            if best:
                 rec["name"] = best
-                rec["alt_names"] = " | ".join(uniq_candidates)
+            rec["alt_names"] = " | ".join(uniq_candidates) if uniq_candidates else None
             rows.append(rec)
         out = _Path(getattr(args, "out", "data/bot_store/pdb_characters.parquet"))
         out.parent.mkdir(parents=True, exist_ok=True)
-        # Keep latest per cid (drop duplicates keeping last) and ensure alt_names exists in schema
         df_out = pd.DataFrame(rows)
         if not df_out.empty:
             if "alt_names" not in df_out.columns:
@@ -2418,7 +2389,7 @@ def main():
             df_out = df_out.drop_duplicates(subset=["cid"], keep="last")
         df_out.to_parquet(out, index=False)
         print(f"Exported {len(rows)} character-like rows to {out}")
-        if rows and args.sample:
+        if rows and getattr(args, "sample", 0):
             for r in rows[: args.sample]:
                 print(f"  pid={r.get('pid')} name={r.get('name')}")
     elif args.cmd == "index-characters":
@@ -2635,8 +2606,9 @@ def main():
             except Exception:
                 pass
             # Basic run header
+            # Force-render by default in scan-seeds to improve recall on dynamic pages
             try:
-                _render = not bool(getattr(args, "no_render", False))
+                _render = True
             except Exception:
                 _render = True
             try:
@@ -2662,8 +2634,8 @@ def main():
                     "--until-empty",
                     "--html-fallback",
                 ]
-                if not getattr(args, "no_render", False):
-                    argv += ["--render-js"]
+                # Always enable JS rendering for search-keywords phase
+                argv += ["--render-js"]
                 # Add a top-level log file for search-keywords phase so we can inspect output post-run
                 try:
                     argv += ["--log-file", "data/bot_store/scan_seeds_search.log"]
@@ -2702,8 +2674,8 @@ def main():
                     "expand-from-url", "--urls", url,
                     "--only-profiles", "--filter-characters", "--characters-relaxed", "--force-character-group",
                 ]
-                if not getattr(args, "no_render", False):
-                    argv += ["--render-js"]
+                # Always enable JS rendering for expand-from-url per seed
+                argv += ["--render-js"]
                 # Tag with keyword for later alias enrichment
                 argv += ["--set-keyword", k]
                 # Per-key log file to inspect rendering/scrape behavior
@@ -3004,8 +2976,8 @@ def main():
                         print(f"Indexed {len(rows)} vectors to {outp}")
                 except Exception as e:
                     print(f"Auto-index failed: {e}")
-            asyncio.run(_run())
-            return
+        asyncio.run(_run())
+        return
     elif args.cmd == "cache-clear":
         from pathlib import Path
         import shutil

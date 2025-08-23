@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personality Database Viewer</title>
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>Personality Database Viewer</h1>
+            <nav>
+                <button id="nav-search" class="nav-btn active">Search & Browse</button>
+                <button id="nav-edit" class="nav-btn">Edit Data</button>
+                <button id="nav-scraper" class="nav-btn">Scraper Controls</button>
+                <button id="nav-query" class="nav-btn">Query Builder</button>
+            </nav>
+        </header>
+
+        <main>
+            <!-- Search & Browse Panel -->
+            <div id="search-panel" class="panel active">
+                <div class="panel-header">
+                    <h2>Search & Browse Data</h2>
+                    <div class="stats">
+                        <span id="data-stats">Loading...</span>
+                    </div>
+                </div>
+                
+                <div class="search-controls">
+                    <div class="search-bar">
+                        <input type="text" id="search-input" placeholder="Search profiles by name, MBTI, Socionics type...">
+                        <button id="search-btn">Search</button>
+                        <button id="clear-search-btn">Clear</button>
+                    </div>
+                    
+                    <div class="filters">
+                        <select id="mbti-filter">
+                            <option value="">All MBTI Types</option>
+                        </select>
+                        <select id="socionics-filter">
+                            <option value="">All Socionics Types</option>
+                        </select>
+                        <select id="data-source-filter">
+                            <option value="">All Sources</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="results-container">
+                    <div class="results-header">
+                        <span id="results-count">0 results</span>
+                        <div class="view-controls">
+                            <button id="table-view-btn" class="view-btn active">Table</button>
+                            <button id="card-view-btn" class="view-btn">Cards</button>
+                        </div>
+                    </div>
+                    <div id="results-table" class="results-view">
+                        <table id="data-table">
+                            <thead></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <div id="results-cards" class="results-view" style="display: none;">
+                        <div id="cards-container"></div>
+                    </div>
+                    <div id="pagination" class="pagination"></div>
+                </div>
+            </div>
+
+            <!-- Edit Data Panel -->
+            <div id="edit-panel" class="panel">
+                <div class="panel-header">
+                    <h2>Edit Data</h2>
+                </div>
+                
+                <div class="edit-controls">
+                    <div class="file-operations">
+                        <input type="file" id="import-file" accept=".parquet,.csv,.json" style="display: none;">
+                        <button id="import-btn">Import Data</button>
+                        <button id="export-btn">Export Data</button>
+                        <button id="backup-btn">Create Backup</button>
+                    </div>
+                    
+                    <div class="bulk-operations">
+                        <button id="normalize-btn">Normalize Data</button>
+                        <button id="dedupe-btn">Remove Duplicates</button>
+                        <button id="validate-btn">Validate Data</button>
+                    </div>
+                </div>
+
+                <div id="edit-form" class="edit-form" style="display: none;">
+                    <h3>Edit Profile</h3>
+                    <form id="profile-form">
+                        <input type="hidden" id="profile-id">
+                        <div class="form-row">
+                            <label for="profile-name">Name:</label>
+                            <input type="text" id="profile-name" required>
+                        </div>
+                        <div class="form-row">
+                            <label for="profile-mbti">MBTI:</label>
+                            <input type="text" id="profile-mbti" placeholder="e.g., INTJ">
+                        </div>
+                        <div class="form-row">
+                            <label for="profile-socionics">Socionics:</label>
+                            <input type="text" id="profile-socionics" placeholder="e.g., ILI">
+                        </div>
+                        <div class="form-row">
+                            <label for="profile-description">Description:</label>
+                            <textarea id="profile-description" rows="4"></textarea>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit">Save Changes</button>
+                            <button type="button" id="cancel-edit-btn">Cancel</button>
+                            <button type="button" id="delete-profile-btn" class="danger">Delete</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Scraper Controls Panel -->
+            <div id="scraper-panel" class="panel">
+                <div class="panel-header">
+                    <h2>Scraper Controls</h2>
+                    <div class="scraper-status">
+                        <span id="scraper-status" class="status-idle">Idle</span>
+                    </div>
+                </div>
+                
+                <div class="scraper-controls">
+                    <div class="scraper-config">
+                        <h3>Scraper Configuration</h3>
+                        <div class="form-row">
+                            <label for="scraper-url">Base URL:</label>
+                            <input type="text" id="scraper-url" value="https://www.personality-database.com" readonly>
+                        </div>
+                        <div class="form-row">
+                            <label for="scraper-delay">Delay (ms):</label>
+                            <input type="number" id="scraper-delay" value="1000" min="100" max="10000">
+                        </div>
+                        <div class="form-row">
+                            <label for="scraper-pages">Max Pages:</label>
+                            <input type="number" id="scraper-pages" value="10" min="1" max="1000">
+                        </div>
+                        <div class="form-row">
+                            <label for="scraper-browser">Browser Engine:</label>
+                            <select id="scraper-browser">
+                                <option value="playwright">Playwright (Recommended)</option>
+                                <option value="selenium">Selenium (Fallback)</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="scraper-actions">
+                        <h3>Scraping Actions</h3>
+                        <div class="action-buttons">
+                            <button id="start-full-scrape-btn" class="primary">Start Full Scrape</button>
+                            <button id="start-incremental-scrape-btn">Incremental Scrape</button>
+                            <button id="scrape-specific-btn">Scrape Specific Profile</button>
+                            <button id="stop-scraper-btn" class="danger" disabled>Stop Scraper</button>
+                        </div>
+                        
+                        <div id="specific-profile-input" style="display: none;">
+                            <input type="text" id="profile-url" placeholder="Enter profile URL or ID">
+                            <button id="scrape-profile-btn">Scrape</button>
+                        </div>
+                    </div>
+                    
+                    <div class="scraper-progress">
+                        <h3>Progress</h3>
+                        <div class="progress-bar">
+                            <div id="progress-fill" class="progress-fill"></div>
+                        </div>
+                        <div id="progress-text">Ready to scrape</div>
+                        <div id="scraper-logs" class="logs"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Query Builder Panel -->
+            <div id="query-panel" class="panel">
+                <div class="panel-header">
+                    <h2>Query Builder</h2>
+                </div>
+                
+                <div class="query-builder">
+                    <div class="query-input">
+                        <h3>SQL Query</h3>
+                        <textarea id="sql-query" rows="8" placeholder="SELECT * FROM profiles WHERE mbti = 'INTJ' LIMIT 10;"></textarea>
+                        <div class="query-actions">
+                            <button id="execute-query-btn" class="primary">Execute Query</button>
+                            <button id="clear-query-btn">Clear</button>
+                            <button id="save-query-btn">Save Query</button>
+                        </div>
+                    </div>
+                    
+                    <div class="query-templates">
+                        <h3>Query Templates</h3>
+                        <div class="template-buttons">
+                            <button class="template-btn" data-query="SELECT * FROM profiles ORDER BY id DESC LIMIT 100;">Latest 100 profiles</button>
+                            <button class="template-btn" data-query="SELECT mbti, COUNT(*) as count FROM profiles WHERE mbti IS NOT NULL GROUP BY mbti ORDER BY count DESC;">MBTI distribution</button>
+                            <button class="template-btn" data-query="SELECT socionics, COUNT(*) as count FROM profiles WHERE socionics IS NOT NULL GROUP BY socionics ORDER BY count DESC;">Socionics distribution</button>
+                            <button class="template-btn" data-query="SELECT * FROM profiles WHERE description LIKE '%INTJ%' OR mbti = 'INTJ';">Find INTJ profiles</button>
+                        </div>
+                    </div>
+                    
+                    <div class="query-results">
+                        <h3>Results</h3>
+                        <div id="query-results-container">
+                            <p class="no-results">No query executed yet</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <div id="loading" class="loading" style="display: none;">
+            <div class="spinner"></div>
+            <span>Loading...</span>
+        </div>
+
+        <div id="toast" class="toast"></div>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+</body>
+</html>
