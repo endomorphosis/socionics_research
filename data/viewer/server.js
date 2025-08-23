@@ -5,12 +5,46 @@ const { spawn } = require('child_process');
 const fs = require('fs').promises;
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000; // Change to single port
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
+
+// Expose dataset directory for parquet loading
+const DATASET_DIR = path.join(__dirname, '..', 'bot_store');
+
+// Helper: set no-store cache headers to avoid stale content in dev/preview
+function setNoStore(res) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+}
+
+// Serve dataset files statically for direct access
+app.use('/dataset', express.static(DATASET_DIR, {
+    etag: false,
+    lastModified: false,
+    maxAge: 0,
+    setHeaders: (res) => {
+        setNoStore(res);
+        // Set appropriate content types for parquet files
+        if (res.req.path.endsWith('.parquet')) {
+            res.setHeader('Content-Type', 'application/octet-stream');
+        }
+    }
+}));
+
+// Dataset directory listing endpoint
+app.get('/dataset', async (req, res) => {
+    try {
+        const files = await fs.readdir(DATASET_DIR);
+        res.json({ dir: DATASET_DIR, files });
+    } catch (err) {
+        res.status(500).json({ error: String(err) });
+    }
+});
 
 // Store active scraper processes
 const activeProcesses = new Map();
@@ -447,6 +481,230 @@ setInterval(() => {
         }
     }
 }, 15 * 60 * 1000); // Run every 15 minutes
+
+// API endpoint to load parquet data as JSON
+app.get('/api/data/profiles', async (req, res) => {
+    try {
+        // Try to use pandas to read parquet file
+        const { spawn } = require('child_process');
+        const python = spawn('python3', ['-c', `
+import pandas as pd
+import json
+import sys
+
+try:
+    # Read the profiles parquet file
+    df_profiles = pd.read_parquet('${DATASET_DIR}/pdb_profiles.parquet')
+    
+    # Convert to records
+    profiles = []
+    for _, row in df_profiles.iterrows():
+        try:
+            payload = json.loads(row['payload_bytes'])
+            profiles.append({
+                'cid': row['cid'],
+                'name': payload.get('name', payload.get('title', 'Unknown')),
+                'mbti': payload.get('mbti', ''),
+                'socionics': payload.get('socionics', ''),
+                'description': payload.get('description', payload.get('bio', '')),
+                'category': payload.get('category', 'Scraped Profile'),
+                'big5': payload.get('big5', ''),
+                **payload
+            })
+        except Exception as e:
+            print(f"Error parsing profile {row['cid']}: {e}", file=sys.stderr)
+            continue
+    
+    print(json.dumps(profiles, indent=None, separators=(',', ':')))
+except Exception as e:
+    print(json.dumps({'error': str(e)}), file=sys.stderr)
+    sys.exit(1)
+`]);
+
+        let data = '';
+        let error = '';
+        
+        python.stdout.on('data', (chunk) => {
+            data += chunk.toString();
+        });
+        
+        python.stderr.on('data', (chunk) => {
+            error += chunk.toString();
+        });
+        
+        python.on('close', (code) => {
+            if (code !== 0) {
+                console.error('Python error:', error);
+                res.status(500).json({ error: 'Failed to load parquet data: ' + error });
+                return;
+            }
+            
+            try {
+                const profiles = JSON.parse(data);
+                res.json({ profiles, count: profiles.length });
+            } catch (parseError) {
+                console.error('JSON parse error:', parseError);
+                res.status(500).json({ error: 'Failed to parse parquet data' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error loading parquet data:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// API endpoint to load vectors data as JSON
+app.get('/api/data/vectors', async (req, res) => {
+    try {
+        // Try to use pandas to read vector parquet file
+        const { spawn } = require('child_process');
+        const python = spawn('python3', ['-c', `
+import pandas as pd
+import json
+import sys
+import numpy as np
+
+try:
+    # Read the vectors parquet file
+    df_vectors = pd.read_parquet('${DATASET_DIR}/pdb_profile_vectors.parquet')
+    
+    # Convert to records
+    vectors = []
+    for _, row in df_vectors.iterrows():
+        try:
+            vector_array = row['vector']
+            if hasattr(vector_array, 'tolist'):
+                vector_list = vector_array.tolist()
+            else:
+                vector_list = list(vector_array)
+            
+            vectors.append({
+                'cid': row['cid'],
+                'vector': vector_list
+            })
+        except Exception as e:
+            print(f"Error processing vector {row['cid']}: {e}", file=sys.stderr)
+            continue
+    
+    print(json.dumps({'vectors': vectors, 'count': len(vectors)}, indent=None, separators=(',', ':')))
+except Exception as e:
+    print(json.dumps({'error': str(e)}), file=sys.stderr)
+    sys.exit(1)
+`]);
+
+        let data = '';
+        let error = '';
+        
+        python.stdout.on('data', (chunk) => {
+            data += chunk.toString();
+        });
+        
+        python.stderr.on('data', (chunk) => {
+            error += chunk.toString();
+        });
+        
+        python.on('close', (code) => {
+            if (code !== 0) {
+                console.error('Python error (vectors):', error);
+                res.status(500).json({ error: 'Failed to load vector data: ' + error });
+                return;
+            }
+            
+            try {
+                const result = JSON.parse(data);
+                res.json(result);
+            } catch (parseError) {
+                console.error('JSON parse error (vectors):', parseError);
+                res.status(500).json({ error: 'Failed to parse vector data' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error loading vector data:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// CRUD API endpoints for profiles
+
+// Create new profile
+app.post('/api/data/profiles', async (req, res) => {
+    try {
+        const { name, mbti, socionics, description, category } = req.body;
+        
+        // Generate a new CID (simplified version - in production you'd want proper CID generation)
+        const newCid = `Qm${Date.now()}${Math.random().toString(36).substr(2, 20)}`;
+        
+        const newProfile = {
+            name: name || 'Unknown',
+            mbti: mbti || '',
+            socionics: socionics || '',
+            description: description || '',
+            category: category || 'User Created'
+        };
+        
+        // For now, just respond with success - in a real implementation,
+        // you'd write to the parquet file or database
+        res.json({ 
+            success: true, 
+            cid: newCid,
+            profile: newProfile,
+            message: 'Profile created successfully (note: persistence not yet implemented)'
+        });
+        
+    } catch (error) {
+        console.error('Error creating profile:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update existing profile
+app.put('/api/data/profiles/:cid', async (req, res) => {
+    try {
+        const { cid } = req.params;
+        const { name, mbti, socionics, description, category } = req.body;
+        
+        const updatedProfile = {
+            cid,
+            name: name || 'Unknown',
+            mbti: mbti || '',
+            socionics: socionics || '',
+            description: description || '',
+            category: category || 'User Modified'
+        };
+        
+        // For now, just respond with success - in a real implementation,
+        // you'd update the parquet file or database
+        res.json({ 
+            success: true, 
+            profile: updatedProfile,
+            message: 'Profile updated successfully (note: persistence not yet implemented)'
+        });
+        
+    } catch (error) {
+        console.error('Error updating profile:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete profile
+app.delete('/api/data/profiles/:cid', async (req, res) => {
+    try {
+        const { cid } = req.params;
+        
+        // For now, just respond with success - in a real implementation,
+        // you'd remove from the parquet file or database
+        res.json({ 
+            success: true, 
+            message: 'Profile deleted successfully (note: persistence not yet implemented)'
+        });
+        
+    } catch (error) {
+        console.error('Error deleting profile:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // Start server
 app.listen(PORT, () => {
