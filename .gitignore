@@ -44,6 +44,12 @@ data/bot_store/pdb_api_cache/
 data/bot_store/scan_state.json
 data/bot_store/backup_*/
 
+# Generated JSON output files (reports and enhanced datasets)
+data/bot_store/*_report_*.json
+data/bot_store/*_enhanced_*.json
+data/bot_store/enhancement_report_*.json
+data/bot_store/scraping_improvement_report_*.json
+
 # Secrets
 .secrets/
 *.env
