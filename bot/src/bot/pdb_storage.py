@@ -58,6 +58,74 @@ def _atomic_write_parquet(df: pd.DataFrame, path: Path) -> None:
             pass
 
 
+def _validate_record(record: dict) -> bool:
+    """
+    Validate that a record is worth storing (not empty/useless).
+    
+    Returns True if the record should be stored, False if it should be skipped.
+    """
+    if not record or not isinstance(record, dict):
+        return False
+    
+    # Skip records that are just provenance/metadata without content
+    content_keys = [k for k in record.keys() if not (isinstance(k, str) and k.startswith("_"))]
+    if not content_keys:
+        return False
+    
+    # Check if there's any meaningful content beyond just ID fields
+    id_like_keys = {'id', 'cid', 'pid', 'uuid', 'uid'}
+    meaningful_keys = [k for k in content_keys if k.lower() not in id_like_keys]
+    
+    if not meaningful_keys:
+        return False
+    
+    # Check if meaningful fields have non-empty values
+    for key in meaningful_keys:
+        value = record.get(key)
+        if value is not None:
+            if isinstance(value, str) and value.strip():
+                return True
+            elif not isinstance(value, str) and value:
+                return True
+    
+    return False
+
+
+def _validate_vector(cid: str, vector) -> bool:
+    """
+    Validate that a vector is worth storing.
+    
+    Returns True if the vector should be stored, False if it should be skipped.
+    """
+    if not cid or not isinstance(cid, str) or not cid.strip():
+        return False
+    
+    if vector is None:
+        return False
+    
+    # Handle both lists and numpy arrays
+    if hasattr(vector, '__len__'):
+        if len(vector) == 0:
+            return False
+    else:
+        return False
+    
+    # Check if vector is all zeros (usually indicates empty/invalid embedding)
+    try:
+        # Handle both list and numpy array
+        if hasattr(vector, 'all'):  # numpy array
+            if (abs(vector) < 1e-10).all():
+                return False
+        else:  # regular list
+            if all(abs(v) < 1e-10 for v in vector):
+                return False
+    except Exception:
+        # If we can't validate the values, assume it's valid
+        pass
+    
+    return True
+
+
 class _FileLock:
     def __init__(self, lock_path: Path) -> None:
         self._lock_path = lock_path
@@ -100,7 +168,13 @@ class PdbStorage:
             rows = []
             new = 0
             updated = 0
+            skipped = 0
             for r in records:
+                # Validate record before processing
+                if not _validate_record(r):
+                    skipped += 1
+                    continue
+                    
                 # Compute CID from content without ephemeral provenance keys (those starting with '_')
                 base_obj = r
                 if isinstance(r, dict):
@@ -130,6 +204,8 @@ class PdbStorage:
                     df = pd.concat([df, new_df], ignore_index=True, copy=False)
             if new or updated:
                 _atomic_write_parquet(df, self.raw_path)
+            if skipped > 0:
+                print(f"Skipped {skipped} invalid/empty records during upsert")
             return new, updated
 
     def upsert_vectors(self, items: Iterable[tuple[str, list[float]]]) -> Tuple[int, int]:
@@ -147,7 +223,13 @@ class PdbStorage:
             rows = []
             new = 0
             updated = 0
+            skipped = 0
             for cid, vec in items:
+                # Validate vector before processing
+                if not _validate_vector(str(cid), vec):
+                    skipped += 1
+                    continue
+                    
                 scid = str(cid)
                 if scid in existing:
                     prev = existing_vec.get(scid)
@@ -166,6 +248,8 @@ class PdbStorage:
                     df = pd.concat([df, new_df], ignore_index=True, copy=False)
             if new or updated:
                 _atomic_write_parquet(df, self.vec_path)
+            if skipped > 0:
+                print(f"Skipped {skipped} invalid/empty vectors during upsert")
             return new, updated
 
     def load_joined(self) -> pd.DataFrame:
@@ -174,3 +258,111 @@ class PdbStorage:
         if raw.empty:
             return pd.DataFrame(columns=["cid", "payload_bytes", "vector"])
         return raw.merge(vec, on="cid", how="left")
+    
+    def cleanup_storage(self, dry_run: bool = False) -> dict:
+        """
+        Clean up storage files by removing duplicates and invalid entries.
+        
+        Args:
+            dry_run: If True, only report what would be cleaned without making changes
+            
+        Returns:
+            Dictionary with cleanup results
+        """
+        results = {
+            'raw_file': {'duplicates': 0, 'empty': 0, 'invalid': 0},
+            'vector_file': {'duplicates': 0, 'empty': 0, 'invalid': 0}
+        }
+        
+        # Clean raw profiles
+        if self.raw_path.exists():
+            df = _load_parquet(self.raw_path, ["cid", "payload_bytes"])
+            original_count = len(df)
+            
+            # Remove duplicates based on CID
+            duplicates = df.duplicated(subset=['cid'])
+            duplicate_count = duplicates.sum()
+            
+            # Remove empty rows
+            empty_rows = df.isnull().all(axis=1)
+            empty_count = empty_rows.sum()
+            
+            if not dry_run and (duplicate_count > 0 or empty_count > 0):
+                df_cleaned = df[~duplicates & ~empty_rows]
+                if len(df_cleaned) < original_count:
+                    # Create backup
+                    import shutil
+                    backup_path = self.raw_path.with_suffix(self.raw_path.suffix + '.cleanup_backup')
+                    shutil.copy2(self.raw_path, backup_path)
+                    
+                    # Save cleaned data
+                    _atomic_write_parquet(df_cleaned, self.raw_path)
+            
+            results['raw_file'] = {
+                'duplicates': duplicate_count,
+                'empty': empty_count,
+                'invalid': 0,
+                'original_count': original_count,
+                'final_count': original_count - duplicate_count - empty_count
+            }
+        
+        # Clean vectors
+        if self.vec_path.exists():
+            df = _load_parquet(self.vec_path, ["cid", "vector"])
+            original_count = len(df)
+            
+            # Remove duplicates based on CID
+            duplicates = df.duplicated(subset=['cid'])
+            duplicate_count = duplicates.sum()
+            
+            # Remove empty rows
+            empty_rows = df.isnull().all(axis=1)
+            empty_count = empty_rows.sum()
+            
+            # Remove invalid vectors (all zeros)
+            invalid_vectors = 0
+            if len(df) > 0:
+                def is_invalid_vector(vec):
+                    if vec is None:
+                        return True
+                    # Handle both lists and numpy arrays
+                    if not hasattr(vec, '__len__'):
+                        return True
+                    if len(vec) == 0:
+                        return True
+                    # Check if vector is all zeros
+                    try:
+                        if hasattr(vec, 'all'):  # numpy array
+                            if (abs(vec) < 1e-10).all():
+                                return True
+                        else:  # regular list
+                            if all(abs(v) < 1e-10 for v in vec):
+                                return True
+                    except Exception:
+                        # If we can't validate the values, assume it's valid
+                        pass
+                    return False
+                
+                invalid_mask = df['vector'].apply(is_invalid_vector)
+                invalid_vectors = invalid_mask.sum()
+                
+                if not dry_run and (duplicate_count > 0 or empty_count > 0 or invalid_vectors > 0):
+                    df_cleaned = df[~duplicates & ~empty_rows & ~invalid_mask]
+                    if len(df_cleaned) < original_count:
+                        # Create backup
+                        import shutil
+                        backup_path = self.vec_path.with_suffix(self.vec_path.suffix + '.cleanup_backup')
+                        shutil.copy2(self.vec_path, backup_path)
+                        
+                        # Save cleaned data
+                        _atomic_write_parquet(df_cleaned, self.vec_path)
+            
+            results['vector_file'] = {
+                'duplicates': duplicate_count,
+                'empty': empty_count,
+                'invalid': invalid_vectors,
+                'original_count': original_count,
+                'final_count': original_count - duplicate_count - empty_count - invalid_vectors
+            }
+        
+        return results

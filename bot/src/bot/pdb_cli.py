@@ -334,6 +334,10 @@ def main():
 
     sub.add_parser("cache-clear", help="Clear local API GET cache if enabled")
 
+    p_cleanup = sub.add_parser("cleanup", help="Clean up parquet databases by removing duplicates and empty rows")
+    p_cleanup.add_argument("--dry-run", action="store_true", help="Show what would be cleaned without making changes")
+    p_cleanup.add_argument("--edges", action="store_true", help="Also clean edges database")
+
     p_an = sub.add_parser("analyze", help="Rank questions by inter-type divergence")
     p_an.add_argument("--file", type=str, required=True, help="CSV or Parquet with columns: subject_id,type_label,question_id,answer_value")
     p_an.add_argument("--top", type=int, default=20)
@@ -2992,6 +2996,59 @@ def main():
             return
         shutil.rmtree(d)
         print(f"Cleared cache at {d}")
+    elif args.cmd == "cleanup":
+        print("Starting parquet database cleanup...")
+        
+        # Clean main storage
+        store = PdbStorage()
+        results = store.cleanup_storage(dry_run=args.dry_run)
+        
+        print(f"\n=== Main Storage Cleanup ===")
+        for file_type, file_results in results.items():
+            if 'error' in file_results:
+                print(f"{file_type}: {file_results['error']}")
+                continue
+                
+            print(f"{file_type}:")
+            print(f"  Original count: {file_results.get('original_count', 0)}")
+            print(f"  Duplicates removed: {file_results.get('duplicates', 0)}")
+            print(f"  Empty rows removed: {file_results.get('empty', 0)}")
+            print(f"  Invalid entries removed: {file_results.get('invalid', 0)}")
+            print(f"  Final count: {file_results.get('final_count', 0)}")
+        
+        # Clean edges if requested
+        if args.edges:
+            try:
+                from .pdb_edges import PdbEdgesStorage
+                edges_store = PdbEdgesStorage()
+                edges_results = edges_store.cleanup_edges(dry_run=args.dry_run)
+                
+                print(f"\n=== Edges Storage Cleanup ===")
+                if 'error' in edges_results:
+                    print(f"Error: {edges_results['error']}")
+                else:
+                    print(f"Original count: {edges_results.get('original_count', 0)}")
+                    print(f"Duplicates removed: {edges_results.get('duplicates', 0)}")
+                    print(f"Empty rows removed: {edges_results.get('empty', 0)}")
+                    print(f"Invalid entries removed: {edges_results.get('invalid', 0)}")
+                    print(f"Final count: {edges_results.get('final_count', 0)}")
+            except Exception as e:
+                print(f"\nEdges cleanup failed: {e}")
+        
+        # Summary
+        total_removed = 0
+        for file_type, file_results in results.items():
+            if 'error' not in file_results:
+                removed = file_results.get('duplicates', 0) + file_results.get('empty', 0) + file_results.get('invalid', 0)
+                total_removed += removed
+        
+        if args.dry_run:
+            print(f"\n[DRY RUN] Would remove {total_removed} rows total")
+            print("Use --dry-run=false to perform actual cleanup")
+        else:
+            print(f"\nCleanup completed! Removed {total_removed} rows total")
+            if total_removed > 0:
+                print("Backup files were created with .cleanup_backup extension")
     elif args.cmd == "hot-queries":
         async def _run():
             client = _make_client(args)
