@@ -259,6 +259,9 @@ function setupEventListeners() {
 
     // Query panel event listeners
     setupQueryPanelListeners();
+
+    // Bot panel event listeners
+    setupBotPanelListeners();
 }
 
 // Setup edit panel event listeners
@@ -303,6 +306,7 @@ function setupScraperPanelListeners() {
     const scrapeProfileBtn = document.getElementById('scrape-profile-btn');
     const specificProfileInput = document.getElementById('specific-profile-input');
 
+    // Original scraper controls
     startFullScrapeBtn.addEventListener('click', () => startScraping('full'));
     startIncrementalScrapeBtn.addEventListener('click', () => startScraping('incremental'));
     scrapeSpecificBtn.addEventListener('click', () => {
@@ -310,6 +314,52 @@ function setupScraperPanelListeners() {
     });
     stopScraperBtn.addEventListener('click', stopScraping);
     scrapeProfileBtn.addEventListener('click', scrapeSpecificProfile);
+
+    // Session management controls
+    const saveSessionBtn = document.getElementById('save-session-btn');
+    const loadSessionBtn = document.getElementById('load-session-btn');
+    const clearSessionBtn = document.getElementById('clear-session-btn');
+    const testSessionBtn = document.getElementById('test-session-btn');
+
+    if (saveSessionBtn) saveSessionBtn.addEventListener('click', saveSession);
+    if (loadSessionBtn) loadSessionBtn.addEventListener('click', loadSession);
+    if (clearSessionBtn) clearSessionBtn.addEventListener('click', clearSession);
+    if (testSessionBtn) testSessionBtn.addEventListener('click', testSession);
+
+    // Data consolidation controls
+    const analyzeDataBtn = document.getElementById('analyze-data-btn');
+    const consolidateProfilesBtn = document.getElementById('consolidate-profiles-btn');
+    const consolidateVectorsBtn = document.getElementById('consolidate-vectors-btn');
+    const consolidateCacheBtn = document.getElementById('consolidate-cache-btn');
+    const cleanupDuplicatesBtn = document.getElementById('cleanup-duplicates-btn');
+    const exportUnifiedBtn = document.getElementById('export-unified-btn');
+
+    if (analyzeDataBtn) analyzeDataBtn.addEventListener('click', analyzeDataIntegrity);
+    if (consolidateProfilesBtn) consolidateProfilesBtn.addEventListener('click', () => consolidateData('profiles'));
+    if (consolidateVectorsBtn) consolidateVectorsBtn.addEventListener('click', () => consolidateData('vectors'));
+    if (consolidateCacheBtn) consolidateCacheBtn.addEventListener('click', () => consolidateData('cache'));
+    if (cleanupDuplicatesBtn) cleanupDuplicatesBtn.addEventListener('click', cleanupDuplicates);
+    if (exportUnifiedBtn) exportUnifiedBtn.addEventListener('click', exportUnifiedDataset);
+
+    // API feedback controls
+    const reviewLatestBtn = document.getElementById('review-latest-btn');
+    const flagInvalidBtn = document.getElementById('flag-invalid-btn');
+    const validateQualityBtn = document.getElementById('validate-quality-btn');
+    const exportFeedbackBtn = document.getElementById('export-feedback-btn');
+    const approveBatchBtn = document.getElementById('approve-batch-btn');
+    const rejectBatchBtn = document.getElementById('reject-batch-btn');
+    const nextBatchBtn = document.getElementById('next-batch-btn');
+
+    if (reviewLatestBtn) reviewLatestBtn.addEventListener('click', reviewLatestResults);
+    if (flagInvalidBtn) flagInvalidBtn.addEventListener('click', flagInvalidEntries);
+    if (validateQualityBtn) validateQualityBtn.addEventListener('click', validateDataQuality);
+    if (exportFeedbackBtn) exportFeedbackBtn.addEventListener('click', exportFeedbackReport);
+    if (approveBatchBtn) approveBatchBtn.addEventListener('click', () => processFeedbackBatch('approve'));
+    if (rejectBatchBtn) rejectBatchBtn.addEventListener('click', () => processFeedbackBatch('reject'));
+    if (nextBatchBtn) nextBatchBtn.addEventListener('click', loadNextFeedbackBatch);
+
+    // Initialize data health check
+    checkDataHealth();
 }
 
 // Disable unsupported scraper engines based on backend availability
@@ -1563,4 +1613,895 @@ async function refreshDatasetSelect() {
     } catch (e) {
         console.warn('Failed to refresh dataset selector:', e);
     }
+}
+
+// Bot Integration Panel Functions
+
+// Setup bot panel event listeners
+function setupBotPanelListeners() {
+    // Data Statistics
+    const refreshStatsBtn = document.getElementById('refresh-stats-btn');
+    refreshStatsBtn.addEventListener('click', refreshDataStatistics);
+
+    // Data Cleanup & Consolidation
+    const cleanupDataBtn = document.getElementById('cleanup-data-btn');
+    const consolidateDataBtn = document.getElementById('consolidate-data-btn');
+    cleanupDataBtn.addEventListener('click', runDataCleanup);
+    consolidateDataBtn.addEventListener('click', consolidateData);
+
+    // Enhanced Scraping
+    const startEnhancedScrapeBtn = document.getElementById('start-enhanced-scrape-btn');
+    const stopEnhancedScrapeBtn = document.getElementById('stop-enhanced-scrape-btn');
+    startEnhancedScrapeBtn.addEventListener('click', startEnhancedScraping);
+    stopEnhancedScrapeBtn.addEventListener('click', stopEnhancedScraping);
+
+    // API Response Inspection
+    const inspectCacheBtn = document.getElementById('inspect-cache-btn');
+    inspectCacheBtn.addEventListener('click', inspectAPICache);
+
+    // Parquet Data Inspection
+    const inspectParquetBtn = document.getElementById('inspect-parquet-btn');
+    inspectParquetBtn.addEventListener('click', inspectParquetData);
+}
+
+// Refresh data statistics
+async function refreshDataStatistics() {
+    try {
+        showBotStatus('Loading statistics...');
+        
+        const response = await fetch('/api/bot/data-stats');
+        const result = await response.json();
+        
+        if (result.success) {
+            const stats = result.stats;
+            const statsDisplay = document.getElementById('data-statistics');
+            
+            let html = `<h4>Data Overview</h4>
+                <p><strong>Total Profiles:</strong> ${stats.total_profiles}</p>
+                <p><strong>Profiles with Vectors:</strong> ${stats.profiles_with_vectors}</p>
+                <h4>File Information</h4>`;
+                
+            for (const [filename, info] of Object.entries(stats.files_info)) {
+                if (info.exists) {
+                    if (info.error) {
+                        html += `<p><strong>${filename}:</strong> Error - ${info.error}</p>`;
+                    } else {
+                        const sizeKB = Math.round(info.size_bytes / 1024);
+                        html += `<p><strong>${filename}:</strong> ${info.rows} rows, ${sizeKB}KB, Columns: ${info.columns.join(', ')}</p>`;
+                    }
+                } else {
+                    html += `<p><strong>${filename}:</strong> Not found</p>`;
+                }
+            }
+            
+            statsDisplay.innerHTML = html;
+            showBotStatus('Statistics refreshed');
+        } else {
+            throw new Error(result.error || 'Failed to get statistics');
+        }
+    } catch (error) {
+        console.error('Error refreshing statistics:', error);
+        showToast('Failed to refresh statistics: ' + error.message, 'error');
+        showBotStatus('Error loading statistics');
+    }
+}
+
+// Run data cleanup
+async function runDataCleanup() {
+    try {
+        showBotStatus('Running data cleanup...');
+        
+        const response = await fetch('/api/bot/cleanup-data', { method: 'POST' });
+        const result = await response.json();
+        
+        if (result.success) {
+            const cleanupResults = document.getElementById('cleanup-results');
+            
+            let html = '<h4>Cleanup Results</h4>';
+            for (const [filename, fileResult] of Object.entries(result.results)) {
+                if (fileResult.error) {
+                    html += `<p><strong>${filename}:</strong> Error - ${fileResult.error}</p>`;
+                } else {
+                    html += `<p><strong>${filename}:</strong></p>`;
+                    html += `<ul>`;
+                    html += `<li>Duplicates removed: ${fileResult.duplicates_removed || 0}</li>`;
+                    html += `<li>Empty rows removed: ${fileResult.empty_rows_removed || 0}</li>`;
+                    if (fileResult.special_cleanup && fileResult.special_cleanup.total_special_removed > 0) {
+                        html += `<li>Missing PIDs removed: ${fileResult.special_cleanup.missing_pid_removed}</li>`;
+                        html += `<li>Empty profiles removed: ${fileResult.special_cleanup.empty_profile_removed}</li>`;
+                    }
+                    html += `</ul>`;
+                }
+            }
+            
+            cleanupResults.innerHTML = html;
+            showBotStatus('Data cleanup completed');
+            showToast('Data cleanup completed successfully', 'success');
+        } else {
+            throw new Error(result.error || 'Cleanup failed');
+        }
+    } catch (error) {
+        console.error('Error running cleanup:', error);
+        showToast('Failed to run cleanup: ' + error.message, 'error');
+        showBotStatus('Cleanup failed');
+    }
+}
+
+// Consolidate data
+async function consolidateData() {
+    try {
+        showBotStatus('Consolidating data...');
+        
+        const exportProfiles = document.getElementById('export-profiles-check').checked;
+        const exportVectors = document.getElementById('export-vectors-check').checked;
+        const exportCache = document.getElementById('export-cache-check').checked;
+        
+        const response = await fetch('/api/bot/consolidate-data', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                export_profiles: exportProfiles,
+                export_vectors: exportVectors,
+                export_cache: exportCache
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            const cleanupResults = document.getElementById('cleanup-results');
+            
+            let html = '<h4>Consolidation Results</h4>';
+            
+            if (result.results.cleanup_results) {
+                html += '<h5>Cleanup Phase:</h5>';
+                for (const [filename, fileResult] of Object.entries(result.results.cleanup_results)) {
+                    if (!fileResult.error) {
+                        const totalRemoved = (fileResult.duplicates_removed || 0) + (fileResult.empty_rows_removed || 0) + 
+                                           (fileResult.special_cleanup?.total_special_removed || 0);
+                        if (totalRemoved > 0) {
+                            html += `<p>${filename}: ${totalRemoved} rows cleaned</p>`;
+                        }
+                    }
+                }
+            }
+            
+            if (result.results.export_results) {
+                html += '<h5>Export Phase:</h5>';
+                for (const [type, exportInfo] of Object.entries(result.results.export_results)) {
+                    const sizeKB = Math.round(exportInfo.size_bytes / 1024);
+                    html += `<p><strong>${type}:</strong> ${exportInfo.rows} rows, ${sizeKB}KB → ${exportInfo.path}</p>`;
+                }
+            }
+            
+            cleanupResults.innerHTML = html;
+            showBotStatus('Data consolidation completed');
+            showToast('Data consolidation completed successfully', 'success');
+        } else {
+            throw new Error(result.error || 'Consolidation failed');
+        }
+    } catch (error) {
+        console.error('Error consolidating data:', error);
+        showToast('Failed to consolidate data: ' + error.message, 'error');
+        showBotStatus('Consolidation failed');
+    }
+}
+
+// Enhanced scraping variables
+let enhancedScraperProcessId = null;
+let enhancedScraperEventSource = null;
+
+// Start enhanced scraping
+async function startEnhancedScraping() {
+    try {
+        if (enhancedScraperProcessId) {
+            showToast('Enhanced scraper is already running', 'warning');
+            return;
+        }
+        
+        const mode = document.getElementById('scrape-mode').value;
+        const maxPages = parseInt(document.getElementById('scrape-max-pages').value) || 10;
+        const delay = parseInt(document.getElementById('scrape-delay').value) || 1000;
+        const cookies = document.getElementById('session-cookies').value.trim();
+        const headersText = document.getElementById('custom-headers').value.trim();
+        
+        let headers = null;
+        if (headersText) {
+            try {
+                headers = JSON.parse(headersText);
+            } catch (e) {
+                showToast('Invalid JSON in custom headers', 'error');
+                return;
+            }
+        }
+        
+        showBotStatus('Starting enhanced scraping...');
+        
+        const response = await fetch('/api/bot/scrape-enhanced', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                mode,
+                maxPages,
+                delay,
+                cookies: cookies || null,
+                headers: headers
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            enhancedScraperProcessId = result.processId;
+            showBotStatus('Enhanced scraping started');
+            showToast(result.message, 'success');
+            
+            // Show progress section and start monitoring
+            document.getElementById('enhanced-scrape-progress').style.display = 'block';
+            startEnhancedProgressMonitoring();
+        } else {
+            throw new Error(result.error || 'Failed to start enhanced scraping');
+        }
+    } catch (error) {
+        console.error('Error starting enhanced scraping:', error);
+        showToast('Failed to start enhanced scraping: ' + error.message, 'error');
+        showBotStatus('Enhanced scraping failed to start');
+    }
+}
+
+// Stop enhanced scraping
+async function stopEnhancedScraping() {
+    try {
+        if (!enhancedScraperProcessId) {
+            showToast('No enhanced scraper running', 'warning');
+            return;
+        }
+        
+        const response = await fetch(`/api/scraper/stop`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ processId: enhancedScraperProcessId })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showToast('Enhanced scraper stopped', 'success');
+            cleanupEnhancedScraper();
+        } else {
+            throw new Error(result.error || 'Failed to stop scraper');
+        }
+    } catch (error) {
+        console.error('Error stopping enhanced scraper:', error);
+        showToast('Failed to stop enhanced scraper: ' + error.message, 'error');
+    }
+}
+
+// Start progress monitoring for enhanced scraper
+function startEnhancedProgressMonitoring() {
+    if (!enhancedScraperProcessId) return;
+    
+    enhancedScraperEventSource = new EventSource(`/api/scraper/progress/${enhancedScraperProcessId}`);
+    
+    enhancedScraperEventSource.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            handleEnhancedProgressUpdate(data);
+        } catch (error) {
+            console.error('Error parsing enhanced progress update:', error);
+        }
+    };
+    
+    enhancedScraperEventSource.onerror = (error) => {
+        console.error('Enhanced progress listener error:', error);
+        enhancedScraperEventSource.close();
+        enhancedScraperEventSource = null;
+    };
+}
+
+// Handle progress updates for enhanced scraper
+function handleEnhancedProgressUpdate(data) {
+    if (data.type === 'progress') {
+        updateEnhancedProgress(data.current || 0, data.total || 0);
+        addEnhancedLog(`Progress: ${data.current}/${data.total}`);
+    } else if (data.type === 'log') {
+        addEnhancedLog(data.message);
+    } else if (data.type === 'complete') {
+        addEnhancedLog(`Scraping completed: ${data.message || ''}`);
+        showBotStatus('Enhanced scraping completed');
+        cleanupEnhancedScraper();
+    } else if (data.type === 'error') {
+        addEnhancedLog(`Error: ${data.error}`);
+        showBotStatus('Enhanced scraping failed');
+        cleanupEnhancedScraper();
+    }
+}
+
+// Update enhanced progress bar
+function updateEnhancedProgress(current, total) {
+    const percentage = total > 0 ? (current / total) * 100 : 0;
+    const progressFill = document.getElementById('enhanced-progress-fill');
+    const progressText = document.getElementById('enhanced-progress-text');
+    
+    if (progressFill) {
+        progressFill.style.width = `${percentage}%`;
+    }
+    
+    if (progressText) {
+        progressText.textContent = `${current}/${total} (${percentage.toFixed(1)}%)`;
+    }
+}
+
+// Add log to enhanced scraper logs
+function addEnhancedLog(message) {
+    const logsElement = document.getElementById('enhanced-logs-content');
+    if (logsElement) {
+        const timestamp = new Date().toLocaleTimeString();
+        const logMessage = `[${timestamp}] ${message}`;
+        
+        if (logsElement.textContent) {
+            logsElement.textContent += '\\n' + logMessage;
+        } else {
+            logsElement.textContent = logMessage;
+        }
+        
+        logsElement.scrollTop = logsElement.scrollHeight;
+    }
+}
+
+// Cleanup enhanced scraper
+function cleanupEnhancedScraper() {
+    enhancedScraperProcessId = null;
+    
+    if (enhancedScraperEventSource) {
+        enhancedScraperEventSource.close();
+        enhancedScraperEventSource = null;
+    }
+    
+    document.getElementById('enhanced-scrape-progress').style.display = 'none';
+    updateEnhancedProgress(0, 0);
+}
+
+// Inspect API cache
+async function inspectAPICache() {
+    try {
+        showBotStatus('Inspecting API cache...');
+        
+        const query = document.getElementById('cache-query').value.trim();
+        const url = query ? `/api/bot/inspect-cache/${encodeURIComponent(query)}` : '/api/bot/inspect-cache';
+        
+        const response = await fetch(url);
+        const result = await response.json();
+        
+        if (result.success) {
+            const cacheResults = document.getElementById('cache-inspection-results');
+            
+            let html = `<h4>API Cache Inspection</h4>`;
+            html += `<p>Total entries: ${result.total}, Showing: ${result.cache_entries.length}</p>`;
+            html += `<p>Cache directory: <code>${result.cache_dir}</code></p>`;
+            
+            for (const entry of result.cache_entries) {
+                html += `<div class="cache-entry">`;
+                html += `<h5>${entry.filename}</h5>`;
+                if (entry.error) {
+                    html += `<p class="error">Error: ${entry.error}</p>`;
+                } else {
+                    html += `<p>Size: ${entry.size} bytes, Modified: ${entry.modified}</p>`;
+                    if (entry.parsed_preview) {
+                        html += `<p>Type: ${entry.parsed_preview.type}, Keys: ${entry.parsed_preview.keys.join(', ')}</p>`;
+                    }
+                    html += `<div class="preview">${entry.preview}</div>`;
+                }
+                html += `</div>`;
+            }
+            
+            cacheResults.innerHTML = html;
+            showBotStatus('Cache inspection completed');
+        } else {
+            throw new Error(result.error || 'Cache inspection failed');
+        }
+    } catch (error) {
+        console.error('Error inspecting cache:', error);
+        showToast('Failed to inspect cache: ' + error.message, 'error');
+        showBotStatus('Cache inspection failed');
+    }
+}
+
+// Inspect parquet data
+async function inspectParquetData() {
+    try {
+        showBotStatus('Inspecting parquet data...');
+        
+        const selectedFile = document.getElementById('parquet-file-select').value;
+        
+        // Use the existing profiles or vectors API endpoint
+        let apiEndpoint;
+        if (selectedFile.includes('vector')) {
+            apiEndpoint = '/api/data/vectors';
+        } else {
+            apiEndpoint = '/api/data/profiles';
+        }
+        
+        const response = await fetch(apiEndpoint);
+        const result = await response.json();
+        
+        if (result.error) {
+            throw new Error(result.error);
+        }
+        
+        const parquetResults = document.getElementById('parquet-inspection-results');
+        
+        let html = `<h4>Parquet Data: ${selectedFile}</h4>`;
+        
+        if (selectedFile.includes('vector')) {
+            const vectors = result.vectors || [];
+            html += `<p>Total vectors: ${vectors.length}</p>`;
+            if (vectors.length > 0) {
+                html += `<p>Vector dimensions: ${vectors[0].vector ? vectors[0].vector.length : 'Unknown'}</p>`;
+                html += `<h5>Sample vectors:</h5>`;
+                for (const vector of vectors.slice(0, 5)) {
+                    const preview = vector.vector ? `[${vector.vector.slice(0, 5).join(', ')}...]` : 'No vector';
+                    html += `<p><strong>${vector.cid}:</strong> ${preview}</p>`;
+                }
+            }
+        } else {
+            const profiles = result.profiles || [];
+            html += `<p>Total profiles: ${profiles.length}</p>`;
+            if (profiles.length > 0) {
+                const sampleProfile = profiles[0];
+                html += `<p>Available fields: ${Object.keys(sampleProfile).join(', ')}</p>`;
+                html += `<h5>Sample profiles:</h5>`;
+                for (const profile of profiles.slice(0, 5)) {
+                    html += `<div class="parquet-info">`;
+                    html += `<h5>${profile.name || 'Unnamed'}</h5>`;
+                    html += `<div class="details">CID: ${profile.cid}\\nMBTI: ${profile.mbti}\\nSocionics: ${profile.socionics}\\nCategory: ${profile.category}</div>`;
+                    html += `</div>`;
+                }
+            }
+        }
+        
+        parquetResults.innerHTML = html;
+        showBotStatus('Parquet inspection completed');
+    } catch (error) {
+        console.error('Error inspecting parquet data:', error);
+        showToast('Failed to inspect parquet data: ' + error.message, 'error');
+        showBotStatus('Parquet inspection failed');
+    }
+}
+
+// Show bot status
+function showBotStatus(message) {
+    const statusElement = document.getElementById('bot-stats');
+    if (statusElement) {
+        statusElement.textContent = message;
+    }
+}
+
+// ===== Enhanced Scraper Features =====
+
+// Session Management Functions
+async function saveSession() {
+    try {
+        const cookies = document.getElementById('session-cookies').value;
+        const headers = document.getElementById('session-headers').value;
+        
+        const sessionData = {
+            cookies: cookies ? parseCookies(cookies) : {},
+            headers: headers ? JSON.parse(headers) : {}
+        };
+
+        const response = await fetch('/api/session/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sessionData)
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to save session: ${response.status}`);
+        }
+
+        const result = await response.json();
+        updateSessionStatus(result.success ? 'Session saved successfully' : 'Failed to save session', result.success ? 'success' : 'error');
+        
+    } catch (error) {
+        console.error('Error saving session:', error);
+        updateSessionStatus('Error saving session: ' + error.message, 'error');
+    }
+}
+
+async function loadSession() {
+    try {
+        const response = await fetch('/api/session/load');
+        if (!response.ok) {
+            throw new Error(`Failed to load session: ${response.status}`);
+        }
+
+        const sessionData = await response.json();
+        
+        if (sessionData.cookies) {
+            document.getElementById('session-cookies').value = formatCookies(sessionData.cookies);
+        }
+        if (sessionData.headers) {
+            document.getElementById('session-headers').value = JSON.stringify(sessionData.headers, null, 2);
+        }
+
+        updateSessionStatus('Session loaded successfully', 'success');
+        
+    } catch (error) {
+        console.error('Error loading session:', error);
+        updateSessionStatus('Error loading session: ' + error.message, 'error');
+    }
+}
+
+async function clearSession() {
+    try {
+        document.getElementById('session-cookies').value = '';
+        document.getElementById('session-headers').value = '';
+        
+        const response = await fetch('/api/session/clear', { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Failed to clear session: ${response.status}`);
+        }
+
+        updateSessionStatus('Session cleared', 'success');
+        
+    } catch (error) {
+        console.error('Error clearing session:', error);
+        updateSessionStatus('Error clearing session: ' + error.message, 'error');
+    }
+}
+
+async function testSession() {
+    try {
+        updateSessionStatus('Testing session...', 'warning');
+        
+        const cookies = document.getElementById('session-cookies').value;
+        const headers = document.getElementById('session-headers').value;
+        
+        const testData = {
+            cookies: cookies ? parseCookies(cookies) : {},
+            headers: headers ? JSON.parse(headers) : {}
+        };
+
+        const response = await fetch('/api/session/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(testData)
+        });
+
+        if (!response.ok) {
+            throw new Error(`Session test failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        updateSessionStatus(
+            result.valid ? 'Session is valid' : 'Session test failed: ' + (result.error || 'Unknown error'),
+            result.valid ? 'success' : 'error'
+        );
+        
+    } catch (error) {
+        console.error('Error testing session:', error);
+        updateSessionStatus('Error testing session: ' + error.message, 'error');
+    }
+}
+
+// Data Consolidation Functions
+async function analyzeDataIntegrity() {
+    try {
+        updateHealthStatus('Analyzing...', 'warning');
+        
+        const response = await fetch('/api/data/analyze', { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Analysis failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        let status = 'healthy';
+        let message = `${result.totalProfiles} profiles, ${result.totalVectors} vectors, ${result.cacheEntries} cache entries`;
+        
+        if (result.duplicates > 0 || result.corruption > 0) {
+            status = result.corruption > 10 ? 'critical' : 'degraded';
+            message += ` | Issues: ${result.duplicates} duplicates, ${result.corruption} corrupted`;
+        }
+        
+        updateHealthStatus(message, status);
+        
+    } catch (error) {
+        console.error('Error analyzing data:', error);
+        updateHealthStatus('Analysis failed: ' + error.message, 'critical');
+    }
+}
+
+async function consolidateData(type) {
+    try {
+        showConsolidationProgress(true);
+        updateConsolidationProgress(0, `Starting ${type} consolidation...`);
+        
+        const response = await fetch(`/api/data/consolidate/${type}`, { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Consolidation failed: ${response.status}`);
+        }
+
+        // Monitor consolidation progress
+        const result = await response.json();
+        if (result.processId) {
+            monitorConsolidationProgress(result.processId);
+        } else {
+            updateConsolidationProgress(100, `${type} consolidation completed`);
+            showToast(`${type.charAt(0).toUpperCase() + type.slice(1)} consolidation completed`, 'success');
+            showConsolidationProgress(false);
+        }
+        
+    } catch (error) {
+        console.error(`Error consolidating ${type}:`, error);
+        showToast(`${type} consolidation failed: ` + error.message, 'error');
+        showConsolidationProgress(false);
+    }
+}
+
+async function cleanupDuplicates() {
+    try {
+        showConsolidationProgress(true);
+        updateConsolidationProgress(0, 'Removing duplicates...');
+        
+        const response = await fetch('/api/data/cleanup-duplicates', { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Cleanup failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        updateConsolidationProgress(100, `Removed ${result.removedCount} duplicates`);
+        showToast(`Removed ${result.removedCount} duplicate entries`, 'success');
+        showConsolidationProgress(false);
+        
+    } catch (error) {
+        console.error('Error cleaning up duplicates:', error);
+        showToast('Duplicate cleanup failed: ' + error.message, 'error');
+        showConsolidationProgress(false);
+    }
+}
+
+async function exportUnifiedDataset() {
+    try {
+        showConsolidationProgress(true);
+        updateConsolidationProgress(0, 'Creating unified dataset...');
+        
+        const response = await fetch('/api/data/export-unified', { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Export failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        updateConsolidationProgress(100, 'Unified dataset created');
+        showToast(`Unified dataset exported: ${result.filename}`, 'success');
+        showConsolidationProgress(false);
+        
+    } catch (error) {
+        console.error('Error exporting unified dataset:', error);
+        showToast('Export failed: ' + error.message, 'error');
+        showConsolidationProgress(false);
+    }
+}
+
+// API Feedback Functions
+let currentFeedbackBatch = 0;
+let feedbackData = null;
+
+async function reviewLatestResults() {
+    try {
+        const batchSize = document.getElementById('feedback-batch-size').value || 10;
+        
+        const response = await fetch(`/api/data/latest?limit=${batchSize}`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch results: ${response.status}`);
+        }
+
+        feedbackData = await response.json();
+        currentFeedbackBatch = 0;
+        
+        displayFeedbackBatch();
+        document.getElementById('feedback-results').style.display = 'block';
+        
+    } catch (error) {
+        console.error('Error reviewing results:', error);
+        showToast('Failed to load results: ' + error.message, 'error');
+    }
+}
+
+async function flagInvalidEntries() {
+    try {
+        const response = await fetch('/api/data/flag-invalid', { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Failed to flag entries: ${response.status}`);
+        }
+
+        const result = await response.json();
+        showToast(`Flagged ${result.flaggedCount} invalid entries`, 'success');
+        
+    } catch (error) {
+        console.error('Error flagging entries:', error);
+        showToast('Failed to flag entries: ' + error.message, 'error');
+    }
+}
+
+async function validateDataQuality() {
+    try {
+        const response = await fetch('/api/data/validate-quality', { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Validation failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        showToast(`Quality check completed: ${result.validCount} valid, ${result.invalidCount} invalid`, 'info');
+        
+    } catch (error) {
+        console.error('Error validating quality:', error);
+        showToast('Quality validation failed: ' + error.message, 'error');
+    }
+}
+
+async function exportFeedbackReport() {
+    try {
+        const response = await fetch('/api/data/export-feedback', { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Export failed: ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `feedback_report_${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        
+        showToast('Feedback report exported', 'success');
+        
+    } catch (error) {
+        console.error('Error exporting feedback:', error);
+        showToast('Export failed: ' + error.message, 'error');
+    }
+}
+
+// Helper Functions
+function updateSessionStatus(message, type) {
+    const statusElement = document.getElementById('session-status');
+    if (statusElement) {
+        statusElement.textContent = message;
+        statusElement.className = `session-status ${type}`;
+    }
+}
+
+function updateHealthStatus(message, status) {
+    const healthElement = document.getElementById('health-status');
+    if (healthElement) {
+        healthElement.textContent = message;
+        healthElement.className = status;
+    }
+}
+
+function checkDataHealth() {
+    // Initial health check when page loads
+    setTimeout(analyzeDataIntegrity, 1000);
+}
+
+function showConsolidationProgress(show) {
+    const progressElement = document.getElementById('consolidation-progress');
+    if (progressElement) {
+        progressElement.style.display = show ? 'block' : 'none';
+    }
+}
+
+function updateConsolidationProgress(percent, message) {
+    const fillElement = document.getElementById('consolidation-fill');
+    const textElement = document.getElementById('consolidation-text');
+    
+    if (fillElement) fillElement.style.width = `${percent}%`;
+    if (textElement) textElement.textContent = message;
+}
+
+function monitorConsolidationProgress(processId) {
+    // Monitor long-running consolidation process
+    const eventSource = new EventSource(`/api/data/consolidate/progress/${processId}`);
+    
+    eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        updateConsolidationProgress(data.progress, data.message);
+        
+        if (data.complete) {
+            eventSource.close();
+            showConsolidationProgress(false);
+            showToast('Consolidation completed', 'success');
+        }
+    };
+    
+    eventSource.onerror = () => {
+        eventSource.close();
+        showConsolidationProgress(false);
+        showToast('Consolidation monitoring failed', 'error');
+    };
+}
+
+function displayFeedbackBatch() {
+    if (!feedbackData || !feedbackData.results) return;
+    
+    const contentElement = document.getElementById('feedback-content');
+    if (!contentElement) return;
+    
+    const results = feedbackData.results;
+    const startIdx = currentFeedbackBatch * 5;  // 5 items per batch
+    const endIdx = Math.min(startIdx + 5, results.length);
+    
+    contentElement.innerHTML = '';
+    
+    for (let i = startIdx; i < endIdx; i++) {
+        const item = results[i];
+        const itemElement = document.createElement('div');
+        itemElement.className = 'feedback-item';
+        itemElement.innerHTML = `
+            <h5>${item.name || 'Unknown Profile'}</h5>
+            <p><strong>MBTI:</strong> ${item.mbti || 'N/A'} | <strong>Socionics:</strong> ${item.socionics || 'N/A'}</p>
+            <p><strong>Source:</strong> ${item.source || 'N/A'} | <strong>ID:</strong> ${item.cid || item.id || 'N/A'}</p>
+            <p class="description">${item.description ? item.description.substring(0, 200) + '...' : 'No description'}</p>
+        `;
+        contentElement.appendChild(itemElement);
+    }
+}
+
+function processFeedbackBatch(action) {
+    // Mark current batch as approved/rejected
+    const items = document.querySelectorAll('#feedback-content .feedback-item');
+    items.forEach(item => {
+        item.classList.add(action === 'approve' ? 'approved' : 'rejected');
+    });
+    
+    showToast(`Batch ${action}d`, 'success');
+}
+
+function loadNextFeedbackBatch() {
+    if (!feedbackData) return;
+    
+    currentFeedbackBatch++;
+    const maxBatch = Math.ceil(feedbackData.results.length / 5);
+    
+    if (currentFeedbackBatch >= maxBatch) {
+        showToast('No more batches to review', 'info');
+        currentFeedbackBatch = maxBatch - 1;
+        return;
+    }
+    
+    displayFeedbackBatch();
+}
+
+function parseCookies(cookieString) {
+    const cookies = {};
+    
+    if (cookieString.includes('{')) {
+        // JSON format
+        try {
+            return JSON.parse(cookieString);
+        } catch (e) {
+            console.error('Invalid JSON cookie format');
+            return {};
+        }
+    } else {
+        // key=value; format
+        cookieString.split(';').forEach(cookie => {
+            const [name, value] = cookie.trim().split('=');
+            if (name && value) {
+                cookies[name] = value;
+            }
+        });
+    }
+    
+    return cookies;
+}
+
+function formatCookies(cookieObj) {
+    return Object.entries(cookieObj)
+        .map(([key, value]) => `${key}=${value}`)
+        .join('; ');
 }

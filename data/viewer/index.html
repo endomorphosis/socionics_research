@@ -15,6 +15,7 @@
                 <button id="nav-edit" class="nav-btn">Edit Data</button>
                 <button id="nav-scraper" class="nav-btn">Scraper Controls</button>
                 <button id="nav-query" class="nav-btn">Query Builder</button>
+                <button id="nav-bot" class="nav-btn">Bot Integration</button>
             </nav>
         </header>
 
@@ -164,6 +165,27 @@
                             </select>
                         </div>
                     </div>
+
+                    <div class="scraper-session">
+                        <h3>Session & Cookie Management</h3>
+                        <div class="session-controls">
+                            <div class="form-row">
+                                <label for="session-cookies">Session Cookies:</label>
+                                <textarea id="session-cookies" rows="3" placeholder="Paste cookies in JSON format or as key=value; pairs"></textarea>
+                            </div>
+                            <div class="form-row">
+                                <label for="session-headers">Additional Headers:</label>
+                                <textarea id="session-headers" rows="3" placeholder='{"User-Agent": "...", "Referer": "...", "X-Custom": "..."}'></textarea>
+                            </div>
+                            <div class="session-buttons">
+                                <button id="save-session-btn" class="primary">Save Session</button>
+                                <button id="load-session-btn">Load Session</button>
+                                <button id="clear-session-btn" class="danger">Clear Session</button>
+                                <button id="test-session-btn">Test Session</button>
+                            </div>
+                        </div>
+                        <div id="session-status" class="session-status"></div>
+                    </div>
                     
                     <div class="scraper-actions">
                         <h3>Scraping Actions</h3>
@@ -177,6 +199,53 @@
                         <div id="specific-profile-input" style="display: none;">
                             <input type="text" id="profile-url" placeholder="Enter profile URL or ID">
                             <button id="scrape-profile-btn">Scrape</button>
+                        </div>
+                    </div>
+
+                    <div class="data-consolidation">
+                        <h3>Data Consolidation</h3>
+                        <div class="consolidation-info">
+                            <div id="data-health" class="data-health">
+                                <span>Data Health: </span><span id="health-status">Checking...</span>
+                            </div>
+                        </div>
+                        <div class="consolidation-actions">
+                            <button id="analyze-data-btn" class="primary">Analyze Data Integrity</button>
+                            <button id="consolidate-profiles-btn">Consolidate Profiles</button>
+                            <button id="consolidate-vectors-btn">Consolidate Embeddings</button>
+                            <button id="consolidate-cache-btn">Consolidate Cache</button>
+                            <button id="cleanup-duplicates-btn">Remove Duplicates</button>
+                            <button id="export-unified-btn" class="success">Export Unified Dataset</button>
+                        </div>
+                        <div id="consolidation-progress" class="consolidation-progress" style="display: none;">
+                            <div class="progress-bar">
+                                <div id="consolidation-fill" class="progress-fill"></div>
+                            </div>
+                            <div id="consolidation-text">Ready</div>
+                        </div>
+                    </div>
+
+                    <div class="api-feedback">
+                        <h3>API Results Feedback</h3>
+                        <div class="feedback-controls">
+                            <div class="form-row">
+                                <label for="feedback-batch-size">Results per batch:</label>
+                                <input type="number" id="feedback-batch-size" value="10" min="1" max="100">
+                            </div>
+                            <div class="feedback-actions">
+                                <button id="review-latest-btn" class="primary">Review Latest Results</button>
+                                <button id="flag-invalid-btn" class="warning">Flag Invalid Entries</button>
+                                <button id="validate-quality-btn">Validate Data Quality</button>
+                                <button id="export-feedback-btn">Export Feedback Report</button>
+                            </div>
+                        </div>
+                        <div id="feedback-results" class="feedback-results" style="display: none;">
+                            <div id="feedback-content"></div>
+                            <div class="feedback-actions">
+                                <button id="approve-batch-btn" class="success">Approve Batch</button>
+                                <button id="reject-batch-btn" class="danger">Reject Batch</button>
+                                <button id="next-batch-btn">Next Batch</button>
+                            </div>
                         </div>
                     </div>
                     
@@ -240,6 +309,129 @@
                         <div id="query-results-container">
                             <p class="no-results">No query executed yet</p>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bot Integration Panel -->
+            <div id="bot-panel" class="panel">
+                <div class="panel-header">
+                    <h2>Bot Integration & Data Cleanup</h2>
+                    <div class="stats">
+                        <span id="bot-stats">Ready</span>
+                    </div>
+                </div>
+
+                <div class="bot-controls">
+                    <!-- Data Statistics Section -->
+                    <div class="bot-section">
+                        <h3>Data Statistics</h3>
+                        <button id="refresh-stats-btn" class="primary">Refresh Stats</button>
+                        <div id="data-statistics" class="statistics-display">
+                            <p>Click "Refresh Stats" to view data statistics</p>
+                        </div>
+                    </div>
+
+                    <!-- Data Cleanup Section -->
+                    <div class="bot-section">
+                        <h3>Data Cleanup & Consolidation</h3>
+                        <div class="cleanup-controls">
+                            <button id="cleanup-data-btn" class="primary">Run Data Cleanup</button>
+                            <button id="consolidate-data-btn" class="primary">Consolidate Data</button>
+                        </div>
+                        <div class="consolidation-options" style="margin-top: 10px;">
+                            <label>
+                                <input type="checkbox" id="export-profiles-check" checked> Export Profiles
+                            </label>
+                            <label>
+                                <input type="checkbox" id="export-vectors-check" checked> Export Vectors  
+                            </label>
+                            <label>
+                                <input type="checkbox" id="export-cache-check"> Export Cache Metadata
+                            </label>
+                        </div>
+                        <div id="cleanup-results" class="results-display"></div>
+                    </div>
+
+                    <!-- Enhanced Scraping Section -->
+                    <div class="bot-section">
+                        <h3>Enhanced Scraping</h3>
+                        <div class="scraping-controls">
+                            <div class="form-row">
+                                <label for="scrape-mode">Mode:</label>
+                                <select id="scrape-mode">
+                                    <option value="hot-queries">Hot Queries</option>
+                                    <option value="follow-hot">Follow Hot</option>
+                                    <option value="scrape-v1-missing">Scrape Missing V1</option>
+                                    <option value="scan-all">Scan All</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label for="scrape-max-pages">Max Pages:</label>
+                                <input type="number" id="scrape-max-pages" value="10" min="1" max="1000">
+                            </div>
+                            <div class="form-row">
+                                <label for="scrape-delay">Delay (ms):</label>
+                                <input type="number" id="scrape-delay" value="1000" min="100" max="10000">
+                            </div>
+                        </div>
+
+                        <!-- Session/Cookie Management -->
+                        <div class="session-controls">
+                            <h4>Session & Authentication</h4>
+                            <div class="form-row">
+                                <label for="session-cookies">Cookies:</label>
+                                <textarea id="session-cookies" rows="3" placeholder="Cookie header value (e.g., session_id=abc123; auth_token=xyz...)"></textarea>
+                            </div>
+                            <div class="form-row">
+                                <label for="custom-headers">Custom Headers (JSON):</label>
+                                <textarea id="custom-headers" rows="3" placeholder='{"User-Agent": "...", "Referer": "..."}'></textarea>
+                            </div>
+                        </div>
+
+                        <div class="scraping-actions">
+                            <button id="start-enhanced-scrape-btn" class="primary">Start Enhanced Scraping</button>
+                            <button id="stop-enhanced-scrape-btn" class="danger">Stop Scraping</button>
+                        </div>
+
+                        <!-- Progress Display -->
+                        <div id="enhanced-scrape-progress" class="progress-section" style="display: none;">
+                            <div class="progress-bar">
+                                <div id="enhanced-progress-fill" class="progress-fill"></div>
+                            </div>
+                            <div id="enhanced-progress-text" class="progress-text">0/0 (0%)</div>
+                        </div>
+
+                        <div id="enhanced-scrape-logs" class="logs-container">
+                            <h4>Scraping Logs</h4>
+                            <pre id="enhanced-logs-content"></pre>
+                        </div>
+                    </div>
+
+                    <!-- API Response Inspection -->
+                    <div class="bot-section">
+                        <h3>API Response Inspection</h3>
+                        <div class="inspection-controls">
+                            <button id="inspect-cache-btn" class="primary">Inspect API Cache</button>
+                            <input type="text" id="cache-query" placeholder="Optional filter query">
+                        </div>
+                        <div id="cache-inspection-results" class="results-display"></div>
+                    </div>
+
+                    <!-- Parquet Data Inspection -->
+                    <div class="bot-section">
+                        <h3>Parquet Data Inspection</h3>
+                        <div class="inspection-controls">
+                            <select id="parquet-file-select">
+                                <option value="pdb_profiles.parquet">Profiles</option>
+                                <option value="pdb_profile_vectors.parquet">Vectors</option>
+                                <option value="pdb_profiles_normalized.parquet">Normalized</option>
+                                <option value="consolidated_profiles.parquet">Consolidated Profiles</option>
+                                <option value="consolidated_vectors.parquet">Consolidated Vectors</option>
+                            </select>
+                            <button id="inspect-parquet-btn" class="primary">Inspect Parquet</button>
+                        </div>
+                        <div id="parquet-inspection-results" class="results-display"></div>
                     </div>
                 </div>
             </div>

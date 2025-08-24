@@ -1,6 +1,7 @@
 README.md
 pyproject.toml
 src/bot/__init__.py
+src/bot/cleanup_parquet.py
 src/bot/config.py
 src/bot/guardrails.py
 src/bot/ingest.py
