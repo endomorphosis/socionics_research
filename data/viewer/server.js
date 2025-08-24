@@ -1295,11 +1295,34 @@ import sys
 sys.path.append('src')
 from bot.cleanup_parquet import cleanup_all_parquet_files
 import json
+import io
+import numpy as np
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
+# Redirect stdout to capture only the JSON result
+original_stdout = sys.stdout
 
 try:
+    # Temporarily redirect stdout for progress messages
+    sys.stdout = io.StringIO() 
+    
     results = cleanup_all_parquet_files()
-    print(json.dumps({'success': True, 'results': results}, indent=2))
+    
+    # Reset stdout and write JSON result
+    sys.stdout = original_stdout
+    print(json.dumps({'success': True, 'results': results}, indent=2, cls=NumpyEncoder))
+    
 except Exception as e:
+    sys.stdout = original_stdout
     print(json.dumps({'success': False, 'error': str(e)}, indent=2), file=sys.stderr)
     sys.exit(1)
 `], { cwd: BOT_PATH, env });
@@ -1323,13 +1346,15 @@ except Exception as e:
             }
             
             try {
-                const result = JSON.parse(data);
+                // Extract JSON from the output (should be the last/only JSON in stdout now)
+                const result = JSON.parse(data.trim());
                 // Invalidate caches after cleanup
                 profilesCache.mtimeMs = -1;
                 vectorsCache.mtimeMs = -1;
                 res.json(result);
             } catch (parseError) {
                 console.error('JSON parse error:', parseError);
+                console.error('Raw output:', data);
                 res.status(500).json({ success: false, error: 'Failed to parse cleanup results' });
             }
         });
@@ -1636,11 +1661,34 @@ import json
 import pandas as pd
 import os
 from pathlib import Path
+import numpy as np
+import io
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
+# Parse options from command line args
+export_profiles = ${export_profiles ? 'True' : 'False'}
+export_vectors = ${export_vectors ? 'True' : 'False'}
+export_cache = ${export_cache ? 'True' : 'False'}
 
 try:
+    # Redirect stdout to suppress progress messages
+    original_stdout = sys.stdout
+    sys.stdout = io.StringIO()
+    
     # First run cleanup
-    print("Running data cleanup...")
     cleanup_results = cleanup_all_parquet_files()
+    
+    # Reset stdout
+    sys.stdout = original_stdout
     
     # Get consolidated data
     storage = PdbStorage()
@@ -1651,8 +1699,7 @@ try:
     }
     
     # Export consolidated profiles
-    if ${export_profiles}:
-        print("Consolidating profiles...")
+    if export_profiles:
         joined_df = storage.load_joined()
         if not joined_df.empty:
             profiles_path = storage.raw_path.parent / 'consolidated_profiles.parquet'
@@ -1662,11 +1709,9 @@ try:
                 'rows': len(joined_df),
                 'size_bytes': os.path.getsize(profiles_path)
             }
-            print(f"Exported {len(joined_df)} profiles to {profiles_path}")
     
     # Export consolidated vectors
-    if ${export_vectors}:
-        print("Consolidating vectors...")
+    if export_vectors:
         vec_df = storage.load_joined()
         if not vec_df.empty:
             vectors_with_data = vec_df[vec_df['vector'].notna()]
@@ -1678,11 +1723,9 @@ try:
                     'rows': len(vectors_with_data),
                     'size_bytes': os.path.getsize(vectors_path)
                 }
-                print(f"Exported {len(vectors_with_data)} vectors to {vectors_path}")
     
     # Export cache info (just metadata, not full cache)
-    if ${export_cache}:
-        print("Collecting cache metadata...")
+    if export_cache:
         cache_dir = storage.raw_path.parent / 'pdb_api_cache'
         if cache_dir.exists():
             cache_files = list(cache_dir.glob('*'))
@@ -1714,10 +1757,11 @@ try:
                 'total_size_bytes': total_size
             }
     
-    print(json.dumps({'success': True, 'results': results}, indent=2))
+    print(json.dumps({'success': True, 'results': results}, indent=2, cls=NumpyEncoder))
     
 except Exception as e:
-    print(json.dumps({'success': False, 'error': str(e)}, indent=2), file=sys.stderr)
+    import traceback
+    print(json.dumps({'success': False, 'error': str(e), 'traceback': traceback.format_exc()}, indent=2), file=sys.stderr)
     sys.exit(1)
 `], { cwd: BOT_PATH, env });
 
