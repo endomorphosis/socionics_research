@@ -126,11 +126,11 @@ app.post('/api/scraper/start', async (req, res) => {
             PYTHONPATH: path.join(botPath, 'src')
         };
 
-        let command, commandArgs;
+    let command, commandArgs;
 
         if (mode === 'full') {
             // Use the existing PDB CLI for full scraping
-            command = 'python';
+            command = PYTHON_EXEC;
             commandArgs = [
                 '-m', 'bot.pdb_cli', 
                 'scan-all',
@@ -142,23 +142,29 @@ app.post('/api/scraper/start', async (req, res) => {
             ];
             
             // Add headers if available
-            const headersPath = path.resolve(__dirname, '../../.secrets/pdb_headers.json');
-            try {
-                await fs.access(headersPath);
-                const headers = await fs.readFile(headersPath, 'utf8');
-                commandArgs.push('--headers', headers);
-            } catch (error) {
-                console.warn('No headers file found, scraping may be limited');
+            const headerCandidates = [
+                path.resolve(__dirname, '../../data/bot_store/headers.json'),
+                path.resolve(__dirname, '../../.secrets/pdb_headers.json')
+            ];
+            for (const hp of headerCandidates) {
+                try { await fs.access(hp); commandArgs.push('--headers-file', hp); break; } catch {}
             }
         } else if (mode === 'incremental') {
             // Incremental scraping
-            command = 'python';
+            command = PYTHON_EXEC;
             commandArgs = [
                 '-m', 'bot.pdb_cli',
                 'follow-hot',
                 '--pages', Math.min(maxPages, 5).toString(),
                 '--auto-embed'
             ];
+            const headerCandidates = [
+                path.resolve(__dirname, '../../data/bot_store/headers.json'),
+                path.resolve(__dirname, '../../.secrets/pdb_headers.json')
+            ];
+            for (const hp of headerCandidates) {
+                try { await fs.access(hp); commandArgs.push('--headers-file', hp); break; } catch {}
+            }
         }
 
         console.log(`Starting scraper: ${command} ${commandArgs.join(' ')}`);
@@ -373,62 +379,55 @@ app.get('/api/scraper/progress/:processId', (req, res) => {
 // Scrape specific profile
 app.post('/api/scraper/profile', async (req, res) => {
     try {
-        const { url, browser } = req.body;
-        
-        // For now, use a simple approach - this could be enhanced with actual profile scraping
-        const botPath = path.resolve(__dirname, '../../bot');
-        const command = 'python';
-        const args = [
-            '-m', 'bot.pdb_cli',
-            'dump-profile',
-            '--url', url
-        ];
+        const { url, browser } = req.body || {};
+        if (!url || typeof url !== 'string') {
+            return res.status(400).json({ success: false, error: 'url is required' });
+        }
 
-        const env = { 
-            ...process.env, 
-            PYTHONPATH: path.join(botPath, 'src')
-        };
+        const botPath = path.resolve(__dirname, '../../bot');
+    const command = PYTHON_EXEC;
+        const args = ['-m', 'bot.pdb_cli', 'expand-from-url', '--urls', url, '--only-profiles'];
+        // Map browser hint to --render-js when using Playwright
+        if (browser && String(browser).toLowerCase().includes('playwright')) {
+            args.push('--render-js');
+        }
+        // Try to include headers file if present for richer v2 responses
+        try {
+            const headersCandidates = [
+                path.resolve(__dirname, '../../data/bot_store/headers.json'),
+                path.resolve(__dirname, '../../.secrets/pdb_headers.json')
+            ];
+            for (const hp of headersCandidates) {
+                if (fssync.existsSync(hp)) {
+                    args.push('--headers-file', hp);
+                    break;
+                }
+            }
+        } catch {}
+
+        const env = { ...process.env, PYTHONPATH: path.join(botPath, 'src') };
 
         const scraperProcess = spawn(command, args, {
             cwd: botPath,
-            env: env,
+            env,
             stdio: ['pipe', 'pipe', 'pipe']
         });
 
         let output = '';
         let error = '';
 
-        scraperProcess.stdout.on('data', (data) => {
-            output += data.toString();
-        });
-
-        scraperProcess.stderr.on('data', (data) => {
-            error += data.toString();
-        });
+        scraperProcess.stdout.on('data', (data) => { output += data.toString(); });
+        scraperProcess.stderr.on('data', (data) => { error += data.toString(); });
 
         scraperProcess.on('close', (code) => {
             if (code === 0) {
-                res.json({
-                    success: true,
-                    message: 'Profile scraped successfully',
-                    output: output,
-                    url: url
-                });
-            } else {
-                res.status(500).json({
-                    success: false,
-                    error: error || 'Unknown error occurred',
-                    code: code
-                });
+                return res.json({ success: true, message: 'expand-from-url completed', url, output });
             }
+            return res.status(500).json({ success: false, error: error || 'expand-from-url failed', code });
         });
-
     } catch (error) {
         console.error('Error scraping profile:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -439,7 +438,7 @@ app.get('/api/scraper/available', async (req, res) => {
         let playwrightAvailable = false;
         try {
             const { spawn } = require('child_process');
-            const checkPlaywright = spawn('python', ['-c', 'import playwright; print("available")']);
+            const checkPlaywright = spawn(PYTHON_EXEC, ['-c', 'import playwright; print("available")']);
             await new Promise((resolve, reject) => {
                 checkPlaywright.on('close', (code) => {
                     playwrightAvailable = code === 0;
@@ -454,7 +453,7 @@ app.get('/api/scraper/available', async (req, res) => {
         // Check if selenium is available
         let seleniumAvailable = false;
         try {
-            const checkSelenium = spawn('python', ['-c', 'import selenium; print("available")']);
+            const checkSelenium = spawn(PYTHON_EXEC, ['-c', 'import selenium; print("available")']);
             await new Promise((resolve, reject) => {
                 checkSelenium.on('close', (code) => {
                     seleniumAvailable = code === 0;
@@ -567,6 +566,162 @@ app.post('/api/data/reload', async (req, res) => {
         profilesCache = { data: null, mtimeMs: 0 };
         vectorsCache = { data: null, mtimeMs: 0 };
         res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Clean datasets: drop empty rows, dedupe by cid, and export cleaned copies into exports/
+app.post('/api/data/clean-datasets', async (req, res) => {
+    try {
+        // Ensure exports directory exists
+        try { fssync.mkdirSync(EXPORTS_DIR, { recursive: true }); } catch {}
+        const timestamp = Date.now();
+        const targets = [
+            { src: path.join(DATASET_DIR, 'pdb_profiles.parquet'), out: path.join(EXPORTS_DIR, `pdb_profiles_cleaned_${timestamp}.parquet`) },
+            { src: path.join(DATASET_DIR, 'pdb_profiles_normalized.parquet'), out: path.join(EXPORTS_DIR, `pdb_profiles_normalized_cleaned_${timestamp}.parquet`) },
+            { src: path.join(DATASET_DIR, 'pdb_profiles_merged.parquet'), out: path.join(EXPORTS_DIR, `pdb_profiles_merged_cleaned_${timestamp}.parquet`) }
+        ];
+        const script = `
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+import json, sys, os
+
+def load_df(path):
+    try:
+        return pd.read_parquet(path)
+    except Exception:
+        return None
+
+def normalize_df(df):
+    if df is None or df.empty:
+        return pd.DataFrame(columns=['cid','name','mbti','socionics','description','category'])
+    # Try to extract payload JSON if present
+    rows = []
+    for _, row in df.iterrows():
+        try:
+            cid = row.get('cid', None)
+            name = None
+            mbti = None
+            socionics = None
+            description = None
+            category = None
+            payload = None
+            if 'payload_bytes' in row.index and row['payload_bytes'] is not None:
+                try:
+                    pb = row['payload_bytes']
+                    if isinstance(pb, (bytes, bytearray)):
+                        pb = pb.decode('utf-8', errors='ignore')
+                    payload = json.loads(pb)
+                except Exception:
+                    payload = None
+            elif 'payload' in row.index and row['payload'] is not None:
+                try:
+                    payload = row['payload'] if isinstance(row['payload'], dict) else json.loads(row['payload'])
+                except Exception:
+                    payload = None
+            if payload is not None:
+                name = payload.get('name', payload.get('title'))
+                mbti = payload.get('mbti')
+                socionics = payload.get('socionics')
+                description = payload.get('description', payload.get('bio'))
+                category = payload.get('category')
+            # fallback columns
+            if name is None and 'name' in row.index: name = row['name']
+            if mbti is None and 'mbti' in row.index: mbti = row['mbti']
+            if socionics is None and 'socionics' in row.index: socionics = row['socionics']
+            if description is None and 'description' in row.index: description = row['description']
+            if category is None and 'category' in row.index: category = row['category']
+            rows.append({
+                'cid': cid,
+                'name': name if isinstance(name, str) else (str(name) if name is not None else ''),
+                'mbti': mbti if isinstance(mbti, str) else (str(mbti) if mbti is not None else ''),
+                'socionics': socionics if isinstance(socionics, str) else (str(socionics) if socionics is not None else ''),
+                'description': description if isinstance(description, str) else (str(description) if description is not None else ''),
+                'category': category if isinstance(category, str) else (str(category) if category is not None else '')
+            })
+        except Exception:
+            continue
+    out = pd.DataFrame(rows)
+    # Drop completely empty rows (all NaN/empty strings)
+    if not out.empty:
+        out.replace('', pd.NA, inplace=True)
+        out.dropna(how='all', inplace=True)
+        # Prefer to keep rows with cid; drop rows without cid if they are otherwise empty
+        if 'cid' in out.columns:
+            # Deduplicate by cid keeping first occurrence
+            out = out.drop_duplicates(subset=['cid'], keep='first')
+    return out
+
+results = []
+`;
+        const perTarget = targets.map(t => `
+df = load_df(r'''${t.src.replace(/\\/g,'/')}''')
+clean = normalize_df(df)
+table = pa.Table.from_pandas(clean)
+pq.write_table(table, r'''${t.out.replace(/\\/g,'/')}''')
+results.append({'src': r'''${t.src.replace(/\\/g,'/')}''', 'out': r'''${t.out.replace(/\\/g,'/')}''', 'rows': int(len(clean))})
+`).join('\n');
+        const trailer = `
+print(json.dumps({'results': results}))
+`;
+        const python = spawn(PYTHON_EXEC, ['-c', script + perTarget + trailer]);
+        let data = '', err = '';
+        python.stdout.on('data', (c) => data += c.toString());
+        python.stderr.on('data', (c) => err += c.toString());
+        python.on('close', async (code) => {
+            if (code !== 0) {
+                return res.status(500).json({ success: false, error: err || 'Cleaning failed' });
+            }
+            try {
+                const parsed = JSON.parse(data);
+                // Invalidate caches
+                profilesCache.mtimeMs = -1; vectorsCache.mtimeMs = -1;
+                return res.json({ success: true, ...parsed });
+            } catch (e) {
+                return res.status(500).json({ success: false, error: 'Parse failed' });
+            }
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Backfill missing fields by orchestrating CLI helpers: scrape v1 missing, re-export normalized
+app.post('/api/data/fill-missing', async (req, res) => {
+    try {
+        const botPath = path.resolve(__dirname, '../../bot');
+        const env = { ...process.env, PYTHONPATH: path.join(botPath, 'src') };
+        const steps = [];
+        // Try to include headers file for better API access
+        const headerCandidates = [
+            path.resolve(__dirname, '../../data/bot_store/headers.json'),
+            path.resolve(__dirname, '../../.secrets/pdb_headers.json')
+        ];
+        let headerArgs = [];
+        for (const hp of headerCandidates) {
+            try { await fs.access(hp); headerArgs = ['--v1-headers', await fs.readFile(hp, 'utf8')]; break; } catch {}
+        }
+        // Step 1: scrape v1 profiles for missing
+        steps.push({ cmd: PYTHON_EXEC, args: ['-m','bot.pdb_cli','scrape-v1-missing', '--max','0', '--auto-embed', '--auto-index', ...headerArgs] });
+        // Step 2: re-export normalized parquet
+        steps.push({ cmd: PYTHON_EXEC, args: ['-m','bot.pdb_cli','export','--out', path.join(DATASET_DIR, 'pdb_profiles_normalized.parquet')] });
+        for (const step of steps) {
+            await new Promise((resolve, reject) => {
+                const p = spawn(step.cmd, step.args, { cwd: botPath, env, stdio: ['ignore','pipe','pipe'] });
+                let err = '';
+                p.stderr.on('data', (d) => { err += d.toString(); });
+                p.on('close', (code) => {
+                    if (code === 0) return resolve(0);
+                    return reject(new Error(err || 'step failed'));
+                });
+                p.on('error', (e) => reject(e));
+            });
+        }
+        // Invalidate caches so UI reloads fresh
+        profilesCache.mtimeMs = -1; vectorsCache.mtimeMs = -1;
+        res.json({ success: true, summary: 'v1 backfill + normalized export complete' });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }

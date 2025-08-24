@@ -319,6 +319,8 @@ function setupQueryPanelListeners() {
     const exportCsvBtn = document.getElementById('export-csv-btn');
     const exportJsonBtn = document.getElementById('export-json-btn');
     const exportParquetBtn = document.getElementById('export-parquet-btn');
+    const cleanDatasetsBtn = document.getElementById('clean-datasets-btn');
+    const fillMissingBtn = document.getElementById('fill-missing-btn');
     const datasetSelect = document.getElementById('dataset-select');
     const reloadDatasetListBtn = document.getElementById('reload-dataset-list-btn');
     const sqlQuery = document.getElementById('sql-query');
@@ -331,6 +333,8 @@ function setupQueryPanelListeners() {
     if (exportCsvBtn) exportCsvBtn.addEventListener('click', () => exportQueryResults('csv'));
     if (exportJsonBtn) exportJsonBtn.addEventListener('click', () => exportQueryResults('json'));
     if (exportParquetBtn) exportParquetBtn.addEventListener('click', () => exportQueryResults('parquet'));
+    if (cleanDatasetsBtn) cleanDatasetsBtn.addEventListener('click', cleanDatasets);
+    if (fillMissingBtn) fillMissingBtn.addEventListener('click', fillMissingData);
     if (useMergedBtn) {
         useMergedBtn.addEventListener('click', async () => {
             try {
@@ -1006,10 +1010,14 @@ async function stopScraping() {
 }
 
 async function scrapeSpecificProfile() {
-    const url = document.getElementById('profile-url').value.trim();
+    let url = document.getElementById('profile-url').value.trim();
     if (!url) {
         showToast('Please enter a profile URL', 'error');
         return;
+    }
+    // Accept numeric IDs and convert to profile URL
+    if (/^\d+$/.test(url)) {
+        url = `https://www.personality-database.com/profile/${url}`;
     }
     
     try {
@@ -1033,22 +1041,24 @@ async function scrapeSpecificProfile() {
         const result = await response.json();
         
         if (result.success) {
-            showToast('Profile scraped successfully!', 'success');
-            // Add scraped profile to current data
-            if (result.name) {
-                const newProfile = {
-                    cid: Date.now().toString(),
-                    name: result.name || 'Unknown',
-                    mbti: result.mbti || '',
-                    socionics: result.socionics || '',
-                    description: result.description || '',
-                    category: 'Scraped Profile',
-                    url: url
-                };
-                currentData.push(newProfile);
-                filteredData = [...currentData];
+            showToast('Profile scraped successfully! Reloading data...', 'success');
+            // Reload profiles via API and refresh views
+            try {
+                const resp = await fetch('/api/data/profiles');
+                const data = await resp.json();
+                if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
+                currentData = data.profiles || [];
+                filteredData = dedupeByCid(currentData);
+                // Refresh KNN vectors to include newly scraped items
+                try {
+                    knnSearch.setProfiles(currentData);
+                    await knnSearch.loadVectors();
+                } catch {}
                 renderResults();
-                showToast(`Added profile: ${result.name}`, 'success');
+                // Optionally refresh dataset selector (cleaned or merged outputs may have changed)
+                try { await refreshDatasetSelect(); } catch {}
+            } catch (e) {
+                console.warn('Post-scrape reload failed:', e);
             }
         } else {
             throw new Error(result.error || 'Unknown error');
@@ -1328,6 +1338,98 @@ function download(url, filename) {
     const a = document.createElement('a');
     a.href = url; a.download = filename; a.style.display = 'none';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+// Trigger backend cleaning, refresh selector, and let user load a cleaned file
+async function cleanDatasets() {
+    try {
+        showLoading(true);
+        const btn = document.getElementById('clean-datasets-btn');
+        const status = document.getElementById('clean-status');
+        if (btn) btn.disabled = true;
+        if (status) status.textContent = 'Cleaning…';
+        const resp = await fetch('/api/data/clean-datasets', { method: 'POST' });
+        const json = await resp.json();
+        if (!resp.ok || !json.success) throw new Error(json.error || 'Cleaning failed');
+        showToast('Datasets cleaned; outputs saved under Exports', 'success');
+        await refreshDatasetSelect();
+        try {
+            const parts = (json.results || []).map(r => {
+                const name = (r.out || '').split('/').pop();
+                return `${name || 'out'}: ${r.rows || 0}`;
+            });
+            if (status) status.textContent = parts.length ? `Cleaned (${parts.join(' | ')})` : 'Cleaned';
+        } catch {}
+        // Attempt to pick the cleaned merged file if present
+        const results = Array.isArray(json.results) ? json.results : [];
+        const merged = results.find(r => r.out && r.out.includes('pdb_profiles_merged_cleaned_')) || results[0];
+        if (merged && merged.out) {
+            const rel = merged.out.split('/data/bot_store/')[1] || merged.out.split('/dataset/')[1] || '';
+            const path = rel ? '/dataset/' + rel.replace(/^.*bot_store\//, '') : '/dataset/exports/' + (merged.out.split('/').pop() || '');
+            const loadNow = confirm('Load cleaned dataset now?');
+            if (loadNow) {
+                await switchDataset(path);
+            }
+        }
+    } catch (e) {
+        console.error('Clean datasets failed:', e);
+        showToast('Clean failed: ' + e.message, 'error');
+        const status = document.getElementById('clean-status');
+        if (status) status.textContent = 'Clean failed';
+    } finally {
+        showLoading(false);
+        const btn = document.getElementById('clean-datasets-btn');
+        if (btn) btn.disabled = false;
+    }
+}
+
+// Backfill missing fields by invoking backend orchestrator (v1/v2 scrape + re-export)
+async function fillMissingData() {
+    try {
+        showLoading(true);
+        const btn = document.getElementById('fill-missing-btn');
+        const status = document.getElementById('fill-status');
+        if (btn) btn.disabled = true;
+        if (status) status.textContent = 'Backfilling v1…';
+        const resp = await fetch('/api/data/fill-missing', { method: 'POST' });
+        const json = await resp.json();
+        if (!resp.ok || !json.success) throw new Error(json.error || 'Backfill failed');
+        showToast(`Backfill complete: ${json.summary || ''}`, 'success');
+        if (status) status.textContent = 'Exporting normalized…';
+        // Refresh selector and dataset status
+        try { await refreshDatasetSelect(); } catch {}
+        try { await reloadDatasets(); } catch {}
+        // Refresh profiles + vectors for KNN alignment
+        try {
+            const resp = await fetch('/api/data/profiles');
+            const data = await resp.json();
+            if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
+            currentData = data.profiles || [];
+            knnSearch.setProfiles(currentData);
+            await knnSearch.loadVectors();
+            filteredData = dedupeByCid(currentData);
+            renderResults();
+        } catch {}
+        if (status) status.textContent = 'Done';
+        // Offer to switch to normalized parquet for queries
+        try {
+            const ok = confirm('Switch Query Builder to normalized dataset now?');
+            if (ok) {
+                await switchDataset('/dataset/pdb_profiles_normalized.parquet');
+                const select = document.getElementById('dataset-select');
+                if (select) { select.value = '/dataset/pdb_profiles_normalized.parquet'; localStorage.setItem('viewer.dataset.path', '/dataset/pdb_profiles_normalized.parquet'); }
+            }
+        } catch {}
+    } catch (e) {
+        console.error('Fill missing failed:', e);
+        showToast('Fill missing failed: ' + e.message, 'error');
+        const status = document.getElementById('fill-status');
+        if (status) status.textContent = 'Failed';
+    } finally {
+        showLoading(false);
+        const btn = document.getElementById('fill-missing-btn');
+        if (btn) btn.disabled = false;
+    }
 }
 
 // Refresh dataset selector options from /dataset while preserving selection when possible

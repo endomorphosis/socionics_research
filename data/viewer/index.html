@@ -198,6 +198,10 @@
                             <button id="export-csv-btn" title="Export last results as CSV">Export CSV</button>
                             <button id="export-json-btn" title="Export last results as JSON">Export JSON</button>
                             <button id="export-parquet-btn" title="Export last results as Parquet">Export Parquet</button>
+                            <button id="clean-datasets-btn" title="Deduplicate and drop empty rows; saves cleaned copies under Exports">Clean Datasets</button>
+                            <span id="clean-status" class="stats" style="margin-left:0.5rem;"></span>
+                            <button id="fill-missing-btn" title="Backfill missing fields via v1/v2 scrape and re-export normalized parquet">Fill Missing</button>
+                            <span id="fill-status" class="stats" style="margin-left:0.5rem;"></span>
                             <label style="margin-left:0.5rem; font-size:0.85rem; color:#4a5568;">Dataset:</label>
                             <select id="dataset-select" title="Choose which parquet to query" style="min-width: 220px;">
                                 <option value="/dataset/pdb_profiles.parquet">Main (pdb_profiles.parquet)</option>
