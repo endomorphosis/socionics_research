@@ -9,6 +9,8 @@ let currentPage = 1;
 let itemsPerPage = 50;
 let isCardView = false;
 let lastQueryRows = [];
+let currentScraperProcessId = null;
+let scraperEventSource = null;
 
 // DOM elements
 const elements = {
@@ -39,6 +41,7 @@ async function init() {
         showLoading(true);
     await loadSampleData();
         setupEventListeners();
+        try { await updateScraperAvailability(); } catch {}
         showPanel('search-panel');
         showToast('Personality Database Viewer initialized successfully', 'success');
     } catch (error) {
@@ -307,6 +310,26 @@ function setupScraperPanelListeners() {
     });
     stopScraperBtn.addEventListener('click', stopScraping);
     scrapeProfileBtn.addEventListener('click', scrapeSpecificProfile);
+}
+
+// Disable unsupported scraper engines based on backend availability
+async function updateScraperAvailability() {
+    const select = document.getElementById('scraper-browser');
+    if (!select) return;
+    const resp = await fetch('/api/scraper/available');
+    if (!resp.ok) return;
+    const info = await resp.json();
+    const pw = !!info.playwright;
+    const se = !!info.selenium;
+    for (const opt of Array.from(select.options)) {
+        if (opt.value === 'playwright') opt.disabled = !pw;
+        if (opt.value === 'selenium') opt.disabled = !se;
+    }
+    // If current selection is disabled, pick first enabled
+    if (select.selectedOptions[0]?.disabled) {
+        const enabled = Array.from(select.options).find(o => !o.disabled);
+        if (enabled) select.value = enabled.value;
+    }
 }
 
 // Setup query panel event listeners
@@ -960,11 +983,15 @@ async function startScraping(mode) {
             maxPages: parseInt(document.getElementById('scraper-pages').value) || 10,
             delay: parseInt(document.getElementById('scraper-delay').value) || 1000,
             browser: document.getElementById('scraper-browser').value || 'playwright',
-            url: document.getElementById('scraper-url').value || 'https://www.personality-database.com'
+            url: document.getElementById('scraper-url').value || 'https://www.personality-database.com',
+            rpm: parseInt(document.getElementById('scraper-rpm')?.value || '60') || 60,
+            concurrency: parseInt(document.getElementById('scraper-concurrency')?.value || '3') || 3,
+            timeout: parseInt(document.getElementById('scraper-timeout')?.value || '20') || 20
         };
 
         showToast(`Starting ${mode} scraping...`, 'info');
         updateScraperStatus('running');
+        resetScraperProgressUI();
         
         const response = await fetch('/api/scraper/start', {
             method: 'POST',
@@ -982,7 +1009,8 @@ async function startScraping(mode) {
         
         if (result.success) {
             showToast(`Scraper started successfully! Process ID: ${result.processId}`, 'success');
-            startProgressMonitoring(result.processId);
+            currentScraperProcessId = result.processId;
+            startProgressMonitoring(currentScraperProcessId);
         } else {
             throw new Error(result.error || 'Unknown error');
         }
@@ -997,11 +1025,24 @@ async function startScraping(mode) {
 async function stopScraping() {
     try {
         showToast('Stopping scraper...', 'info');
-        
-        // This would call the API to stop the current scraper process
-        // For now, just update the UI
+        if (!currentScraperProcessId) {
+            updateScraperStatus('idle');
+            showToast('No active scraper process', 'info');
+            return;
+        }
+        const resp = await fetch('/api/scraper/stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ processId: currentScraperProcessId })
+        });
+        const json = await resp.json();
+        if (!resp.ok || !json.success) throw new Error(json.error || 'Stop failed');
+        if (scraperEventSource) { try { scraperEventSource.close(); } catch {} scraperEventSource = null; }
+        currentScraperProcessId = null;
         updateScraperStatus('idle');
         showToast('Scraper stopped', 'success');
+        const progressText = document.getElementById('progress-text');
+        if (progressText) progressText.textContent = 'Stopped';
         
     } catch (error) {
         console.error('Error stopping scraper:', error);
@@ -1094,35 +1135,86 @@ function updateScraperStatus(status) {
 
 // Start monitoring progress (placeholder for SSE)
 function startProgressMonitoring(processId) {
-    // This would set up Server-Sent Events to monitor progress
-    console.log(`Starting progress monitoring for process ${processId}`);
-    
-    // For demo, simulate some progress
-    let progress = 0;
-    const interval = setInterval(() => {
-        progress += Math.random() * 10;
-        if (progress >= 100) {
-            progress = 100;
-            clearInterval(interval);
-            updateScraperStatus('idle');
-            showToast('Scraping completed!', 'success');
-        }
-        
+    if (scraperEventSource) { try { scraperEventSource.close(); } catch {} scraperEventSource = null; }
+    const url = `/api/scraper/progress/${processId}`;
+    try {
+        const es = new EventSource(url);
+        scraperEventSource = es;
         const progressFill = document.getElementById('progress-fill');
         const progressText = document.getElementById('progress-text');
-        
-        if (progressFill) {
-            progressFill.style.width = `${progress}%`;
-        }
-        
-        if (progressText) {
-            progressText.textContent = `Progress: ${Math.round(progress)}%`;
-        }
-        
-        // Add some log messages
-        addScraperLog(`Processing... ${Math.round(progress)}% complete`);
-        
-    }, 2000);
+        es.onmessage = (evt) => {
+            let data = null;
+            try { data = JSON.parse(evt.data); } catch { return; }
+            if (!data || !data.type) return;
+            if (data.type === 'log') {
+                if (data.message) addScraperLog(data.message);
+                return;
+            }
+            if (data.type === 'status') {
+                if (data.status) updateScraperStatus(data.status);
+                return;
+            }
+            if (data.type === 'progress') {
+                if (data.status) updateScraperStatus(data.status);
+                const cur = Number(data.current || 0);
+                const tot = Number(data.total || 0);
+                let pct = 0;
+                if (tot > 0) pct = Math.max(0, Math.min(100, Math.round((cur / tot) * 100)));
+                // If total unknown, increment text only
+                if (progressFill && tot > 0) progressFill.style.width = `${pct}%`;
+                if (progressText) progressText.textContent = tot > 0 ? `Progress: ${pct}% (${cur}/${tot})` : `Working… ${cur || ''}`;
+                return;
+            }
+            if (data.type === 'complete') {
+                const status = data.status || 'completed';
+                updateScraperStatus('idle');
+                if (progressText) progressText.textContent = status === 'completed' ? 'Completed' : 'Failed';
+                showToast(data.message || (status === 'completed' ? 'Scraping completed!' : 'Scraping failed'), status === 'completed' ? 'success' : 'error');
+                try { es.close(); } catch {}
+                scraperEventSource = null;
+                currentScraperProcessId = null;
+                // Reload data after completion
+                postScrapeReload().catch(() => {});
+                return;
+            }
+            if (data.type === 'error') {
+                showToast(data.error || 'Scraper progress error', 'error');
+            }
+        };
+        es.onerror = () => {
+            try { es.close(); } catch {}
+            scraperEventSource = null;
+        };
+    } catch (e) {
+        console.warn('Failed to open progress stream:', e);
+    }
+}
+
+function resetScraperProgressUI() {
+    const progressFill = document.getElementById('progress-fill');
+    const progressText = document.getElementById('progress-text');
+    const logsElement = document.getElementById('scraper-logs');
+    if (progressFill) progressFill.style.width = '0%';
+    if (progressText) progressText.textContent = 'Starting…';
+    if (logsElement) logsElement.textContent = '';
+}
+
+async function postScrapeReload() {
+    try {
+        // Refresh profiles
+        const resp = await fetch('/api/data/profiles');
+        const data = await resp.json();
+        if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
+        currentData = data.profiles || [];
+        filteredData = dedupeByCid(currentData);
+        // Refresh KNN vectors
+        try { knnSearch.setProfiles(currentData); await knnSearch.loadVectors(); } catch {}
+        renderResults();
+        // Refresh dataset selector
+        try { await refreshDatasetSelect(); } catch {}
+    } catch (e) {
+        console.warn('Post-scrape reload failed:', e);
+    }
 }
 
 // Add log to scraper logs
@@ -1391,7 +1483,12 @@ async function fillMissingData() {
         const status = document.getElementById('fill-status');
         if (btn) btn.disabled = true;
         if (status) status.textContent = 'Backfilling v1…';
-        const resp = await fetch('/api/data/fill-missing', { method: 'POST' });
+        const knobs = {
+            rpm: parseInt(document.getElementById('scraper-rpm')?.value || '0') || 0,
+            concurrency: parseInt(document.getElementById('scraper-concurrency')?.value || '0') || 0,
+            timeout: parseInt(document.getElementById('scraper-timeout')?.value || '0') || 0
+        };
+        const resp = await fetch('/api/data/fill-missing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(knobs) });
         const json = await resp.json();
         if (!resp.ok || !json.success) throw new Error(json.error || 'Backfill failed');
         showToast(`Backfill complete: ${json.summary || ''}`, 'success');

@@ -111,7 +111,7 @@ app.get('/', async (req, res) => {
 // Start scraping process
 app.post('/api/scraper/start', async (req, res) => {
     try {
-        const { mode, maxPages, delay, browser, url } = req.body;
+    const { mode, maxPages, delay, browser, url, rpm, concurrency, timeout } = req.body;
         
         // Generate process ID
         const processId = Date.now().toString();
@@ -131,40 +131,58 @@ app.post('/api/scraper/start', async (req, res) => {
         if (mode === 'full') {
             // Use the existing PDB CLI for full scraping
             command = PYTHON_EXEC;
-            commandArgs = [
-                '-m', 'bot.pdb_cli', 
+            // Build args with correct argparse ordering: global flags BEFORE subcommand
+            const globalArgs = ['-m', 'bot.pdb_cli'];
+            // Global tuning flags
+            globalArgs.push('--rpm', String(rpm || 60));
+            globalArgs.push('--concurrency', String(concurrency || 3));
+            if (timeout) { globalArgs.push('--timeout', String(timeout)); }
+            // Global headers-file (if present)
+            const headerCandidates = [
+                path.resolve(__dirname, '../../data/bot_store/headers.json'),
+                path.resolve(__dirname, '../../.secrets/pdb_headers.json')
+            ];
+            let v1v2HeaderJson = null;
+            for (const hp of headerCandidates) {
+                try {
+                    await fs.access(hp);
+                    globalArgs.push('--headers-file', hp);
+                    try {
+                        const hdrJson = await fs.readFile(hp, 'utf8');
+                        if (hdrJson && hdrJson.trim().startsWith('{')) {
+                            v1v2HeaderJson = hdrJson;
+                        }
+                    } catch {}
+                    break;
+                } catch {}
+            }
+            const subArgs = [
                 'scan-all',
                 '--pages', maxPages.toString(),
-                '--rpm', '60',
-                '--concurrency', '3',
                 '--auto-embed',
                 '--auto-index'
             ];
-            
-            // Add headers if available
-            const headerCandidates = [
-                path.resolve(__dirname, '../../data/bot_store/headers.json'),
-                path.resolve(__dirname, '../../.secrets/pdb_headers.json')
-            ];
-            for (const hp of headerCandidates) {
-                try { await fs.access(hp); commandArgs.push('--headers-file', hp); break; } catch {}
+            // Subparser-specific headers for optional v1 scraping during scan-all
+            if (v1v2HeaderJson) {
+                subArgs.push('--v1-headers', v1v2HeaderJson);
+                subArgs.push('--v2-headers', v1v2HeaderJson);
             }
+            commandArgs = [...globalArgs, ...subArgs];
         } else if (mode === 'incremental') {
             // Incremental scraping
             command = PYTHON_EXEC;
-            commandArgs = [
-                '-m', 'bot.pdb_cli',
-                'follow-hot',
-                '--pages', Math.min(maxPages, 5).toString(),
-                '--auto-embed'
-            ];
+            // Global flags and headers-file first
+            const globalArgs = ['-m', 'bot.pdb_cli', '--rpm', String(rpm || 60), '--concurrency', String(concurrency || 3)];
+            if (timeout) { globalArgs.push('--timeout', String(timeout)); }
             const headerCandidates = [
                 path.resolve(__dirname, '../../data/bot_store/headers.json'),
                 path.resolve(__dirname, '../../.secrets/pdb_headers.json')
             ];
             for (const hp of headerCandidates) {
-                try { await fs.access(hp); commandArgs.push('--headers-file', hp); break; } catch {}
+                try { await fs.access(hp); globalArgs.push('--headers-file', hp); break; } catch {}
             }
+            const subArgs = ['follow-hot', '--pages', Math.min(maxPages, 5).toString(), '--auto-embed'];
+            commandArgs = [...globalArgs, ...subArgs];
         }
 
         console.log(`Starting scraper: ${command} ${commandArgs.join(' ')}`);
@@ -190,9 +208,42 @@ app.post('/api/scraper/start', async (req, res) => {
 
         // Handle process output
         scraperProcess.stdout.on('data', (data) => {
-            const log = data.toString();
-            addProcessLog(processId, log);
-            console.log(`[${processId}] ${log}`);
+            const text = data.toString();
+            // Log each line separately for better SSE granularity
+            const lines = text.split(/\r?\n/).filter(Boolean);
+            for (const line of lines) {
+                addProcessLog(processId, line);
+                // Lightweight progress parsing
+                try {
+                    const info = activeProcesses.get(processId);
+                    if (info) {
+                        const prog = info.progress || { current: 0, total: 0 };
+                        // upserted new=12 updated=3
+                        let m = line.match(/upserted\s+new\s*=\s*(\d+)\s+updated\s*=\s*(\d+)/i);
+                        if (m) {
+                            const inc = (parseInt(m[1], 10) || 0) + (parseInt(m[2], 10) || 0);
+                            prog.current = (prog.current || 0) + inc;
+                            info.progress = prog;
+                        }
+                        // Done. Upserted total rows: 123
+                        m = line.match(/Upserted\s+total\s+rows:\s*(\d+)/i);
+                        if (m) {
+                            const tot = parseInt(m[1], 10) || 0;
+                            prog.current = tot;
+                            if ((prog.total || 0) < tot) prog.total = tot;
+                            info.progress = prog;
+                        }
+                        // Dumped 100 profiles ...
+                        m = line.match(/Dumped\s+(\d+)\s+profiles/i);
+                        if (m) {
+                            const c = parseInt(m[1], 10) || 0;
+                            prog.current = c;
+                            info.progress = prog;
+                        }
+                    }
+                } catch {}
+                console.log(`[${processId}] ${line}`);
+            }
         });
 
         scraperProcess.stderr.on('data', (data) => {
@@ -694,6 +745,9 @@ app.post('/api/data/fill-missing', async (req, res) => {
         const botPath = path.resolve(__dirname, '../../bot');
         const env = { ...process.env, PYTHONPATH: path.join(botPath, 'src') };
         const steps = [];
+        const rpm = (req.body && req.body.rpm) ? Number(req.body.rpm) : null;
+        const concurrency = (req.body && req.body.concurrency) ? Number(req.body.concurrency) : null;
+        const timeout = (req.body && req.body.timeout) ? Number(req.body.timeout) : null;
         // Try to include headers file for better API access
         const headerCandidates = [
             path.resolve(__dirname, '../../data/bot_store/headers.json'),
@@ -701,10 +755,22 @@ app.post('/api/data/fill-missing', async (req, res) => {
         ];
         let headerArgs = [];
         for (const hp of headerCandidates) {
-            try { await fs.access(hp); headerArgs = ['--v1-headers', await fs.readFile(hp, 'utf8')]; break; } catch {}
+            try {
+                await fs.access(hp);
+                const hdrJson = await fs.readFile(hp, 'utf8');
+                if (hdrJson && hdrJson.trim().startsWith('{')) {
+                    headerArgs = ['--v1-headers', hdrJson, '--v2-headers', hdrJson];
+                }
+                break;
+            } catch {}
         }
-        // Step 1: scrape v1 profiles for missing
-        steps.push({ cmd: PYTHON_EXEC, args: ['-m','bot.pdb_cli','scrape-v1-missing', '--max','0', '--auto-embed', '--auto-index', ...headerArgs] });
+    // Step 1: scrape v1 profiles for missing (include global tuning flags if provided)
+    const svmArgs = ['-m','bot.pdb_cli'];
+    if (rpm) { svmArgs.push('--rpm', String(rpm)); }
+    if (concurrency) { svmArgs.push('--concurrency', String(concurrency)); }
+    if (timeout) { svmArgs.push('--timeout', String(timeout)); }
+    svmArgs.push('scrape-v1-missing', '--max','0', '--auto-embed', '--auto-index', ...headerArgs);
+    steps.push({ cmd: PYTHON_EXEC, args: svmArgs });
         // Step 2: re-export normalized parquet
         steps.push({ cmd: PYTHON_EXEC, args: ['-m','bot.pdb_cli','export','--out', path.join(DATASET_DIR, 'pdb_profiles_normalized.parquet')] });
         for (const step of steps) {
