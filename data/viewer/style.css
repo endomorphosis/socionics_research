@@ -727,3 +727,142 @@ button:disabled {
 .danger:hover {
     background: #c53030 !important;
 }
+
+/* Enhanced Scraper Features */
+.scraper-session, .data-consolidation, .api-feedback {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    border: 1px solid #e2e8f0;
+}
+
+.scraper-session h3, .data-consolidation h3, .api-feedback h3 {
+    color: #2d3748;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid #667eea;
+    padding-bottom: 0.5rem;
+}
+
+.session-controls, .consolidation-actions, .feedback-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.session-buttons, .consolidation-actions, .feedback-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.session-status {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.session-status.success {
+    background: #c6f6d5;
+    color: #276749;
+    border: 1px solid #9ae6b4;
+}
+
+.session-status.error {
+    background: #fed7d7;
+    color: #c53030;
+    border: 1px solid #fbb6ce;
+}
+
+.session-status.warning {
+    background: #fefcbf;
+    color: #744210;
+    border: 1px solid #f6e05e;
+}
+
+.data-health {
+    background: white;
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+    border: 1px solid #e2e8f0;
+}
+
+#health-status {
+    font-weight: bold;
+}
+
+#health-status.healthy {
+    color: #38a169;
+}
+
+#health-status.degraded {
+    color: #d69e2e;
+}
+
+#health-status.critical {
+    color: #e53e3e;
+}
+
+.consolidation-progress {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: white;
+    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+}
+
+.feedback-results {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 1rem;
+    margin-top: 1rem;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+#feedback-content {
+    margin-bottom: 1rem;
+}
+
+.feedback-item {
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+    background: #f8f9fa;
+}
+
+.feedback-item.flagged {
+    background: #fef5e7;
+    border-color: #f6e05e;
+}
+
+.feedback-item.approved {
+    background: #f0fff4;
+    border-color: #9ae6b4;
+}
+
+.feedback-item.rejected {
+    background: #fed7d7;
+    border-color: #fbb6ce;
+}
+
+.warning {
+    background: #d69e2e !important;
+}
+
+.warning:hover {
+    background: #b7791f !important;
+}
+
+.success {
+    background: #38a169 !important;
+}
+
+.success:hover {
+    background: #2f855a !important;
+}
+}

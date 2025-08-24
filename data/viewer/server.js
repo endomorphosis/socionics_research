@@ -1801,6 +1801,414 @@ except Exception as e:
     }
 });
 
+// Enhanced Scraper Integration API Endpoints
+
+// Session Management Endpoints
+const SESSION_FILE = path.join(DATASET_DIR, 'session_data.json');
+
+app.post('/api/session/save', async (req, res) => {
+    try {
+        const sessionData = req.body;
+        await fs.writeFile(SESSION_FILE, JSON.stringify(sessionData, null, 2));
+        res.json({ success: true, message: 'Session saved' });
+    } catch (error) {
+        console.error('Error saving session:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/session/load', async (req, res) => {
+    try {
+        const data = await fs.readFile(SESSION_FILE, 'utf8');
+        const sessionData = JSON.parse(data);
+        res.json(sessionData);
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            res.json({ cookies: {}, headers: {} });
+        } else {
+            console.error('Error loading session:', error);
+            res.status(500).json({ success: false, error: error.message });
+        }
+    }
+});
+
+app.post('/api/session/clear', async (req, res) => {
+    try {
+        await fs.unlink(SESSION_FILE).catch(() => {}); // Ignore file not found
+        res.json({ success: true, message: 'Session cleared' });
+    } catch (error) {
+        console.error('Error clearing session:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/session/test', async (req, res) => {
+    try {
+        const { cookies, headers } = req.body;
+        
+        // Test session by making a simple API call to the personality database
+        const testHeaders = {
+            'User-Agent': 'Mozilla/5.0 (compatible; DataViewer/1.0)',
+            ...headers
+        };
+        
+        if (cookies && Object.keys(cookies).length > 0) {
+            testHeaders['Cookie'] = Object.entries(cookies)
+                .map(([key, value]) => `${key}=${value}`)
+                .join('; ');
+        }
+
+        // Simple test request to check if session is valid
+        const testResponse = await fetch('https://api.personality-database.com/api/v1/profiles', {
+            method: 'GET',
+            headers: testHeaders,
+            timeout: 10000
+        }).catch(() => null);
+
+        const valid = testResponse && testResponse.status < 400;
+        res.json({ 
+            valid, 
+            status: testResponse?.status || 'No response',
+            message: valid ? 'Session appears valid' : 'Session may be invalid or expired'
+        });
+        
+    } catch (error) {
+        console.error('Error testing session:', error);
+        res.json({ valid: false, error: error.message });
+    }
+});
+
+// Data Analysis and Consolidation Endpoints
+app.post('/api/data/analyze', async (req, res) => {
+    try {
+        const command = PYTHON_EXEC;
+        const args = [
+            path.join(__dirname, 'analyze_data.py'),
+            DATASET_DIR
+        ];
+
+        const analysisProcess = spawn(command, args, {
+            cwd: __dirname,
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        let output = '';
+        let error = '';
+
+        analysisProcess.stdout.on('data', (data) => { output += data.toString(); });
+        analysisProcess.stderr.on('data', (data) => { error += data.toString(); });
+
+        analysisProcess.on('close', (code) => {
+            if (code === 0) {
+                try {
+                    const result = JSON.parse(output);
+                    res.json(result);
+                } catch (parseError) {
+                    res.json({
+                        totalProfiles: 0,
+                        totalVectors: 0,
+                        cacheEntries: 0,
+                        duplicates: 0,
+                        corruption: 0,
+                        message: 'Analysis completed but could not parse results'
+                    });
+                }
+            } else {
+                res.status(500).json({ error: error || 'Analysis failed' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error running data analysis:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/data/consolidate/:type', async (req, res) => {
+    try {
+        const { type } = req.params;
+        const validTypes = ['profiles', 'vectors', 'cache'];
+        
+        if (!validTypes.includes(type)) {
+            return res.status(400).json({ error: `Invalid consolidation type: ${type}` });
+        }
+
+        const command = PYTHON_EXEC;
+        const args = [
+            path.join(__dirname, 'consolidate_data.py'),
+            type,
+            DATASET_DIR
+        ];
+
+        const consolidateProcess = spawn(command, args, {
+            cwd: __dirname,
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        let output = '';
+        let error = '';
+
+        consolidateProcess.stdout.on('data', (data) => { output += data.toString(); });
+        consolidateProcess.stderr.on('data', (data) => { error += data.toString(); });
+
+        consolidateProcess.on('close', (code) => {
+            if (code === 0) {
+                // Clear caches after successful consolidation
+                profilesCache.mtimeMs = -1;
+                vectorsCache.mtimeMs = -1;
+                res.json({ success: true, message: `${type} consolidation completed`, output });
+            } else {
+                res.status(500).json({ success: false, error: error || 'Consolidation failed' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error running consolidation:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/data/cleanup-duplicates', async (req, res) => {
+    try {
+        const command = PYTHON_EXEC;
+        const args = [
+            path.join(__dirname, 'cleanup_duplicates.py'),
+            DATASET_DIR
+        ];
+
+        const cleanupProcess = spawn(command, args, {
+            cwd: __dirname,
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        let output = '';
+        let error = '';
+
+        cleanupProcess.stdout.on('data', (data) => { output += data.toString(); });
+        cleanupProcess.stderr.on('data', (data) => { error += data.toString(); });
+
+        cleanupProcess.on('close', (code) => {
+            if (code === 0) {
+                try {
+                    const result = JSON.parse(output);
+                    profilesCache.mtimeMs = -1;
+                    vectorsCache.mtimeMs = -1;
+                    res.json(result);
+                } catch (parseError) {
+                    res.json({ removedCount: 0, message: 'Cleanup completed' });
+                }
+            } else {
+                res.status(500).json({ error: error || 'Cleanup failed' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error running cleanup:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/data/export-unified', async (req, res) => {
+    try {
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-');
+        const filename = `unified_dataset_${timestamp}.parquet`;
+        
+        const command = PYTHON_EXEC;
+        const args = [
+            path.join(__dirname, 'export_unified.py'),
+            DATASET_DIR,
+            filename
+        ];
+
+        const exportProcess = spawn(command, args, {
+            cwd: __dirname,
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        let output = '';
+        let error = '';
+
+        exportProcess.stdout.on('data', (data) => { output += data.toString(); });
+        exportProcess.stderr.on('data', (data) => { error += data.toString(); });
+
+        exportProcess.on('close', (code) => {
+            if (code === 0) {
+                res.json({ success: true, filename, message: 'Unified dataset exported' });
+            } else {
+                res.status(500).json({ success: false, error: error || 'Export failed' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error exporting unified dataset:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// API Feedback and Quality Control Endpoints
+app.get('/api/data/latest', async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 10;
+        
+        const command = PYTHON_EXEC;
+        const args = [
+            path.join(__dirname, 'get_latest_results.py'),
+            DATASET_DIR,
+            limit.toString()
+        ];
+
+        const latestProcess = spawn(command, args, {
+            cwd: __dirname,
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        let output = '';
+        let error = '';
+
+        latestProcess.stdout.on('data', (data) => { output += data.toString(); });
+        latestProcess.stderr.on('data', (data) => { error += data.toString(); });
+
+        latestProcess.on('close', (code) => {
+            if (code === 0) {
+                try {
+                    const results = JSON.parse(output);
+                    res.json({ results });
+                } catch (parseError) {
+                    res.json({ results: [] });
+                }
+            } else {
+                res.status(500).json({ error: error || 'Failed to get latest results' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error getting latest results:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/data/flag-invalid', async (req, res) => {
+    try {
+        const command = PYTHON_EXEC;
+        const args = [
+            path.join(__dirname, 'flag_invalid.py'),
+            DATASET_DIR
+        ];
+
+        const flagProcess = spawn(command, args, {
+            cwd: __dirname,
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        let output = '';
+        let error = '';
+
+        flagProcess.stdout.on('data', (data) => { output += data.toString(); });
+        flagProcess.stderr.on('data', (data) => { error += data.toString(); });
+
+        flagProcess.on('close', (code) => {
+            if (code === 0) {
+                try {
+                    const result = JSON.parse(output);
+                    res.json(result);
+                } catch (parseError) {
+                    res.json({ flaggedCount: 0 });
+                }
+            } else {
+                res.status(500).json({ error: error || 'Flagging failed' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error flagging invalid entries:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/data/validate-quality', async (req, res) => {
+    try {
+        const command = PYTHON_EXEC;
+        const args = [
+            path.join(__dirname, 'validate_quality.py'),
+            DATASET_DIR
+        ];
+
+        const validateProcess = spawn(command, args, {
+            cwd: __dirname,
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        let output = '';
+        let error = '';
+
+        validateProcess.stdout.on('data', (data) => { output += data.toString(); });
+        validateProcess.stderr.on('data', (data) => { error += data.toString(); });
+
+        validateProcess.on('close', (code) => {
+            if (code === 0) {
+                try {
+                    const result = JSON.parse(output);
+                    res.json(result);
+                } catch (parseError) {
+                    res.json({ validCount: 0, invalidCount: 0 });
+                }
+            } else {
+                res.status(500).json({ error: error || 'Validation failed' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error validating quality:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/data/export-feedback', async (req, res) => {
+    try {
+        const timestamp = new Date().toISOString().slice(0, 10);
+        const filename = `feedback_report_${timestamp}.csv`;
+        const filepath = path.join(DATASET_DIR, 'exports', filename);
+        
+        // Ensure exports directory exists
+        await fs.mkdir(path.join(DATASET_DIR, 'exports'), { recursive: true });
+        
+        const command = PYTHON_EXEC;
+        const args = [
+            path.join(__dirname, 'export_feedback.py'),
+            DATASET_DIR,
+            filepath
+        ];
+
+        const exportProcess = spawn(command, args, {
+            cwd: __dirname,
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        let output = '';
+        let error = '';
+
+        exportProcess.stdout.on('data', (data) => { output += data.toString(); });
+        exportProcess.stderr.on('data', (data) => { error += data.toString(); });
+
+        exportProcess.on('close', (code) => {
+            if (code === 0) {
+                // Stream the file back to client
+                res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+                res.setHeader('Content-Type', 'text/csv');
+                
+                const fileStream = fssync.createReadStream(filepath);
+                fileStream.pipe(res);
+            } else {
+                res.status(500).json({ error: error || 'Export failed' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error exporting feedback report:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Start server with optional Vite middleware for single-port dev
 async function startServer() {
     if (process.env.NODE_ENV !== 'production') {

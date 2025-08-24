@@ -165,6 +165,27 @@
                             </select>
                         </div>
                     </div>
+
+                    <div class="scraper-session">
+                        <h3>Session & Cookie Management</h3>
+                        <div class="session-controls">
+                            <div class="form-row">
+                                <label for="session-cookies">Session Cookies:</label>
+                                <textarea id="session-cookies" rows="3" placeholder="Paste cookies in JSON format or as key=value; pairs"></textarea>
+                            </div>
+                            <div class="form-row">
+                                <label for="session-headers">Additional Headers:</label>
+                                <textarea id="session-headers" rows="3" placeholder='{"User-Agent": "...", "Referer": "...", "X-Custom": "..."}'></textarea>
+                            </div>
+                            <div class="session-buttons">
+                                <button id="save-session-btn" class="primary">Save Session</button>
+                                <button id="load-session-btn">Load Session</button>
+                                <button id="clear-session-btn" class="danger">Clear Session</button>
+                                <button id="test-session-btn">Test Session</button>
+                            </div>
+                        </div>
+                        <div id="session-status" class="session-status"></div>
+                    </div>
                     
                     <div class="scraper-actions">
                         <h3>Scraping Actions</h3>
@@ -178,6 +199,53 @@
                         <div id="specific-profile-input" style="display: none;">
                             <input type="text" id="profile-url" placeholder="Enter profile URL or ID">
                             <button id="scrape-profile-btn">Scrape</button>
+                        </div>
+                    </div>
+
+                    <div class="data-consolidation">
+                        <h3>Data Consolidation</h3>
+                        <div class="consolidation-info">
+                            <div id="data-health" class="data-health">
+                                <span>Data Health: </span><span id="health-status">Checking...</span>
+                            </div>
+                        </div>
+                        <div class="consolidation-actions">
+                            <button id="analyze-data-btn" class="primary">Analyze Data Integrity</button>
+                            <button id="consolidate-profiles-btn">Consolidate Profiles</button>
+                            <button id="consolidate-vectors-btn">Consolidate Embeddings</button>
+                            <button id="consolidate-cache-btn">Consolidate Cache</button>
+                            <button id="cleanup-duplicates-btn">Remove Duplicates</button>
+                            <button id="export-unified-btn" class="success">Export Unified Dataset</button>
+                        </div>
+                        <div id="consolidation-progress" class="consolidation-progress" style="display: none;">
+                            <div class="progress-bar">
+                                <div id="consolidation-fill" class="progress-fill"></div>
+                            </div>
+                            <div id="consolidation-text">Ready</div>
+                        </div>
+                    </div>
+
+                    <div class="api-feedback">
+                        <h3>API Results Feedback</h3>
+                        <div class="feedback-controls">
+                            <div class="form-row">
+                                <label for="feedback-batch-size">Results per batch:</label>
+                                <input type="number" id="feedback-batch-size" value="10" min="1" max="100">
+                            </div>
+                            <div class="feedback-actions">
+                                <button id="review-latest-btn" class="primary">Review Latest Results</button>
+                                <button id="flag-invalid-btn" class="warning">Flag Invalid Entries</button>
+                                <button id="validate-quality-btn">Validate Data Quality</button>
+                                <button id="export-feedback-btn">Export Feedback Report</button>
+                            </div>
+                        </div>
+                        <div id="feedback-results" class="feedback-results" style="display: none;">
+                            <div id="feedback-content"></div>
+                            <div class="feedback-actions">
+                                <button id="approve-batch-btn" class="success">Approve Batch</button>
+                                <button id="reject-batch-btn" class="danger">Reject Batch</button>
+                                <button id="next-batch-btn">Next Batch</button>
+                            </div>
                         </div>
                     </div>
                     

@@ -306,6 +306,7 @@ function setupScraperPanelListeners() {
     const scrapeProfileBtn = document.getElementById('scrape-profile-btn');
     const specificProfileInput = document.getElementById('specific-profile-input');
 
+    // Original scraper controls
     startFullScrapeBtn.addEventListener('click', () => startScraping('full'));
     startIncrementalScrapeBtn.addEventListener('click', () => startScraping('incremental'));
     scrapeSpecificBtn.addEventListener('click', () => {
@@ -313,6 +314,52 @@ function setupScraperPanelListeners() {
     });
     stopScraperBtn.addEventListener('click', stopScraping);
     scrapeProfileBtn.addEventListener('click', scrapeSpecificProfile);
+
+    // Session management controls
+    const saveSessionBtn = document.getElementById('save-session-btn');
+    const loadSessionBtn = document.getElementById('load-session-btn');
+    const clearSessionBtn = document.getElementById('clear-session-btn');
+    const testSessionBtn = document.getElementById('test-session-btn');
+
+    if (saveSessionBtn) saveSessionBtn.addEventListener('click', saveSession);
+    if (loadSessionBtn) loadSessionBtn.addEventListener('click', loadSession);
+    if (clearSessionBtn) clearSessionBtn.addEventListener('click', clearSession);
+    if (testSessionBtn) testSessionBtn.addEventListener('click', testSession);
+
+    // Data consolidation controls
+    const analyzeDataBtn = document.getElementById('analyze-data-btn');
+    const consolidateProfilesBtn = document.getElementById('consolidate-profiles-btn');
+    const consolidateVectorsBtn = document.getElementById('consolidate-vectors-btn');
+    const consolidateCacheBtn = document.getElementById('consolidate-cache-btn');
+    const cleanupDuplicatesBtn = document.getElementById('cleanup-duplicates-btn');
+    const exportUnifiedBtn = document.getElementById('export-unified-btn');
+
+    if (analyzeDataBtn) analyzeDataBtn.addEventListener('click', analyzeDataIntegrity);
+    if (consolidateProfilesBtn) consolidateProfilesBtn.addEventListener('click', () => consolidateData('profiles'));
+    if (consolidateVectorsBtn) consolidateVectorsBtn.addEventListener('click', () => consolidateData('vectors'));
+    if (consolidateCacheBtn) consolidateCacheBtn.addEventListener('click', () => consolidateData('cache'));
+    if (cleanupDuplicatesBtn) cleanupDuplicatesBtn.addEventListener('click', cleanupDuplicates);
+    if (exportUnifiedBtn) exportUnifiedBtn.addEventListener('click', exportUnifiedDataset);
+
+    // API feedback controls
+    const reviewLatestBtn = document.getElementById('review-latest-btn');
+    const flagInvalidBtn = document.getElementById('flag-invalid-btn');
+    const validateQualityBtn = document.getElementById('validate-quality-btn');
+    const exportFeedbackBtn = document.getElementById('export-feedback-btn');
+    const approveBatchBtn = document.getElementById('approve-batch-btn');
+    const rejectBatchBtn = document.getElementById('reject-batch-btn');
+    const nextBatchBtn = document.getElementById('next-batch-btn');
+
+    if (reviewLatestBtn) reviewLatestBtn.addEventListener('click', reviewLatestResults);
+    if (flagInvalidBtn) flagInvalidBtn.addEventListener('click', flagInvalidEntries);
+    if (validateQualityBtn) validateQualityBtn.addEventListener('click', validateDataQuality);
+    if (exportFeedbackBtn) exportFeedbackBtn.addEventListener('click', exportFeedbackReport);
+    if (approveBatchBtn) approveBatchBtn.addEventListener('click', () => processFeedbackBatch('approve'));
+    if (rejectBatchBtn) rejectBatchBtn.addEventListener('click', () => processFeedbackBatch('reject'));
+    if (nextBatchBtn) nextBatchBtn.addEventListener('click', loadNextFeedbackBatch);
+
+    // Initialize data health check
+    checkDataHealth();
 }
 
 // Disable unsupported scraper engines based on backend availability
@@ -2028,4 +2075,433 @@ function showBotStatus(message) {
     if (statusElement) {
         statusElement.textContent = message;
     }
+}
+
+// ===== Enhanced Scraper Features =====
+
+// Session Management Functions
+async function saveSession() {
+    try {
+        const cookies = document.getElementById('session-cookies').value;
+        const headers = document.getElementById('session-headers').value;
+        
+        const sessionData = {
+            cookies: cookies ? parseCookies(cookies) : {},
+            headers: headers ? JSON.parse(headers) : {}
+        };
+
+        const response = await fetch('/api/session/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sessionData)
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to save session: ${response.status}`);
+        }
+
+        const result = await response.json();
+        updateSessionStatus(result.success ? 'Session saved successfully' : 'Failed to save session', result.success ? 'success' : 'error');
+        
+    } catch (error) {
+        console.error('Error saving session:', error);
+        updateSessionStatus('Error saving session: ' + error.message, 'error');
+    }
+}
+
+async function loadSession() {
+    try {
+        const response = await fetch('/api/session/load');
+        if (!response.ok) {
+            throw new Error(`Failed to load session: ${response.status}`);
+        }
+
+        const sessionData = await response.json();
+        
+        if (sessionData.cookies) {
+            document.getElementById('session-cookies').value = formatCookies(sessionData.cookies);
+        }
+        if (sessionData.headers) {
+            document.getElementById('session-headers').value = JSON.stringify(sessionData.headers, null, 2);
+        }
+
+        updateSessionStatus('Session loaded successfully', 'success');
+        
+    } catch (error) {
+        console.error('Error loading session:', error);
+        updateSessionStatus('Error loading session: ' + error.message, 'error');
+    }
+}
+
+async function clearSession() {
+    try {
+        document.getElementById('session-cookies').value = '';
+        document.getElementById('session-headers').value = '';
+        
+        const response = await fetch('/api/session/clear', { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Failed to clear session: ${response.status}`);
+        }
+
+        updateSessionStatus('Session cleared', 'success');
+        
+    } catch (error) {
+        console.error('Error clearing session:', error);
+        updateSessionStatus('Error clearing session: ' + error.message, 'error');
+    }
+}
+
+async function testSession() {
+    try {
+        updateSessionStatus('Testing session...', 'warning');
+        
+        const cookies = document.getElementById('session-cookies').value;
+        const headers = document.getElementById('session-headers').value;
+        
+        const testData = {
+            cookies: cookies ? parseCookies(cookies) : {},
+            headers: headers ? JSON.parse(headers) : {}
+        };
+
+        const response = await fetch('/api/session/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(testData)
+        });
+
+        if (!response.ok) {
+            throw new Error(`Session test failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        updateSessionStatus(
+            result.valid ? 'Session is valid' : 'Session test failed: ' + (result.error || 'Unknown error'),
+            result.valid ? 'success' : 'error'
+        );
+        
+    } catch (error) {
+        console.error('Error testing session:', error);
+        updateSessionStatus('Error testing session: ' + error.message, 'error');
+    }
+}
+
+// Data Consolidation Functions
+async function analyzeDataIntegrity() {
+    try {
+        updateHealthStatus('Analyzing...', 'warning');
+        
+        const response = await fetch('/api/data/analyze', { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Analysis failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        let status = 'healthy';
+        let message = `${result.totalProfiles} profiles, ${result.totalVectors} vectors, ${result.cacheEntries} cache entries`;
+        
+        if (result.duplicates > 0 || result.corruption > 0) {
+            status = result.corruption > 10 ? 'critical' : 'degraded';
+            message += ` | Issues: ${result.duplicates} duplicates, ${result.corruption} corrupted`;
+        }
+        
+        updateHealthStatus(message, status);
+        
+    } catch (error) {
+        console.error('Error analyzing data:', error);
+        updateHealthStatus('Analysis failed: ' + error.message, 'critical');
+    }
+}
+
+async function consolidateData(type) {
+    try {
+        showConsolidationProgress(true);
+        updateConsolidationProgress(0, `Starting ${type} consolidation...`);
+        
+        const response = await fetch(`/api/data/consolidate/${type}`, { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Consolidation failed: ${response.status}`);
+        }
+
+        // Monitor consolidation progress
+        const result = await response.json();
+        if (result.processId) {
+            monitorConsolidationProgress(result.processId);
+        } else {
+            updateConsolidationProgress(100, `${type} consolidation completed`);
+            showToast(`${type.charAt(0).toUpperCase() + type.slice(1)} consolidation completed`, 'success');
+            showConsolidationProgress(false);
+        }
+        
+    } catch (error) {
+        console.error(`Error consolidating ${type}:`, error);
+        showToast(`${type} consolidation failed: ` + error.message, 'error');
+        showConsolidationProgress(false);
+    }
+}
+
+async function cleanupDuplicates() {
+    try {
+        showConsolidationProgress(true);
+        updateConsolidationProgress(0, 'Removing duplicates...');
+        
+        const response = await fetch('/api/data/cleanup-duplicates', { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Cleanup failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        updateConsolidationProgress(100, `Removed ${result.removedCount} duplicates`);
+        showToast(`Removed ${result.removedCount} duplicate entries`, 'success');
+        showConsolidationProgress(false);
+        
+    } catch (error) {
+        console.error('Error cleaning up duplicates:', error);
+        showToast('Duplicate cleanup failed: ' + error.message, 'error');
+        showConsolidationProgress(false);
+    }
+}
+
+async function exportUnifiedDataset() {
+    try {
+        showConsolidationProgress(true);
+        updateConsolidationProgress(0, 'Creating unified dataset...');
+        
+        const response = await fetch('/api/data/export-unified', { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Export failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        updateConsolidationProgress(100, 'Unified dataset created');
+        showToast(`Unified dataset exported: ${result.filename}`, 'success');
+        showConsolidationProgress(false);
+        
+    } catch (error) {
+        console.error('Error exporting unified dataset:', error);
+        showToast('Export failed: ' + error.message, 'error');
+        showConsolidationProgress(false);
+    }
+}
+
+// API Feedback Functions
+let currentFeedbackBatch = 0;
+let feedbackData = null;
+
+async function reviewLatestResults() {
+    try {
+        const batchSize = document.getElementById('feedback-batch-size').value || 10;
+        
+        const response = await fetch(`/api/data/latest?limit=${batchSize}`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch results: ${response.status}`);
+        }
+
+        feedbackData = await response.json();
+        currentFeedbackBatch = 0;
+        
+        displayFeedbackBatch();
+        document.getElementById('feedback-results').style.display = 'block';
+        
+    } catch (error) {
+        console.error('Error reviewing results:', error);
+        showToast('Failed to load results: ' + error.message, 'error');
+    }
+}
+
+async function flagInvalidEntries() {
+    try {
+        const response = await fetch('/api/data/flag-invalid', { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Failed to flag entries: ${response.status}`);
+        }
+
+        const result = await response.json();
+        showToast(`Flagged ${result.flaggedCount} invalid entries`, 'success');
+        
+    } catch (error) {
+        console.error('Error flagging entries:', error);
+        showToast('Failed to flag entries: ' + error.message, 'error');
+    }
+}
+
+async function validateDataQuality() {
+    try {
+        const response = await fetch('/api/data/validate-quality', { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Validation failed: ${response.status}`);
+        }
+
+        const result = await response.json();
+        showToast(`Quality check completed: ${result.validCount} valid, ${result.invalidCount} invalid`, 'info');
+        
+    } catch (error) {
+        console.error('Error validating quality:', error);
+        showToast('Quality validation failed: ' + error.message, 'error');
+    }
+}
+
+async function exportFeedbackReport() {
+    try {
+        const response = await fetch('/api/data/export-feedback', { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Export failed: ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `feedback_report_${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        
+        showToast('Feedback report exported', 'success');
+        
+    } catch (error) {
+        console.error('Error exporting feedback:', error);
+        showToast('Export failed: ' + error.message, 'error');
+    }
+}
+
+// Helper Functions
+function updateSessionStatus(message, type) {
+    const statusElement = document.getElementById('session-status');
+    if (statusElement) {
+        statusElement.textContent = message;
+        statusElement.className = `session-status ${type}`;
+    }
+}
+
+function updateHealthStatus(message, status) {
+    const healthElement = document.getElementById('health-status');
+    if (healthElement) {
+        healthElement.textContent = message;
+        healthElement.className = status;
+    }
+}
+
+function checkDataHealth() {
+    // Initial health check when page loads
+    setTimeout(analyzeDataIntegrity, 1000);
+}
+
+function showConsolidationProgress(show) {
+    const progressElement = document.getElementById('consolidation-progress');
+    if (progressElement) {
+        progressElement.style.display = show ? 'block' : 'none';
+    }
+}
+
+function updateConsolidationProgress(percent, message) {
+    const fillElement = document.getElementById('consolidation-fill');
+    const textElement = document.getElementById('consolidation-text');
+    
+    if (fillElement) fillElement.style.width = `${percent}%`;
+    if (textElement) textElement.textContent = message;
+}
+
+function monitorConsolidationProgress(processId) {
+    // Monitor long-running consolidation process
+    const eventSource = new EventSource(`/api/data/consolidate/progress/${processId}`);
+    
+    eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        updateConsolidationProgress(data.progress, data.message);
+        
+        if (data.complete) {
+            eventSource.close();
+            showConsolidationProgress(false);
+            showToast('Consolidation completed', 'success');
+        }
+    };
+    
+    eventSource.onerror = () => {
+        eventSource.close();
+        showConsolidationProgress(false);
+        showToast('Consolidation monitoring failed', 'error');
+    };
+}
+
+function displayFeedbackBatch() {
+    if (!feedbackData || !feedbackData.results) return;
+    
+    const contentElement = document.getElementById('feedback-content');
+    if (!contentElement) return;
+    
+    const results = feedbackData.results;
+    const startIdx = currentFeedbackBatch * 5;  // 5 items per batch
+    const endIdx = Math.min(startIdx + 5, results.length);
+    
+    contentElement.innerHTML = '';
+    
+    for (let i = startIdx; i < endIdx; i++) {
+        const item = results[i];
+        const itemElement = document.createElement('div');
+        itemElement.className = 'feedback-item';
+        itemElement.innerHTML = `
+            <h5>${item.name || 'Unknown Profile'}</h5>
+            <p><strong>MBTI:</strong> ${item.mbti || 'N/A'} | <strong>Socionics:</strong> ${item.socionics || 'N/A'}</p>
+            <p><strong>Source:</strong> ${item.source || 'N/A'} | <strong>ID:</strong> ${item.cid || item.id || 'N/A'}</p>
+            <p class="description">${item.description ? item.description.substring(0, 200) + '...' : 'No description'}</p>
+        `;
+        contentElement.appendChild(itemElement);
+    }
+}
+
+function processFeedbackBatch(action) {
+    // Mark current batch as approved/rejected
+    const items = document.querySelectorAll('#feedback-content .feedback-item');
+    items.forEach(item => {
+        item.classList.add(action === 'approve' ? 'approved' : 'rejected');
+    });
+    
+    showToast(`Batch ${action}d`, 'success');
+}
+
+function loadNextFeedbackBatch() {
+    if (!feedbackData) return;
+    
+    currentFeedbackBatch++;
+    const maxBatch = Math.ceil(feedbackData.results.length / 5);
+    
+    if (currentFeedbackBatch >= maxBatch) {
+        showToast('No more batches to review', 'info');
+        currentFeedbackBatch = maxBatch - 1;
+        return;
+    }
+    
+    displayFeedbackBatch();
+}
+
+function parseCookies(cookieString) {
+    const cookies = {};
+    
+    if (cookieString.includes('{')) {
+        // JSON format
+        try {
+            return JSON.parse(cookieString);
+        } catch (e) {
+            console.error('Invalid JSON cookie format');
+            return {};
+        }
+    } else {
+        // key=value; format
+        cookieString.split(';').forEach(cookie => {
+            const [name, value] = cookie.trim().split('=');
+            if (name && value) {
+                cookies[name] = value;
+            }
+        });
+    }
+    
+    return cookies;
+}
+
+function formatCookies(cookieObj) {
+    return Object.entries(cookieObj)
+        .map(([key, value]) => `${key}=${value}`)
+        .join('; ');
 }
