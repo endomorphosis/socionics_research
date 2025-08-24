@@ -1,0 +1,8 @@
+{
+  "cookies": {
+    "session": "test123"
+  },
+  "headers": {
+    "User-Agent": "TestAgent"
+  }
+}
