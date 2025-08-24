@@ -12,6 +12,7 @@ let viteServer = null;
 // Detect Python executable (prefer repo venv)
 const VENV_PY = path.resolve(__dirname, '../../.venv/bin/python');
 const PYTHON_EXEC = fssync.existsSync(VENV_PY) ? VENV_PY : (process.env.PYTHON || 'python3');
+const BOT_PATH = path.resolve(__dirname, '../../bot');
 
 // Middleware
 app.use(cors());
@@ -1279,6 +1280,480 @@ app.get('/api/data/overrides', async (req, res) => {
         res.json({ success: true, ...data });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Enhanced bot integration endpoints
+
+// Run data cleanup using bot's cleanup script
+app.post('/api/bot/cleanup-data', async (req, res) => {
+    try {
+        const env = { ...process.env, PYTHONPATH: path.join(BOT_PATH, 'src') };
+        
+        const python = spawn(PYTHON_EXEC, ['-c', `
+import sys
+sys.path.append('src')
+from bot.cleanup_parquet import cleanup_all_parquet_files
+import json
+
+try:
+    results = cleanup_all_parquet_files()
+    print(json.dumps({'success': True, 'results': results}, indent=2))
+except Exception as e:
+    print(json.dumps({'success': False, 'error': str(e)}, indent=2), file=sys.stderr)
+    sys.exit(1)
+`], { cwd: BOT_PATH, env });
+
+        let data = '';
+        let error = '';
+        
+        python.stdout.on('data', (chunk) => {
+            data += chunk.toString();
+        });
+        
+        python.stderr.on('data', (chunk) => {
+            error += chunk.toString();
+        });
+        
+        python.on('close', (code) => {
+            if (code !== 0) {
+                console.error('Cleanup error:', error);
+                res.status(500).json({ success: false, error: 'Cleanup failed: ' + error });
+                return;
+            }
+            
+            try {
+                const result = JSON.parse(data);
+                // Invalidate caches after cleanup
+                profilesCache.mtimeMs = -1;
+                vectorsCache.mtimeMs = -1;
+                res.json(result);
+            } catch (parseError) {
+                console.error('JSON parse error:', parseError);
+                res.status(500).json({ success: false, error: 'Failed to parse cleanup results' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error running cleanup:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get data statistics and quality metrics
+app.get('/api/bot/data-stats', async (req, res) => {
+    try {
+        const env = { ...process.env, PYTHONPATH: path.join(BOT_PATH, 'src') };
+        
+        const python = spawn(PYTHON_EXEC, ['-c', `
+import sys
+sys.path.append('src')
+from bot.pdb_storage import PdbStorage
+import json
+import pandas as pd
+
+try:
+    storage = PdbStorage()
+    
+    # Get raw data stats
+    raw_df = storage.load_joined()
+    
+    stats = {
+        'total_profiles': len(raw_df),
+        'profiles_with_vectors': len(raw_df[raw_df['vector'].notna()]) if not raw_df.empty else 0,
+        'files_info': {}
+    }
+    
+    # Check individual parquet files
+    import os
+    from pathlib import Path
+    data_dir = storage.raw_path.parent
+    
+    for parquet_file in ['pdb_profiles.parquet', 'pdb_profile_vectors.parquet', 'pdb_profiles_normalized.parquet']:
+        file_path = data_dir / parquet_file
+        if file_path.exists():
+            try:
+                df = pd.read_parquet(file_path)
+                stats['files_info'][parquet_file] = {
+                    'rows': len(df),
+                    'columns': list(df.columns),
+                    'size_bytes': os.path.getsize(file_path),
+                    'exists': True
+                }
+            except Exception as e:
+                stats['files_info'][parquet_file] = {
+                    'error': str(e),
+                    'exists': True
+                }
+        else:
+            stats['files_info'][parquet_file] = {'exists': False}
+    
+    print(json.dumps({'success': True, 'stats': stats}, indent=2))
+    
+except Exception as e:
+    print(json.dumps({'success': False, 'error': str(e)}, indent=2), file=sys.stderr)
+    sys.exit(1)
+`], { cwd: BOT_PATH, env });
+
+        let data = '';
+        let error = '';
+        
+        python.stdout.on('data', (chunk) => {
+            data += chunk.toString();
+        });
+        
+        python.stderr.on('data', (chunk) => {
+            error += chunk.toString();
+        });
+        
+        python.on('close', (code) => {
+            if (code !== 0) {
+                console.error('Stats error:', error);
+                res.status(500).json({ success: false, error: 'Stats failed: ' + error });
+                return;
+            }
+            
+            try {
+                const result = JSON.parse(data);
+                res.json(result);
+            } catch (parseError) {
+                console.error('JSON parse error:', parseError);
+                res.status(500).json({ success: false, error: 'Failed to parse stats results' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error getting stats:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Enhanced scraper with bot CLI integration
+app.post('/api/bot/scrape-enhanced', async (req, res) => {
+    try {
+        const { 
+            mode = 'hot-queries', 
+            maxPages = 10, 
+            delay = 1000,
+            cookies = null,
+            headers = null
+        } = req.body || {};
+        
+        const processId = `bot_scrape_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+        
+        // Setup headers file if provided
+        let headerArgs = [];
+        if (headers || cookies) {
+            const headerData = {};
+            if (headers) Object.assign(headerData, headers);
+            if (cookies) headerData['Cookie'] = cookies;
+            
+            const headerJson = JSON.stringify(headerData);
+            headerArgs = ['--v1-headers', headerJson, '--v2-headers', headerJson];
+        } else {
+            // Try to use existing headers files
+            const headerCandidates = [
+                path.resolve(__dirname, '../../data/bot_store/headers.json'),
+                path.resolve(__dirname, '../../.secrets/pdb_headers.json'),
+                path.resolve(__dirname, '../../pdb_headers.json')
+            ];
+            
+            for (const hp of headerCandidates) {
+                try {
+                    const hdrJson = await fs.readFile(hp, 'utf8');
+                    if (hdrJson && hdrJson.trim().startsWith('{')) {
+                        headerArgs = ['--v1-headers', hdrJson, '--v2-headers', hdrJson];
+                        break;
+                    }
+                } catch {}
+            }
+        }
+        
+        const env = { ...process.env, PYTHONPATH: path.join(BOT_PATH, 'src') };
+        
+        // Build command based on mode
+        let args = ['-m', 'bot.pdb_cli'];
+        
+        switch (mode) {
+            case 'hot-queries':
+                args.push('hot-queries', '--limit', '50');
+                break;
+            case 'follow-hot':
+                args.push('follow-hot', '--max', String(maxPages));
+                break;
+            case 'scrape-v1-missing':
+                args.push('scrape-v1-missing', '--max', String(maxPages), '--auto-embed', '--auto-index');
+                break;
+            case 'scan-all':
+                args.push('search', '--query', '*', '--max', String(maxPages));
+                break;
+            default:
+                throw new Error(`Unknown scrape mode: ${mode}`);
+        }
+        
+        // Add header args if available
+        args.push(...headerArgs);
+        
+        // Add rate limiting
+        args.push('--rpm', '60', '--concurrency', '3');
+        
+        const child = spawn(PYTHON_EXEC, args, { cwd: BOT_PATH, env });
+        
+        // Track process
+        activeProcesses.set(processId, {
+            process: child,
+            status: 'running',
+            startTime: new Date(),
+            endTime: null,
+            config: { mode, maxPages, delay },
+            progress: { current: 0, total: maxPages },
+            error: null
+        });
+        
+        processLogs.set(processId, []);
+        addProcessLog(processId, `Starting enhanced scraping with mode: ${mode}`);
+        
+        // Handle process output
+        child.stdout.on('data', (data) => {
+            const output = data.toString();
+            addProcessLog(processId, output);
+            
+            // Try to parse progress from output
+            const progressMatch = output.match(/(\d+)\/(\d+)/);
+            if (progressMatch) {
+                const current = parseInt(progressMatch[1]);
+                const total = parseInt(progressMatch[2]);
+                const processInfo = activeProcesses.get(processId);
+                if (processInfo) {
+                    processInfo.progress = { current, total };
+                }
+            }
+        });
+        
+        child.stderr.on('data', (data) => {
+            const error = data.toString();
+            addProcessLog(processId, `ERROR: ${error}`);
+        });
+        
+        child.on('close', (code) => {
+            const processInfo = activeProcesses.get(processId);
+            if (processInfo) {
+                processInfo.status = code === 0 ? 'completed' : 'failed';
+                processInfo.endTime = new Date();
+                if (code !== 0) {
+                    processInfo.error = `Process exited with code ${code}`;
+                }
+                addProcessLog(processId, `Process finished with code: ${code}`);
+            }
+            
+            // Invalidate caches if successful
+            if (code === 0) {
+                profilesCache.mtimeMs = -1;
+                vectorsCache.mtimeMs = -1;
+            }
+        });
+        
+        res.json({
+            success: true,
+            processId: processId,
+            message: `Started enhanced scraping with mode: ${mode}`
+        });
+        
+    } catch (error) {
+        console.error('Error starting enhanced scraper:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// API response inspection endpoint
+app.get('/api/bot/inspect-cache/:query?', async (req, res) => {
+    try {
+        const query = req.params.query || '*';
+        const cacheDir = path.join(DATASET_DIR, 'pdb_api_cache');
+        
+        if (!fssync.existsSync(cacheDir)) {
+            return res.json({ success: true, cache_entries: [], total: 0 });
+        }
+        
+        const files = await fs.readdir(cacheDir);
+        const entries = [];
+        
+        for (const file of files.slice(0, 20)) { // Limit to first 20 for performance
+            try {
+                const filePath = path.join(cacheDir, file);
+                const stats = await fs.stat(filePath);
+                const content = await fs.readFile(filePath, 'utf8');
+                
+                let parsed = null;
+                try {
+                    parsed = JSON.parse(content);
+                } catch {}
+                
+                entries.push({
+                    filename: file,
+                    size: stats.size,
+                    modified: stats.mtime.toISOString(),
+                    preview: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
+                    parsed_preview: parsed ? {
+                        keys: Object.keys(parsed).slice(0, 10),
+                        type: Array.isArray(parsed) ? 'array' : typeof parsed
+                    } : null
+                });
+            } catch (e) {
+                entries.push({
+                    filename: file,
+                    error: e.message
+                });
+            }
+        }
+        
+        res.json({
+            success: true,
+            cache_entries: entries,
+            total: files.length,
+            cache_dir: cacheDir
+        });
+        
+    } catch (error) {
+        console.error('Error inspecting cache:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Consolidate data into single parquet files
+app.post('/api/bot/consolidate-data', async (req, res) => {
+    try {
+        const { export_profiles = true, export_vectors = true, export_cache = false } = req.body || {};
+        
+        const env = { ...process.env, PYTHONPATH: path.join(BOT_PATH, 'src') };
+        
+        const python = spawn(PYTHON_EXEC, ['-c', `
+import sys
+sys.path.append('src')
+from bot.pdb_storage import PdbStorage
+from bot.cleanup_parquet import cleanup_all_parquet_files
+import json
+import pandas as pd
+import os
+from pathlib import Path
+
+try:
+    # First run cleanup
+    print("Running data cleanup...")
+    cleanup_results = cleanup_all_parquet_files()
+    
+    # Get consolidated data
+    storage = PdbStorage()
+    
+    results = {
+        'cleanup_results': cleanup_results,
+        'export_results': {}
+    }
+    
+    # Export consolidated profiles
+    if ${export_profiles}:
+        print("Consolidating profiles...")
+        joined_df = storage.load_joined()
+        if not joined_df.empty:
+            profiles_path = storage.raw_path.parent / 'consolidated_profiles.parquet'
+            joined_df.to_parquet(profiles_path, index=False)
+            results['export_results']['profiles'] = {
+                'path': str(profiles_path),
+                'rows': len(joined_df),
+                'size_bytes': os.path.getsize(profiles_path)
+            }
+            print(f"Exported {len(joined_df)} profiles to {profiles_path}")
+    
+    # Export consolidated vectors
+    if ${export_vectors}:
+        print("Consolidating vectors...")
+        vec_df = storage.load_joined()
+        if not vec_df.empty:
+            vectors_with_data = vec_df[vec_df['vector'].notna()]
+            if not vectors_with_data.empty:
+                vectors_path = storage.raw_path.parent / 'consolidated_vectors.parquet'
+                vectors_with_data[['cid', 'vector']].to_parquet(vectors_path, index=False)
+                results['export_results']['vectors'] = {
+                    'path': str(vectors_path),
+                    'rows': len(vectors_with_data),
+                    'size_bytes': os.path.getsize(vectors_path)
+                }
+                print(f"Exported {len(vectors_with_data)} vectors to {vectors_path}")
+    
+    # Export cache info (just metadata, not full cache)
+    if ${export_cache}:
+        print("Collecting cache metadata...")
+        cache_dir = storage.raw_path.parent / 'pdb_api_cache'
+        if cache_dir.exists():
+            cache_files = list(cache_dir.glob('*'))
+            cache_info = []
+            total_size = 0
+            for cf in cache_files[:100]:  # Limit for performance
+                try:
+                    stat = cf.stat()
+                    cache_info.append({
+                        'filename': cf.name,
+                        'size': stat.st_size,
+                        'modified': stat.st_mtime
+                    })
+                    total_size += stat.st_size
+                except Exception:
+                    pass
+            
+            cache_metadata_path = storage.raw_path.parent / 'cache_metadata.json'
+            with open(cache_metadata_path, 'w') as f:
+                json.dump({
+                    'total_files': len(cache_files),
+                    'total_size': total_size,
+                    'sample_files': cache_info
+                }, f, indent=2)
+            
+            results['export_results']['cache'] = {
+                'metadata_path': str(cache_metadata_path),
+                'total_files': len(cache_files),
+                'total_size_bytes': total_size
+            }
+    
+    print(json.dumps({'success': True, 'results': results}, indent=2))
+    
+except Exception as e:
+    print(json.dumps({'success': False, 'error': str(e)}, indent=2), file=sys.stderr)
+    sys.exit(1)
+`], { cwd: BOT_PATH, env });
+
+        let data = '';
+        let error = '';
+        
+        python.stdout.on('data', (chunk) => {
+            data += chunk.toString();
+        });
+        
+        python.stderr.on('data', (chunk) => {
+            error += chunk.toString();
+        });
+        
+        python.on('close', (code) => {
+            if (code !== 0) {
+                console.error('Consolidation error:', error);
+                res.status(500).json({ success: false, error: 'Consolidation failed: ' + error });
+                return;
+            }
+            
+            try {
+                const result = JSON.parse(data);
+                // Invalidate caches after consolidation
+                profilesCache.mtimeMs = -1;
+                vectorsCache.mtimeMs = -1;
+                res.json(result);
+            } catch (parseError) {
+                console.error('JSON parse error:', parseError);
+                res.status(500).json({ success: false, error: 'Failed to parse consolidation results' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error running consolidation:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 

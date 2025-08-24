@@ -15,6 +15,7 @@
                 <button id="nav-edit" class="nav-btn">Edit Data</button>
                 <button id="nav-scraper" class="nav-btn">Scraper Controls</button>
                 <button id="nav-query" class="nav-btn">Query Builder</button>
+                <button id="nav-bot" class="nav-btn">Bot Integration</button>
             </nav>
         </header>
 
@@ -240,6 +241,129 @@
                         <div id="query-results-container">
                             <p class="no-results">No query executed yet</p>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bot Integration Panel -->
+            <div id="bot-panel" class="panel">
+                <div class="panel-header">
+                    <h2>Bot Integration & Data Cleanup</h2>
+                    <div class="stats">
+                        <span id="bot-stats">Ready</span>
+                    </div>
+                </div>
+
+                <div class="bot-controls">
+                    <!-- Data Statistics Section -->
+                    <div class="bot-section">
+                        <h3>Data Statistics</h3>
+                        <button id="refresh-stats-btn" class="primary">Refresh Stats</button>
+                        <div id="data-statistics" class="statistics-display">
+                            <p>Click "Refresh Stats" to view data statistics</p>
+                        </div>
+                    </div>
+
+                    <!-- Data Cleanup Section -->
+                    <div class="bot-section">
+                        <h3>Data Cleanup & Consolidation</h3>
+                        <div class="cleanup-controls">
+                            <button id="cleanup-data-btn" class="primary">Run Data Cleanup</button>
+                            <button id="consolidate-data-btn" class="primary">Consolidate Data</button>
+                        </div>
+                        <div class="consolidation-options" style="margin-top: 10px;">
+                            <label>
+                                <input type="checkbox" id="export-profiles-check" checked> Export Profiles
+                            </label>
+                            <label>
+                                <input type="checkbox" id="export-vectors-check" checked> Export Vectors  
+                            </label>
+                            <label>
+                                <input type="checkbox" id="export-cache-check"> Export Cache Metadata
+                            </label>
+                        </div>
+                        <div id="cleanup-results" class="results-display"></div>
+                    </div>
+
+                    <!-- Enhanced Scraping Section -->
+                    <div class="bot-section">
+                        <h3>Enhanced Scraping</h3>
+                        <div class="scraping-controls">
+                            <div class="form-row">
+                                <label for="scrape-mode">Mode:</label>
+                                <select id="scrape-mode">
+                                    <option value="hot-queries">Hot Queries</option>
+                                    <option value="follow-hot">Follow Hot</option>
+                                    <option value="scrape-v1-missing">Scrape Missing V1</option>
+                                    <option value="scan-all">Scan All</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label for="scrape-max-pages">Max Pages:</label>
+                                <input type="number" id="scrape-max-pages" value="10" min="1" max="1000">
+                            </div>
+                            <div class="form-row">
+                                <label for="scrape-delay">Delay (ms):</label>
+                                <input type="number" id="scrape-delay" value="1000" min="100" max="10000">
+                            </div>
+                        </div>
+
+                        <!-- Session/Cookie Management -->
+                        <div class="session-controls">
+                            <h4>Session & Authentication</h4>
+                            <div class="form-row">
+                                <label for="session-cookies">Cookies:</label>
+                                <textarea id="session-cookies" rows="3" placeholder="Cookie header value (e.g., session_id=abc123; auth_token=xyz...)"></textarea>
+                            </div>
+                            <div class="form-row">
+                                <label for="custom-headers">Custom Headers (JSON):</label>
+                                <textarea id="custom-headers" rows="3" placeholder='{"User-Agent": "...", "Referer": "..."}'></textarea>
+                            </div>
+                        </div>
+
+                        <div class="scraping-actions">
+                            <button id="start-enhanced-scrape-btn" class="primary">Start Enhanced Scraping</button>
+                            <button id="stop-enhanced-scrape-btn" class="danger">Stop Scraping</button>
+                        </div>
+
+                        <!-- Progress Display -->
+                        <div id="enhanced-scrape-progress" class="progress-section" style="display: none;">
+                            <div class="progress-bar">
+                                <div id="enhanced-progress-fill" class="progress-fill"></div>
+                            </div>
+                            <div id="enhanced-progress-text" class="progress-text">0/0 (0%)</div>
+                        </div>
+
+                        <div id="enhanced-scrape-logs" class="logs-container">
+                            <h4>Scraping Logs</h4>
+                            <pre id="enhanced-logs-content"></pre>
+                        </div>
+                    </div>
+
+                    <!-- API Response Inspection -->
+                    <div class="bot-section">
+                        <h3>API Response Inspection</h3>
+                        <div class="inspection-controls">
+                            <button id="inspect-cache-btn" class="primary">Inspect API Cache</button>
+                            <input type="text" id="cache-query" placeholder="Optional filter query">
+                        </div>
+                        <div id="cache-inspection-results" class="results-display"></div>
+                    </div>
+
+                    <!-- Parquet Data Inspection -->
+                    <div class="bot-section">
+                        <h3>Parquet Data Inspection</h3>
+                        <div class="inspection-controls">
+                            <select id="parquet-file-select">
+                                <option value="pdb_profiles.parquet">Profiles</option>
+                                <option value="pdb_profile_vectors.parquet">Vectors</option>
+                                <option value="pdb_profiles_normalized.parquet">Normalized</option>
+                                <option value="consolidated_profiles.parquet">Consolidated Profiles</option>
+                                <option value="consolidated_vectors.parquet">Consolidated Vectors</option>
+                            </select>
+                            <button id="inspect-parquet-btn" class="primary">Inspect Parquet</button>
+                        </div>
+                        <div id="parquet-inspection-results" class="results-display"></div>
                     </div>
                 </div>
             </div>
