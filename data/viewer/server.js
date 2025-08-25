@@ -19,7 +19,9 @@ app.use(cors());
 // Apply JSON parser to all routes except the export-parquet endpoint, which handles raw text
 const jsonParser = express.json({ limit: '5mb' });
 app.use((req, res, next) => {
+    // Skip JSON parser for endpoints that handle raw bodies or custom parsing
     if (req.path === '/api/data/export-parquet') return next();
+    if (req.path === '/api/session/save') return next();
     return jsonParser(req, res, next);
 });
 // Note: static serving is configured later to avoid bypassing Vite transforms in dev
@@ -112,7 +114,7 @@ app.get('/', async (req, res) => {
 // Start scraping process
 app.post('/api/scraper/start', async (req, res) => {
     try {
-    const { mode, maxPages, delay, browser, url, rpm, concurrency, timeout } = req.body;
+    const { mode, maxPages, delay, browser, url, rpm, concurrency, timeout, baseUrl } = req.body;
         
         // Generate process ID
         const processId = Date.now().toString();
@@ -163,6 +165,10 @@ app.post('/api/scraper/start', async (req, res) => {
                 '--auto-embed',
                 '--auto-index'
             ];
+            if (baseUrl && typeof baseUrl === 'string' && baseUrl.trim()) {
+                // Provide an alternate API base URL for v2 operations
+                globalArgs.push('--base-url', baseUrl.trim());
+            }
             // Subparser-specific headers for optional v1 scraping during scan-all
             if (v1v2HeaderJson) {
                 subArgs.push('--v1-headers', v1v2HeaderJson);
@@ -183,6 +189,9 @@ app.post('/api/scraper/start', async (req, res) => {
                 try { await fs.access(hp); globalArgs.push('--headers-file', hp); break; } catch {}
             }
             const subArgs = ['follow-hot', '--pages', Math.min(maxPages, 5).toString(), '--auto-embed'];
+            if (baseUrl && typeof baseUrl === 'string' && baseUrl.trim()) {
+                globalArgs.push('--base-url', baseUrl.trim());
+            }
             commandArgs = [...globalArgs, ...subArgs];
         }
 
@@ -1805,12 +1814,67 @@ except Exception as e:
 
 // Session Management Endpoints
 const SESSION_FILE = path.join(DATASET_DIR, 'session_data.json');
+const HEADERS_FILE = path.join(DATASET_DIR, 'headers.json');
 
+// Robust raw-body JSON parser for session save to avoid body-parser quirks
 app.post('/api/session/save', async (req, res) => {
     try {
-        const sessionData = req.body;
-        await fs.writeFile(SESSION_FILE, JSON.stringify(sessionData, null, 2));
-        res.json({ success: true, message: 'Session saved' });
+        let raw = '';
+        req.setEncoding('utf8');
+        req.on('data', (chunk) => { raw += chunk; });
+        req.on('end', async () => {
+            try {
+                let payload = {};
+                if (raw && raw.trim().length) {
+                    const trimmed = raw.trim();
+                    try {
+                        payload = JSON.parse(trimmed);
+                    } catch (_) {
+                        // Try to extract the first valid JSON object from arbitrary content
+                        const s = trimmed.indexOf('{');
+                        const e = trimmed.lastIndexOf('}');
+                        if (s !== -1 && e !== -1 && e > s) {
+                            let inner = trimmed.slice(s, e + 1);
+                            try {
+                                payload = JSON.parse(inner);
+                            } catch (__) {
+                                // As a last resort, coerce JS-object-ish syntax to JSON
+                                let coerced = inner;
+                                // Quote keys: {key: → {"key": and ,key: → ,"key":
+                                coerced = coerced.replace(/([\{,]\s*)([A-Za-z0-9_\-]+)\s*:/g, '$1"$2":');
+                                // Quote bareword values up to , or }
+                                coerced = coerced.replace(/:\s*([A-Za-z0-9_./\-]+)(\s*[},])/g, ':"$1"$2');
+                                payload = JSON.parse(coerced);
+                            }
+                        } else {
+                            throw _;
+                        }
+                    }
+                }
+                const sessionData = payload && typeof payload === 'object' ? payload : {};
+                await fs.writeFile(SESSION_FILE, JSON.stringify(sessionData, null, 2));
+
+                const hdr = { ...(sessionData.headers || {}) };
+                const ck = sessionData.cookies || {};
+                const cookieHeader = Object.keys(ck).length
+                    ? Object.entries(ck).map(([k, v]) => `${k}=${v}`).join('; ')
+                    : null;
+                if (cookieHeader) hdr['Cookie'] = cookieHeader;
+
+                try { fssync.mkdirSync(path.dirname(HEADERS_FILE), { recursive: true }); } catch {}
+                await fs.writeFile(HEADERS_FILE, JSON.stringify(hdr, null, 2));
+                res.setHeader('Content-Type', 'application/json');
+                return res.status(200).send(JSON.stringify({ success: true, message: 'Session saved', headersFile: HEADERS_FILE }));
+            } catch (e) {
+                console.error('Error parsing session JSON:', e?.message || e);
+                try {
+                    const debugPath = path.join(DATASET_DIR, 'debug_last_session_body.txt');
+                    await fs.writeFile(debugPath, raw || '');
+                    console.warn('Wrote raw session body to', debugPath);
+                } catch {}
+                res.status(400).json({ success: false, error: 'Invalid JSON' });
+            }
+        });
     } catch (error) {
         console.error('Error saving session:', error);
         res.status(500).json({ success: false, error: error.message });

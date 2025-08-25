@@ -1,0 +1,1 @@
+{cookies:{sid:abc,auth:xyz},headers:{User-Agent:TestAgent/1.0}}

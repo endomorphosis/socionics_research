@@ -1,8 +1,9 @@
 {
   "cookies": {
-    "session": "test123"
+    "sid": "abc",
+    "auth": "xyz"
   },
   "headers": {
-    "User-Agent": "TestAgent"
+    "User-Agent": "TestAgent/1.0"
   }
 }

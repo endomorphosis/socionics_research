@@ -335,9 +335,9 @@ function setupScraperPanelListeners() {
     const exportUnifiedBtn = document.getElementById('export-unified-btn');
 
     if (analyzeDataBtn) analyzeDataBtn.addEventListener('click', analyzeDataIntegrity);
-    if (consolidateProfilesBtn) consolidateProfilesBtn.addEventListener('click', () => consolidateData('profiles'));
-    if (consolidateVectorsBtn) consolidateVectorsBtn.addEventListener('click', () => consolidateData('vectors'));
-    if (consolidateCacheBtn) consolidateCacheBtn.addEventListener('click', () => consolidateData('cache'));
+    if (consolidateProfilesBtn) consolidateProfilesBtn.addEventListener('click', () => consolidateType('profiles'));
+    if (consolidateVectorsBtn) consolidateVectorsBtn.addEventListener('click', () => consolidateType('vectors'));
+    if (consolidateCacheBtn) consolidateCacheBtn.addEventListener('click', () => consolidateType('cache'));
     if (cleanupDuplicatesBtn) cleanupDuplicatesBtn.addEventListener('click', cleanupDuplicates);
     if (exportUnifiedBtn) exportUnifiedBtn.addEventListener('click', exportUnifiedDataset);
 
@@ -1034,6 +1034,7 @@ async function startScraping(mode) {
             delay: parseInt(document.getElementById('scraper-delay').value) || 1000,
             browser: document.getElementById('scraper-browser').value || 'playwright',
             url: document.getElementById('scraper-url').value || 'https://www.personality-database.com',
+            baseUrl: (document.getElementById('scraper-url').value || '').trim(),
             rpm: parseInt(document.getElementById('scraper-rpm')?.value || '60') || 60,
             concurrency: parseInt(document.getElementById('scraper-concurrency')?.value || '3') || 3,
             timeout: parseInt(document.getElementById('scraper-timeout')?.value || '20') || 20
@@ -1627,7 +1628,7 @@ function setupBotPanelListeners() {
     const cleanupDataBtn = document.getElementById('cleanup-data-btn');
     const consolidateDataBtn = document.getElementById('consolidate-data-btn');
     cleanupDataBtn.addEventListener('click', runDataCleanup);
-    consolidateDataBtn.addEventListener('click', consolidateData);
+    consolidateDataBtn.addEventListener('click', consolidateAllData);
 
     // Enhanced Scraping
     const startEnhancedScrapeBtn = document.getElementById('start-enhanced-scrape-btn');
@@ -1728,7 +1729,7 @@ async function runDataCleanup() {
 }
 
 // Consolidate data
-async function consolidateData() {
+async function consolidateAllData() {
     try {
         showBotStatus('Consolidating data...');
         
@@ -1736,7 +1737,7 @@ async function consolidateData() {
         const exportVectors = document.getElementById('export-vectors-check').checked;
         const exportCache = document.getElementById('export-cache-check').checked;
         
-        const response = await fetch('/api/bot/consolidate-data', {
+    const response = await fetch('/api/bot/consolidate-data', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2213,7 +2214,7 @@ async function analyzeDataIntegrity() {
     }
 }
 
-async function consolidateData(type) {
+async function consolidateType(type) {
     try {
         showConsolidationProgress(true);
         updateConsolidationProgress(0, `Starting ${type} consolidation...`);
