@@ -3,19 +3,19 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "node",
-    "strict": true,
+    "strict": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
     "outDir": "./dist",
     "rootDir": ".",
-    "types": ["node"],
-    "lib": ["ES2022", "DOM", "WebWorker"]
+    "lib": ["ES2022", "DOM", "WebWorker"],
+    "noImplicitAny": false,
+    "strictNullChecks": false
   },
   "include": [
-    "ipdb/**/*.ts",
-    "ipdb/**/*.js"
+    "ipdb/**/*.ts"
   ],
   "exclude": [
     "node_modules",
