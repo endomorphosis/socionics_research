@@ -1,5 +1,53 @@
 {
+  "name": "socionics-research-ipdb",
+  "version": "1.0.0",
+  "description": "Integrated Personality Database for socionics research with DuckDB, vector search, and multi-language API support",
+  "main": "ipdb/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "node --test",
+    "test:python": "python -m pytest ipdb/test_database.py -v",
+    "demo": "node ipdb/demo.js",
+    "demo:python": "python ipdb/demo.py"
+  },
+  "keywords": [
+    "socionics",
+    "personality-database",
+    "psychology",
+    "mbti",
+    "duckdb",
+    "vector-search",
+    "machine-learning"
+  ],
+  "author": "Socionics Research Team",
+  "license": "MIT",
   "dependencies": {
-    "csv-parser": "^3.2.0"
+    "@duckdb/duckdb-wasm": "^1.28.0",
+    "duckdb": "^1.1.3",
+    "hnswlib-node": "^3.0.0",
+    "hnswlib-wasm": "^0.8.2",
+    "csv-parser": "^3.2.0",
+    "express": "^5.1.0",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.4",
+    "typescript": "^5.6.2",
+    "vite": "^7.1.2"
+  },
+  "exports": {
+    ".": {
+      "import": "./ipdb/index.js",
+      "types": "./ipdb/index.d.ts"
+    },
+    "./python": {
+      "import": "./ipdb/database_manager.py"
+    },
+    "./wasm": {
+      "import": "./ipdb/wasm.js",
+      "types": "./ipdb/wasm.d.ts"
+    }
   }
 }

@@ -1,18 +1,176 @@
-# IPDB Database Schema Documentation
+# IPDB - Enhanced Integrated Personality Database
 
 ## Overview
 
-The IPDB (Integrated Personality Database) is a comprehensive database schema designed to support user ratings and personality typings for socionics research. It integrates with existing Parquet data files and provides a structured approach to collect, manage, and analyze personality type ratings from multiple users.
+The Enhanced IPDB (Integrated Personality Database) is a comprehensive system for socionics research with advanced features including **DuckDB integration**, **vector similarity search**, **multi-language APIs**, and **WebAssembly support**. This system enables systematic collection, analysis, and querying of personality data with high performance and cross-platform compatibility.
 
-## Key Features
+## 🚀 New Enhanced Features
 
-- **Multi-system support**: Handles Socionics, MBTI, Big Five, Enneagram, and other typing systems
-- **User management**: Role-based access control for raters, annotators, and administrators  
-- **Rating sessions**: Organized workflows for structured typing activities
-- **Inter-rater reliability**: Built-in tracking of agreement metrics and consensus processes
-- **Data integration**: Seamless integration with existing Parquet files from PDB
-- **Behavioral annotations**: Support for detailed behavioral indicator coding
-- **Audit trail**: Complete tracking of all typing decisions and changes
+### Multi-Database Support
+- **DuckDB Integration**: High-performance analytical database with native Parquet support
+- **SQLite Fallback**: Reliable embedded database for local development
+- **Automatic Detection**: Seamlessly switches based on availability
+
+### Vector Search Capabilities
+- **hnswlib Integration**: Fast approximate nearest neighbor search
+- **Cosine Similarity**: Optimized for personality type similarity
+- **Batch Processing**: Efficient similarity calculations
+- **WebAssembly Support**: Client-side vector search in browsers
+
+### Multi-Language API
+- **Python**: Full database manager with NumPy integration
+- **TypeScript/JavaScript**: Complete API with Node.js and browser support
+- **REST API**: Cross-language HTTP endpoints
+- **WebAssembly**: Browser-compatible WASM modules
+
+### Performance Enhancements
+- **Native Parquet**: Direct Parquet file reading with DuckDB
+- **Streaming Import**: Memory-efficient data loading
+- **Indexed Search**: Optimized queries and filtering
+- **Concurrent Processing**: Multi-threaded operations
+
+## 📦 Installation
+
+### Prerequisites
+
+```bash
+# Install Node.js dependencies
+npm install
+
+# Install Python dependencies (optional)
+pip install duckdb hnswlib numpy pandas requests
+
+# For development
+npm install -g typescript ts-node
+```
+
+### Package Installation
+
+```bash
+# Install the IPDB package
+npm install socionics-research-ipdb
+
+# Or clone and build locally
+git clone <repository>
+cd socionics_research
+npm install
+npm run build
+```
+
+## 🎯 Quick Start
+
+### TypeScript/JavaScript Usage
+
+```typescript
+import { IPDBManagerJS } from 'socionics-research-ipdb';
+
+// Initialize with DuckDB (auto-detected)
+const db = new IPDBManagerJS('./my_database.db');
+await db.initialize();
+
+// Import data from Parquet
+await db.importFromParquet('./data/pdb_profiles_normalized.parquet');
+
+// Create entity and add embedding
+const entity = await db.createEntity({
+  id: '',
+  name: 'Hermione Granger',
+  entity_type: 'fictional_character',
+  description: 'Brilliant witch from Harry Potter'
+});
+
+// Add vector embedding for similarity search
+const embedding = new Float32Array(384); // Your embedding here
+await db.addEmbedding(entity.id, embedding);
+
+// Vector similarity search
+const results = await db.vectorSearch(queryEmbedding, 10);
+console.log('Similar entities:', results);
+```
+
+### Python Integration
+
+```python
+from ipdb.python_api import IPDBPythonClient, IPDBNumpyIntegration
+import numpy as np
+
+# Connect to API
+client = IPDBPythonClient()
+
+# Create entity
+entity = client.create_entity(
+    name="Albert Einstein",
+    entity_type="person", 
+    description="Theoretical physicist"
+)
+
+# Generate and add embedding
+numpy_helper = IPDBNumpyIntegration()
+embedding = numpy_helper.generate_embedding("brilliant physicist")
+client.add_entity_embedding(entity['id'], embedding)
+
+# Vector search
+results = client.vector_search(embedding, k=5)
+print(f"Found {len(results)} similar entities")
+```
+
+### WebAssembly Browser Usage
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="/api/sdk/browser.js"></script>
+</head>
+<body>
+    <script>
+        async function runExample() {
+            const client = new IPDBClient('/api');
+            
+            // Get entities
+            const entities = await client.getEntities({limit: 10});
+            console.log('Entities:', entities);
+            
+            // Vector search
+            const embedding = new Float32Array(384);
+            const results = await client.vectorSearch(embedding, 5);
+            console.log('Search results:', results);
+        }
+        
+        runExample();
+    </script>
+</body>
+</html>
+```
+
+## 🌐 REST API Server
+
+Start the multi-language REST API server:
+
+```bash
+# Start the API server
+npm run demo  # Runs TypeScript demo with API server
+# or
+node ipdb/api.js
+
+# API available at http://localhost:3001
+```
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Health check and capabilities |
+| `GET` | `/api/info` | API information and documentation |
+| `GET` | `/api/entities` | List entities with pagination |
+| `POST` | `/api/entities` | Create new entity |
+| `GET` | `/api/entities/:id/typings` | Get entity personality typings |
+| `POST` | `/api/entities/:id/embeddings` | Add vector embedding |
+| `POST` | `/api/search/vector` | Vector similarity search |
+| `POST` | `/api/search/text` | Text-based entity search |
+| `POST` | `/api/import/parquet` | Import Parquet files |
+| `POST` | `/api/users` | Create user account |
+| `GET` | `/api/sdk/browser.js` | Browser SDK download |
 
 ## Database Architecture
 
