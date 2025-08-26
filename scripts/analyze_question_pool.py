@@ -22,6 +22,68 @@ def load_question_data(parquet_file: str) -> pd.DataFrame:
     """Load question data from parquet file."""
     return pd.read_parquet(parquet_file)
 
+def analyze_similarity_removal(analysis_file: str = "survey/question_analysis.json", 
+                             removal_file: str = "survey/similarity_removal_report.json"):
+    """Analyze the results of similarity-based question removal."""
+    print("=== Similarity Removal Analysis ===")
+    
+    try:
+        # Load analysis results
+        with open(analysis_file, 'r') as f:
+            analysis = json.load(f)
+        
+        with open(removal_file, 'r') as f:
+            removal_report = json.load(f)
+        
+        original_dist = analysis['original_distribution']
+        filtered_dist = analysis['filtered_distribution'] 
+        removal_stats = removal_report['removal_stats']
+        
+        print(f"\nRemoval Statistics:")
+        print(f"  Original questions: {removal_stats['original_count']:,}")
+        print(f"  Questions kept: {removal_stats['kept_count']:,}")
+        print(f"  Questions removed: {removal_stats['removed_count']:,}")
+        print(f"  Removal rate: {removal_stats['removal_rate']:.1%}")
+        
+        print(f"\nClustering Details:")
+        print(f"  Clusters analyzed: {removal_stats['clusters_analyzed']}")
+        print(f"  Average cluster size: {removal_stats['avg_cluster_size']:.1f}")
+        print(f"  Similarity threshold: {removal_stats['similarity_threshold']}")
+        print(f"  Min cluster size for removal: {removal_stats['min_cluster_size']}")
+        
+        print(f"\nDistribution Impact:")
+        print(f"  Uniformity score: {original_dist['uniformity_score']:.3f} -> {filtered_dist['uniformity_score']:.3f}")
+        
+        print(f"\nAxis Distribution Changes:")
+        for axis in original_dist['axis_distribution']:
+            orig_count = original_dist['axis_distribution'][axis]
+            filtered_count = filtered_dist['axis_distribution'][axis]
+            change_pct = (filtered_count - orig_count) / orig_count * 100
+            print(f"  {axis}: {orig_count:,} -> {filtered_count:,} ({change_pct:+.1f}%)")
+        
+        print(f"\nSample Removed Questions:")
+        for i, q in enumerate(removal_report['sample_removed_questions'][:10]):
+            reason = q['removal_reason']
+            print(f"  {i+1}. [{q['axis']}] {q['text']}")
+            if reason:
+                print(f"     Reason: Similar to question {reason.get('representative_id', 'N/A')} in cluster {reason.get('cluster_id', 'N/A')}")
+        
+        # Cluster analysis summary
+        cluster_analysis = removal_report['cluster_analysis']
+        actions = {}
+        for cluster_info in cluster_analysis.values():
+            action = cluster_info['action']
+            actions[action] = actions.get(action, 0) + 1
+        
+        print(f"\nCluster Actions:")
+        for action, count in actions.items():
+            print(f"  {action.replace('_', ' ').title()}: {count} clusters")
+            
+    except FileNotFoundError as e:
+        print(f"Analysis files not found: {e}")
+        print("Run generate_question_pool.py first to create similarity analysis files")
+
+
 def find_similar_questions(df: pd.DataFrame, query_text: str, n_similar: int = 10):
     """Find questions most similar to a given query text."""
     # Convert embeddings to numpy array
@@ -141,7 +203,7 @@ def search_questions(df: pd.DataFrame, search_terms: str, max_results: int = 20)
 
 def main():
     parser = argparse.ArgumentParser(description="Analyze socionics question pool")
-    parser.add_argument("command", choices=['stats', 'cluster', 'search', 'export', 'similar'], 
+    parser.add_argument("command", choices=['stats', 'cluster', 'search', 'export', 'similar', 'similarity-analysis'], 
                        help="Analysis command to run")
     parser.add_argument("--file", default="survey/question_pool_1000.parquet",
                        help="Question pool parquet file to analyze")
@@ -153,7 +215,11 @@ def main():
     
     args = parser.parse_args()
     
-    # Load data
+    if args.command == 'similarity-analysis':
+        analyze_similarity_removal()
+        return
+    
+    # Load data for other commands
     df = load_question_data(args.file)
     print(f"Loaded {len(df)} questions from {args.file}")
     

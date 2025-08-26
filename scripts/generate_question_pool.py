@@ -448,6 +448,148 @@ def perform_kmeans_analysis(embeddings: np.ndarray, n_clusters_range: Tuple[int,
         'all_results': results
     }
 
+def remove_similar_questions_by_clustering(questions: List[Dict[str, Any]], 
+                                         embeddings: np.ndarray, 
+                                         similarity_threshold: float = 0.8,
+                                         min_cluster_size: int = 2,
+                                         method: str = 'kmeans') -> Dict[str, Any]:
+    """Remove questions that are too similar using K-means clustering.
+    
+    Args:
+        questions: List of question dictionaries
+        embeddings: Numpy array of embeddings
+        similarity_threshold: Cosine similarity threshold for considering questions similar
+        min_cluster_size: Minimum cluster size to consider for removal
+        method: Clustering method ('kmeans')
+    
+    Returns:
+        Dictionary with filtered questions, removal stats, and cluster analysis
+    """
+    print(f"Analyzing {len(questions)} questions for similarity-based removal...")
+    print(f"Similarity threshold: {similarity_threshold}, Min cluster size: {min_cluster_size}")
+    
+    if method != 'kmeans':
+        raise ValueError(f"Unsupported clustering method: {method}")
+    
+    # Determine optimal number of clusters based on similarity threshold
+    # Higher similarity threshold = more aggressive clustering (fewer clusters)
+    # Lower similarity threshold = less aggressive clustering (more clusters)
+    base_clusters = max(50, int(len(questions) * (1 - similarity_threshold) * 0.1))
+    optimal_clusters = min(base_clusters, len(questions) // 2)
+    
+    print(f"Using {optimal_clusters} clusters for similarity analysis...")
+    
+    # Perform K-means clustering
+    kmeans = KMeans(n_clusters=optimal_clusters, random_state=42, n_init=10)
+    cluster_labels = kmeans.fit_predict(embeddings)
+    
+    # Analyze clusters and select representatives
+    cluster_analysis = {}
+    selected_indices = []
+    removed_indices = []
+    removal_reasons = {}
+    
+    for cluster_id in range(optimal_clusters):
+        cluster_mask = cluster_labels == cluster_id
+        if not np.any(cluster_mask):
+            continue
+            
+        cluster_indices = np.where(cluster_mask)[0]
+        cluster_size = len(cluster_indices)
+        
+        # Always keep at least one question from each cluster
+        if cluster_size == 1:
+            selected_indices.extend(cluster_indices)
+            cluster_analysis[cluster_id] = {
+                'size': cluster_size,
+                'action': 'kept_single',
+                'kept_indices': cluster_indices.tolist(),
+                'removed_indices': []
+            }
+        else:
+            # For clusters with multiple questions, analyze similarity
+            cluster_embeddings = embeddings[cluster_mask]
+            centroid = kmeans.cluster_centers_[cluster_id]
+            
+            # Calculate distances to centroid
+            distances = np.linalg.norm(cluster_embeddings - centroid, axis=1)
+            
+            # Select the question closest to centroid as representative
+            best_idx = cluster_indices[np.argmin(distances)]
+            selected_indices.append(best_idx)
+            
+            # Mark others for potential removal if cluster is large enough
+            other_indices = cluster_indices[cluster_indices != best_idx]
+            
+            if cluster_size >= min_cluster_size:
+                # Remove similar questions from this cluster
+                removed_indices.extend(other_indices)
+                for idx in other_indices:
+                    removal_reasons[idx] = {
+                        'reason': 'similar_to_cluster_representative',
+                        'cluster_id': cluster_id,
+                        'representative_id': best_idx,
+                        'cluster_size': cluster_size,
+                        'distance_to_centroid': distances[np.where(cluster_indices == idx)[0][0]]
+                    }
+                
+                cluster_analysis[cluster_id] = {
+                    'size': cluster_size,
+                    'action': 'removed_similar',
+                    'kept_indices': [best_idx],
+                    'removed_indices': other_indices.tolist(),
+                    'representative_distance': distances[np.argmin(distances)]
+                }
+            else:
+                # Keep all questions in small clusters
+                selected_indices.extend(other_indices)
+                cluster_analysis[cluster_id] = {
+                    'size': cluster_size,
+                    'action': 'kept_small_cluster',
+                    'kept_indices': cluster_indices.tolist(),
+                    'removed_indices': []
+                }
+    
+    # Create filtered dataset
+    filtered_questions = [questions[i] for i in selected_indices]
+    removed_questions = [questions[i] for i in removed_indices]
+    
+    # Calculate removal statistics
+    removal_stats = {
+        'original_count': len(questions),
+        'kept_count': len(filtered_questions),
+        'removed_count': len(removed_questions),
+        'removal_rate': len(removed_questions) / len(questions),
+        'clusters_analyzed': optimal_clusters,
+        'avg_cluster_size': len(questions) / optimal_clusters,
+        'similarity_threshold': similarity_threshold,
+        'min_cluster_size': min_cluster_size
+    }
+    
+    # Analyze axis distribution before and after
+    original_dist = analyze_distribution(questions)
+    filtered_dist = analyze_distribution(filtered_questions)
+    
+    print(f"Similarity analysis complete:")
+    print(f"  - Original: {len(questions)} questions")
+    print(f"  - Kept: {len(filtered_questions)} questions") 
+    print(f"  - Removed: {len(removed_questions)} questions ({removal_stats['removal_rate']:.1%})")
+    print(f"  - Uniformity score: {original_dist['uniformity_score']:.3f} -> {filtered_dist['uniformity_score']:.3f}")
+    
+    return {
+        'filtered_questions': filtered_questions,
+        'removed_questions': removed_questions,
+        'selected_indices': selected_indices,
+        'removed_indices': removed_indices,
+        'removal_reasons': removal_reasons,
+        'cluster_analysis': cluster_analysis,
+        'removal_stats': removal_stats,
+        'original_distribution': original_dist,
+        'filtered_distribution': filtered_dist,
+        'kmeans_model': kmeans
+    }
+
+
 def decimate_questions_by_similarity(questions: List[Dict[str, Any]], 
                                    embeddings: np.ndarray, 
                                    target_size: int = 1000,
@@ -532,7 +674,21 @@ def save_to_parquet(questions: List[Dict[str, Any]],
 
 def main():
     """Main function to generate question pool and embeddings."""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Generate socionics question pool with similarity removal")
+    parser.add_argument("--similarity-threshold", type=float, default=0.50, 
+                       help="Similarity threshold for removing similar questions (0.0-1.0, lower = less aggressive)")
+    parser.add_argument("--min-cluster-size", type=int, default=10,
+                       help="Minimum cluster size for removal (higher = less aggressive)")
+    parser.add_argument("--target-count", type=int, default=64000,
+                       help="Target number of initial questions to generate")
+    
+    args = parser.parse_args()
+    
     print("=== Socionics Question Pool Generator ===")
+    print(f"Similarity threshold: {args.similarity_threshold}")
+    print(f"Min cluster size for removal: {args.min_cluster_size}")
     
     # Set random seed for reproducibility
     random.seed(42)
@@ -545,7 +701,7 @@ def main():
     
     # Step 2: Add semantic variations to reach target count
     print("\n2. Adding semantic variations...")
-    all_questions = add_semantic_variations(base_questions, target_count=64000)
+    all_questions = add_semantic_variations(base_questions, target_count=args.target_count)
     print(f"Total questions: {len(all_questions)}")
     
     # Step 3: Analyze initial distribution
@@ -560,26 +716,55 @@ def main():
     embeddings_array = np.array(embeddings)
     print(f"Embedding dimensions: {embeddings_array.shape}")
     
-    # Step 5: K-means analysis
-    print("\n5. Performing K-means clustering analysis...")
-    kmeans_results = perform_kmeans_analysis(embeddings_array)
+    # Step 5: Remove similar questions using K-means clustering
+    print("\n5. Removing similar questions using K-means clustering...")
+    similarity_results = remove_similar_questions_by_clustering(
+        all_questions, 
+        embeddings_array, 
+        similarity_threshold=args.similarity_threshold,
+        min_cluster_size=args.min_cluster_size
+    )
     
-    # Step 6: Save full dataset
-    print("\n6. Saving full dataset...")
+    # Update questions and embeddings to filtered versions
+    filtered_questions = similarity_results['filtered_questions']
+    filtered_indices = similarity_results['selected_indices']
+    filtered_embeddings = [embeddings[i] for i in filtered_indices]
+    filtered_embeddings_array = np.array(filtered_embeddings)
+    
+    print(f"After similarity removal: {len(filtered_questions)} questions remain")
+    
+    # Step 6: K-means analysis on filtered dataset
+    print("\n6. Performing K-means clustering analysis...")
+    kmeans_results = perform_kmeans_analysis(filtered_embeddings_array)
+    
+    # Step 7: Save filtered dataset as main output
+    print("\n7. Saving filtered dataset...")
     survey_dir = Path(__file__).parent.parent / "survey"
     survey_dir.mkdir(exist_ok=True)
     
+    # Save the similarity-filtered dataset as the main 64k file
     full_output_path = survey_dir / "question_pool_64k.parquet"
-    save_to_parquet(all_questions, embeddings, str(full_output_path))
+    save_to_parquet(filtered_questions, filtered_embeddings, str(full_output_path))
     
-    # Step 7: Create decimated versions
-    print("\n7. Creating decimated question sets...")
+    # Also save the original unfiltered dataset for comparison
+    original_output_path = survey_dir / "question_pool_64k_original.parquet"
+    save_to_parquet(all_questions, embeddings, str(original_output_path))
+    
+    # Step 8: Create decimated versions from filtered dataset
+    print("\n8. Creating decimated question sets from filtered dataset...")
     for target_size in [1000, 500, 200]:
+        if len(filtered_questions) <= target_size:
+            print(f"Skipping {target_size} decimation - only {len(filtered_questions)} questions available")
+            # Just copy the filtered dataset as the decimated version
+            decimated_output_path = survey_dir / f"question_pool_{target_size}.parquet"
+            save_to_parquet(filtered_questions, filtered_embeddings, str(decimated_output_path))
+            continue
+            
         decimated_questions, selected_indices = decimate_questions_by_similarity(
-            all_questions, embeddings_array, target_size=target_size
+            filtered_questions, filtered_embeddings_array, target_size=target_size
         )
         
-        decimated_embeddings = [embeddings[i] for i in selected_indices]
+        decimated_embeddings = [filtered_embeddings[i] for i in selected_indices]
         decimated_output_path = survey_dir / f"question_pool_{target_size}.parquet"
         save_to_parquet(decimated_questions, decimated_embeddings, str(decimated_output_path))
         
@@ -587,15 +772,28 @@ def main():
         decimated_dist = analyze_distribution(decimated_questions)
         print(f"Decimated to {target_size}: uniformity_score={decimated_dist['uniformity_score']:.3f}")
     
-    # Step 8: Save analysis results
-    print("\n8. Saving analysis results...")
+    # Step 9: Save comprehensive analysis results
+    print("\n9. Saving analysis results...")
+    filtered_distribution = analyze_distribution(filtered_questions)
     analysis_results = {
-        'full_distribution': distribution,
+        'original_distribution': analyze_distribution(all_questions),
+        'filtered_distribution': filtered_distribution,
+        'similarity_removal': {
+            'removal_stats': similarity_results['removal_stats'],
+            'cluster_analysis_summary': {
+                'total_clusters': len(similarity_results['cluster_analysis']),
+                'clusters_with_removals': sum(1 for c in similarity_results['cluster_analysis'].values() if c['action'] == 'removed_similar'),
+                'avg_cluster_size': similarity_results['removal_stats']['avg_cluster_size']
+            }
+        },
         'kmeans_analysis': kmeans_results,
         'generation_params': {
-            'target_count': 64000,
+            'original_target_count': 64000,
+            'final_count': len(filtered_questions),
             'axes': list(AXES.keys()),
-            'embedding_dim': embeddings_array.shape[1]
+            'embedding_dim': filtered_embeddings_array.shape[1],
+            'similarity_threshold': args.similarity_threshold,
+            'min_cluster_size': args.min_cluster_size
         }
     }
     
@@ -622,14 +820,38 @@ def main():
         clean_results = clean_for_json(analysis_results)
         json.dump(clean_results, f, indent=2)
     
+    # Save detailed similarity removal report
+    similarity_report_path = survey_dir / "similarity_removal_report.json"
+    with open(similarity_report_path, 'w') as f:
+        similarity_report = {
+            'removal_stats': similarity_results['removal_stats'],
+            'cluster_analysis': similarity_results['cluster_analysis'],
+            'sample_removed_questions': [
+                {
+                    'question_id': q['question_id'],
+                    'text': q['text'][:100] + '...' if len(q['text']) > 100 else q['text'],
+                    'axis': q['axis'],
+                    'removal_reason': similarity_results['removal_reasons'].get(i, {})
+                }
+                for i, q in enumerate(similarity_results['removed_questions'][:20])  # Show first 20
+            ]
+        }
+        clean_report = clean_for_json(similarity_report)
+        json.dump(clean_report, f, indent=2)
+    
     print(f"\n=== Generation Complete ===")
-    print(f"Generated {len(all_questions):,} total questions")
-    print(f"Embedding dimensions: {embeddings_array.shape[1]}")
+    print(f"Generated {len(all_questions):,} initial questions")
+    print(f"Removed {len(all_questions) - len(filtered_questions):,} similar questions ({similarity_results['removal_stats']['removal_rate']:.1%})")
+    print(f"Final dataset: {len(filtered_questions):,} questions")
+    print(f"Embedding dimensions: {filtered_embeddings_array.shape[1]}")
     print(f"Best K-means clusters: {kmeans_results['best_k']}")
+    print(f"Uniformity improvement: {analyze_distribution(all_questions)['uniformity_score']:.3f} -> {filtered_distribution['uniformity_score']:.3f}")
     print(f"Output files saved to: {survey_dir}")
-    print(f"- Full dataset: question_pool_64k.parquet")
+    print(f"- Filtered dataset: question_pool_64k.parquet ({len(filtered_questions):,} questions)")
+    print(f"- Original dataset: question_pool_64k_original.parquet ({len(all_questions):,} questions)")
     print(f"- Decimated sets: question_pool_1000.parquet, question_pool_500.parquet, question_pool_200.parquet")
     print(f"- Analysis: question_analysis.json")
+    print(f"- Similarity report: similarity_removal_report.json")
 
 if __name__ == "__main__":
     main()
