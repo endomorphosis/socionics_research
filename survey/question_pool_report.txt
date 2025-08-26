@@ -1,0 +1,132 @@
+================================================================================
+SOCIONICS QUESTION POOL GENERATION REPORT
+================================================================================
+Generated on: 2025-08-26 07:30:00
+
+1. GENERATION SUMMARY
+------------------------------
+Target questions: 64,000
+Generated questions: 64,000
+Base questions: 510
+Variations: 63,490
+Variation ratio: 124.5:1
+Embedding dimensions: 64
+
+2. AXIS DISTRIBUTION ANALYSIS
+-----------------------------------
+EI: 11,316 questions ( 17.7%)
+IT:  7,406 questions ( 11.6%)
+JP:  7,579 questions ( 11.8%)
+NS:  7,469 questions ( 11.7%)
+RH:  7,557 questions ( 11.8%)
+SF:  7,545 questions ( 11.8%)
+ST:  7,499 questions ( 11.7%)
+TF:  7,629 questions ( 11.9%)
+
+Uniformity Score: 0.157
+(Lower scores indicate more uniform distribution)
+
+3. K-MEANS CLUSTERING ANALYSIS
+----------------------------------------
+Optimal number of clusters: 175
+Best silhouette score: 0.285
+
+Clustering quality interpretation:
+  > 0.7: Strong clustering
+  > 0.5: Reasonable clustering
+  > 0.25: Weak but meaningful clustering
+  < 0.25: Poor clustering
+
+Result: Weak but meaningful clustering
+
+4. GENERATED FILES
+--------------------
+question_pool_1000.parquet:
+  Questions: 1,000
+  File size: 0.1 MB
+  Uniformity score: 0.134
+  Most represented axis: EI (165 questions)
+  Least represented axis: NS (111 questions)
+
+question_pool_200.parquet:
+  Questions: 200
+  File size: 0.1 MB
+  Uniformity score: 0.105
+  Most represented axis: JP (29 questions)
+  Least represented axis: NS (20 questions)
+
+question_pool_500.parquet:
+  Questions: 500
+  File size: 0.1 MB
+  Uniformity score: 0.118
+  Most represented axis: EI (78 questions)
+  Least represented axis: NS (53 questions)
+
+question_pool_64k.parquet:
+  Questions: 64,000
+  File size: 2.2 MB
+  Uniformity score: 0.168
+  Most represented axis: EI (11316 questions)
+  Least represented axis: IT (7406 questions)
+
+
+5. SAMPLE QUESTIONS (from 200-question subset)
+--------------------------------------------------
+
+EI Axis (26 questions):
+  1. When opportunities arise happens, you tend to take action
+  2. In meetings, you typically speak up quickly
+
+IT Axis (27 questions):
+  1. External frameworks are transformed creatively
+  2. You would say that: Adaptation means individual growth
+
+JP Axis (29 questions):
+  1. Change should be embraced naturally
+  2. You prefer plans that are open and evolving
+
+NS Axis (20 questions):
+  1. When it comes to this area: Learning happens best through abstract principles
+  2. It's more accurate to say: Innovation means refining current to you
+
+RH Axis (24 questions):
+  1. Knowledge is built by seeing connections
+  2. When analyzing complex systems, you see holistic patterns
+
+SF Axis (25 questions):
+  1. Generally, Personal principles are non-negotiable core
+  2. Which statement better describes you: Compromise involves weakening position
+
+ST Axis (25 questions):
+  1. Reality is organized by time-based order
+  2. You resonate more with process-oriented thinking
+
+TF Axis (24 questions):
+  1. Team success depends on defined roles
+  2. Arguments are won by logical reasoning
+
+
+6. RECOMMENDATIONS FOR USAGE
+-----------------------------------
+
+Based on the analysis, here are recommendations for using the question pool:
+
+• For survey development:
+  - Use question_pool_200.parquet for initial testing
+  - Use question_pool_500.parquet for pilot studies
+  - Use question_pool_1000.parquet for full surveys
+
+• For question decimation:
+  - The K-means clustering with k=175 provides good separation
+  - Consider manual review of cluster representatives
+  - Balance axis representation in final selection
+
+• For uniform distribution:
+  - The generated sets show good uniformity across axes
+  - Consider using balanced sampling for specific applications
+  - Monitor for axis bias in final question selection
+
+• Data quality:
+  - Review generated variations for naturalness
+  - Consider semantic validation of embeddings
+  - Test with sample respondents before deployment
