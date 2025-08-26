@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Socionics Research Library - HTML5/CSS Presentations</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 3rem;
+        }
+
+        .header h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+            margin-bottom: 0.5rem;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 1rem 2rem;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            text-align: center;
+            color: white;
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            display: block;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .presentations-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .presentation-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 2rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+            text-decoration: none;
+            color: #333;
+        }
+
+        .presentation-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .presentation-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #667eea;
+        }
+
+        .presentation-meta {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 1rem;
+        }
+
+        .presentation-description {
+            font-size: 1rem;
+            line-height: 1.5;
+            color: #555;
+        }
+
+        .feature-highlight {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .feature-highlight h2 {
+            color: #667eea;
+            margin-bottom: 1rem;
+            font-size: 1.5rem;
+        }
+
+        .features-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            list-style: none;
+            margin-bottom: 1rem;
+        }
+
+        .features-list li {
+            padding: 0.5rem;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 5px;
+            font-size: 0.9rem;
+        }
+
+        .features-list li::before {
+            content: "✓ ";
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .copyright {
+            text-align: center;
+            color: white;
+            opacity: 0.8;
+            margin-top: 2rem;
+            padding-top: 2rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .stats {
+                flex-direction: column;
+                align-items: center;
+                gap: 1rem;
+            }
+            
+            .presentations-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .pdf-section {
+            margin-top: 2rem;
+        }
+
+        .pdf-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+            text-decoration: none;
+            color: #333;
+            display: block;
+            margin-bottom: 1rem;
+        }
+
+        .pdf-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .pdf-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #764ba2;
+            margin-bottom: 0.5rem;
+        }
+
+        .section-title {
+            color: white;
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>Socionics Research Library</h1>
+            <p>Complete HTML5/CSS Presentation Collection</p>
+            <p>All content extracted from PowerPoint presentations</p>
+        </header>
+
+        <div class="stats">
+            <div class="stat">
+                <span class="stat-number">12</span>
+                <span class="stat-label">PowerPoint Presentations</span>
+            </div>
+            <div class="stat">
+                <span class="stat-number">2</span>
+                <span class="stat-label">PDF Documents</span>
+            </div>
+            <div class="stat">
+                <span class="stat-number">635+</span>
+                <span class="stat-label">Total Slides & Pages</span>
+            </div>
+        </div>
+
+        <div class="feature-highlight">
+            <h2>🚀 Enhanced Features</h2>
+            <ul class="features-list">
+                <li>Modern HTML5/CSS3 Interface</li>
+                <li>Keyboard Navigation (Arrow Keys, Space)</li>
+                <li>Touch/Swipe Support for Mobile</li>
+                <li>Real-time Search Across All Slides</li>
+                <li>Fullscreen Presentation Mode</li>
+                <li>Slide Overview & Jump Navigation</li>
+                <li>Progress Tracking & Timers</li>
+                <li>Screen Reader & Accessibility Support</li>
+                <li>Responsive Mobile-First Design</li>
+                <li>Professional Print Stylesheets</li>
+            </ul>
+            <p><strong>Keyboard Shortcuts:</strong> Arrow keys or Space (navigate), F (fullscreen), O (overview), / (search), Esc (exit modes)</p>
+        </div>
+
+        <h2 class="section-title">PowerPoint Presentations</h2>
+        <div class="presentations-grid">
+            <a href="1-elements-part-i.html" class="presentation-card">
+                <div class="presentation-title">1 - Elements Part I</div>
+                <div class="presentation-meta">Introduction to Information Metabolism Elements</div>
+                <div class="presentation-description">Foundational concepts of socionics elements, including the basic building blocks of information processing and personality typing.</div>
+            </a>
+
+            <a href="2-elements-part-ii.html" class="presentation-card">
+                <div class="presentation-title">2 - Elements Part II</div>
+                <div class="presentation-meta">Advanced Information Elements</div>
+                <div class="presentation-description">Deeper exploration of information elements, their interactions, and practical applications in socionics theory.</div>
+            </a>
+
+            <a href="3-functions-part-i.html" class="presentation-card">
+                <div class="presentation-title">3 - Functions Part I</div>
+                <div class="presentation-meta">Introduction to Psychological Functions</div>
+                <div class="presentation-description">Overview of the eight psychological functions and their roles in information processing and decision-making.</div>
+            </a>
+
+            <a href="4-functions-part-ii.html" class="presentation-card">
+                <div class="presentation-title">4 - Functions Part II</div>
+                <div class="presentation-meta">Advanced Function Theory</div>
+                <div class="presentation-description">Complex interactions between functions, function blocks, and their manifestation in personality types.</div>
+            </a>
+
+            <a href="5-types-part-i.html" class="presentation-card">
+                <div class="presentation-title">5 - Types Part I</div>
+                <div class="presentation-meta">Introduction to Socionic Types</div>
+                <div class="presentation-description">Basic overview of the 16 socionic types, their characteristics, and fundamental differences.</div>
+            </a>
+
+            <a href="6-types-part-ii.html" class="presentation-card">
+                <div class="presentation-title">6 - Types Part II</div>
+                <div class="presentation-meta">Advanced Type Theory</div>
+                <div class="presentation-description">Detailed analysis of type manifestations, subtypes, and practical identification methods.</div>
+            </a>
+
+            <a href="7-alpha.html" class="presentation-card">
+                <div class="presentation-title">7 - Alpha</div>
+                <div class="presentation-meta">Alpha Quadra Analysis</div>
+                <div class="presentation-description">Comprehensive study of the Alpha quadra types (ILE, SEI, ESE, LII) and their intertype relationships.</div>
+            </a>
+
+            <a href="8-beta.html" class="presentation-card">
+                <div class="presentation-title">8 - Beta</div>
+                <div class="presentation-meta">Beta Quadra Analysis</div>
+                <div class="presentation-description">In-depth exploration of Beta quadra types (SLE, IEI, EIE, LSI) and their dynamics.</div>
+            </a>
+
+            <a href="9-gamma.html" class="presentation-card">
+                <div class="presentation-title">9 - Gamma</div>
+                <div class="presentation-meta">Gamma Quadra Analysis</div>
+                <div class="presentation-description">Detailed examination of Gamma quadra types (SEE, ILI, LIE, ESI) and their characteristics.</div>
+            </a>
+
+            <a href="10-delta.html" class="presentation-card">
+                <div class="presentation-title">10 - Delta</div>
+                <div class="presentation-meta">Delta Quadra Analysis</div>
+                <div class="presentation-description">Complete analysis of Delta quadra types (IEE, SLI, LSE, EII) and quadra values.</div>
+            </a>
+
+            <a href="11-relationships.html" class="presentation-card">
+                <div class="presentation-title">11 - Relationships</div>
+                <div class="presentation-meta">Intertype Relations • 69 slides</div>
+                <div class="presentation-description">Comprehensive guide to the 15 intertype relationships in socionics, including duality, activity, supervision, and conflict relations.</div>
+            </a>
+
+            <a href="12-how-to-type.html" class="presentation-card">
+                <div class="presentation-title">12 - How To Type</div>
+                <div class="presentation-meta">Practical Typing Methods</div>
+                <div class="presentation-description">Step-by-step guide to accurately determining socionic types using various observation and interview techniques.</div>
+            </a>
+        </div>
+
+        <div class="pdf-section">
+            <h2 class="section-title">PDF Documents</h2>
+            <a href="../Psychological_Types__Why_Are_People_So_Different___64_Portraits_in_Socionics.pdf" class="pdf-card" target="_blank">
+                <div class="pdf-title">Psychological Types - 64 Portraits in Socionics</div>
+                <div class="presentation-meta">Comprehensive reference book (PDF format)</div>
+            </a>
+            
+            <a href="../invoice_2025-013.pdf" class="pdf-card" target="_blank">
+                <div class="pdf-title">Invoice #2025-013</div>
+                <div class="presentation-meta">Business document (PDF format)</div>
+            </a>
+        </div>
+
+        <div class="copyright">
+            <p>All presentation content is copyrighted by Jack Oliver Aaron of the World Socionics Society</p>
+            <p>Enhanced with modern HTML5/CSS technology • Mobile-responsive • Accessibility optimized</p>
+        </div>
+    </div>
+</body>
+</html>
