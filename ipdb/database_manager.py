@@ -225,6 +225,10 @@ class IPDBManager:
         try:
             conn.executescript(sqlite_schema)
             conn.commit()
+            
+            # Ensure metadata table exists
+            self._ensure_metadata_table()
+            
             logger.info("Database schema initialized successfully")
         except Exception as e:
             conn.rollback()
@@ -954,6 +958,163 @@ class IPDBManager:
         except Exception as e:
             conn.rollback()
             raise e
+    
+    def get_all_entities(self, limit: int = 50) -> List[Dict]:
+        """Get all entities with basic information."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT id, name, description, entity_type, source, created_at
+            FROM entities
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (limit,))
+        
+        entities = []
+        for row in cursor.fetchall():
+            entities.append({
+                'id': row[0],
+                'name': row[1],
+                'description': row[2],
+                'entity_type': row[3],
+                'source': row[4],
+                'created_at': row[5]
+            })
+        
+        return entities
+    
+    def get_entity(self, entity_id: str) -> Optional[Dict]:
+        """Get a specific entity by ID."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT id, name, description, entity_type, source, external_id, metadata, created_at
+            FROM entities
+            WHERE id = ?
+        """, (entity_id,))
+        
+        row = cursor.fetchone()
+        if row:
+            return {
+                'id': row[0],
+                'name': row[1],
+                'description': row[2],
+                'entity_type': row[3],
+                'source': row[4],
+                'external_id': row[5],
+                'metadata': json.loads(row[6]) if row[6] else {},
+                'created_at': row[7]
+            }
+        return None
+    
+    def add_rating(self, rating_data: Dict) -> None:
+        """Add a personality type rating."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        # Store as simple JSON for now since we don't have the full schema implemented
+        cursor.execute("""
+            INSERT OR REPLACE INTO metadata_store (key, value, created_at)
+            VALUES (?, ?, ?)
+        """, (
+            f"rating_{rating_data['id']}", 
+            json.dumps(rating_data),
+            datetime.now().isoformat()
+        ))
+        conn.commit()
+    
+    def get_entity_ratings(self, entity_id: str) -> List[Dict]:
+        """Get all ratings for a specific entity."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT value FROM metadata_store 
+            WHERE key LIKE 'rating_%'
+        """)
+        
+        ratings = []
+        for row in cursor.fetchall():
+            try:
+                rating = json.loads(row[0])
+                if rating.get('entity_id') == entity_id:
+                    ratings.append(rating)
+            except:
+                continue
+                
+        return ratings
+    
+    def add_comment(self, comment_data: Dict) -> None:
+        """Add a comment for an entity."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO metadata_store (key, value, created_at)
+            VALUES (?, ?, ?)
+        """, (
+            f"comment_{comment_data['id']}", 
+            json.dumps(comment_data),
+            datetime.now().isoformat()
+        ))
+        conn.commit()
+    
+    def get_entity_comments(self, entity_id: str) -> List[Dict]:
+        """Get all comments for a specific entity."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT value FROM metadata_store 
+            WHERE key LIKE 'comment_%'
+        """)
+        
+        comments = []
+        for row in cursor.fetchall():
+            try:
+                comment = json.loads(row[0])
+                if comment.get('entity_id') == entity_id:
+                    comments.append(comment)
+            except:
+                continue
+                
+        return sorted(comments, key=lambda x: x.get('created_at', ''))
+    
+    def add_user(self, user_data: Dict) -> None:
+        """Add a user."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO metadata_store (key, value, created_at)
+            VALUES (?, ?, ?)
+        """, (
+            f"user_{user_data['id']}", 
+            json.dumps(user_data),
+            datetime.now().isoformat()
+        ))
+        conn.commit()
+    
+    def get_current_timestamp(self) -> str:
+        """Get current timestamp as ISO string."""
+        return datetime.now().isoformat()
+    
+    def _ensure_metadata_table(self):
+        """Ensure metadata_store table exists for storing ratings and comments."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS metadata_store (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                created_at TEXT,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
     
     def close(self):
         """Close database connection."""
