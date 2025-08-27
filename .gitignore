@@ -53,6 +53,13 @@ data/bot_store/backup_*/
 __pycache__
 .secrets
 
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
 node_modules/bot/test_venv/
 compass/node_modules/
 

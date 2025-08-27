@@ -2966,18 +2966,22 @@ class SimpleIPDBServer {
             description: 'Interactive Personality Database with Advanced Comparison Features',
             version: '2.0.0',
             features: [
+                'Collaborative character sheet management with real-time editing',
+                'Advanced search engine with taxonomy-based organization',
+                'Interactive multi-mode browsing (Grid, List, Table views)',
                 'Multi-system personality typing (Socionics, MBTI, Enneagram)',
                 'Head-to-head character comparisons',
                 'Panel analysis with 4 characters',
                 'Picture upload and association',
                 'Real-time rating and commenting',
+                'Version history and change tracking',
                 'Interactive modern UI with animations',
-                'Database schema management',
                 'User management with role-based access'
             ],
-            backend: 'Python with SQLite support',
+            backend: '100% Node.js with SQLite database',
             frontend: 'Modern JavaScript with CSS Grid and Animations',
             api_type: 'HTTP REST with enhanced UI',
+            implementation: 'Pure Node.js - no Python dependencies',
             endpoints: Object.keys(this.routes)
         }));
     }
