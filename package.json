@@ -9,10 +9,10 @@
     "dev": "echo 'Development mode - files ready'",
     "test": "node --test",
     "test:python": "python comprehensive_test.py",
-    "demo": "node ipdb/simple_api.js",
-    "demo:python": "python ipdb/enhanced_manager.py",
-    "api": "node ipdb/simple_api.js",
-    "start": "node ipdb/simple_api.js"
+    "demo": "node ipdb/simple_server.cjs",
+    "demo:python": "python ipdb/demo.py",
+    "api": "node ipdb/simple_server.cjs",
+    "start": "node ipdb/simple_server.cjs"
   },
   "keywords": [
     "socionics",
