@@ -12,13 +12,26 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
-const { spawn } = require('child_process');
+const IPDBManager = require('./database-manager.cjs');
 
 class SimpleIPDBServer {
     constructor(port = 3000) {
         this.port = port;
+        this.dbManager = new IPDBManager();
         this.setupRoutes();
         this.server = http.createServer(this.handleRequest.bind(this));
+        
+        // Initialize database
+        this.initializeDatabase();
+    }
+
+    async initializeDatabase() {
+        try {
+            await this.dbManager.initialize();
+            console.log('✅ Database initialized successfully');
+        } catch (error) {
+            console.error('❌ Database initialization failed:', error);
+        }
     }
 
     setupRoutes() {
@@ -36,6 +49,8 @@ class SimpleIPDBServer {
             'POST /api/comments': this.handleCreateComment.bind(this),
             'GET /api/comments/:entityId': this.handleGetComments.bind(this),
             'POST /api/users': this.handleCreateUser.bind(this),
+            'PUT /api/entities/:id': this.handleUpdateEntity.bind(this),
+            'GET /api/entities/:id/history': this.handleGetEntityHistory.bind(this),
         };
     }
 
@@ -65,6 +80,18 @@ class SimpleIPDBServer {
         if (commentsMatch) {
             routeKey = `${method} /api/comments/:entityId`;
             params.entityId = commentsMatch[1];
+        }
+        
+        const updateEntityMatch = pathname.match(/^\/api\/entities\/([^\/]+)$/);
+        if (updateEntityMatch && method === 'PUT') {
+            routeKey = `${method} /api/entities/:id`;
+            params.id = updateEntityMatch[1];
+        }
+        
+        const historyMatch = pathname.match(/^\/api\/entities\/([^\/]+)\/history$/);
+        if (historyMatch) {
+            routeKey = `${method} /api/entities/:id/history`;
+            params.id = historyMatch[1];
         }
 
         // Enable CORS
@@ -138,12 +165,12 @@ class SimpleIPDBServer {
                     <h2>System Status:</h2>
                     <ul>
                         <li>✅ Node.js HTTP Server Running</li>
-                        <li>✅ Python IPDB Backend Available</li>
+                        <li>✅ Node.js IPDB Backend Active</li>
                         <li>✅ SQLite Database Support</li>
-                        <li>⚠️ DuckDB & Vector Search Optional</li>
+                        <li>🚀 Pure Node.js Implementation</li>
                     </ul>
                     
-                    <p><em>For full functionality, use the Python API or command-line tools.</em></p>
+                    <p><em>100% Node.js implementation - no Python dependencies!</em></p>
                 </body>
             </html>
         `);
@@ -2016,31 +2043,39 @@ class SimpleIPDBServer {
                             category: document.getElementById('sheet-category').value,
                             description: document.getElementById('sheet-description').value,
                             source: document.getElementById('sheet-source').value,
-                            primary_type: document.getElementById('sheet-primary-type').value,
                             personality_notes: document.getElementById('sheet-personality-notes').value,
-                            confidence: currentSheetRating / 5.0,
-                            last_edited_by: currentUser,
-                            last_updated: new Date().toISOString()
+                            last_edited_by: currentUser
                         };
                         
                         try {
-                            // Simulate API call for now
-                            showSuccessMessage(\`Character sheet for "\${formData.name}" saved successfully!\`);
+                            const response = await fetch(\`/api/entities/\${entityId}\`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(formData)
+                            });
                             
-                            // Update local entity data
-                            const entityIndex = entities.findIndex(e => e.id === entityId);
-                            if (entityIndex !== -1) {
-                                entities[entityIndex] = { ...entities[entityIndex], ...formData };
+                            const result = await response.json();
+                            
+                            if (result.success) {
+                                showSuccessMessage(\`Character sheet for "\${formData.name}" saved successfully!\`);
                                 
-                                // Refresh display if we're in browse section
-                                if (currentSection === 'browse') {
-                                    applyFiltersAndSearch();
-                                    displayEntities();
+                                // Update local entity data
+                                const entityIndex = entities.findIndex(e => e.id === entityId);
+                                if (entityIndex !== -1) {
+                                    entities[entityIndex] = { ...entities[entityIndex], ...result.entity };
+                                    
+                                    // Refresh display if we're in browse section
+                                    if (currentSection === 'browse') {
+                                        applyFiltersAndSearch();
+                                        displayEntities();
+                                    }
                                 }
+                                
+                                addActivityItem(\`\${currentUser} saved changes to character sheet\`, 'Just now');
+                                closeModal('character-sheet-modal');
+                            } else {
+                                throw new Error(result.error || 'Failed to save character sheet');
                             }
-                            
-                            addActivityItem(\`\${currentUser} saved changes to character sheet\`, 'Just now');
-                            closeModal('character-sheet-modal');
                             
                         } catch (error) {
                             showErrorMessage('Failed to save character sheet: ' + error.message);
@@ -2649,10 +2684,10 @@ class SimpleIPDBServer {
                                     <div class="stat-card" style="text-align: left; margin: 15px 0;">
                                         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
                                             <div class="entity-avatar" style="width: 32px; height: 32px; font-size: 0.9rem;">
-                                                \${(comment.user || 'U').charAt(0).toUpperCase()}
+                                                \${(comment.user_id || 'U').charAt(0).toUpperCase()}
                                             </div>
                                             <div>
-                                                <strong>\${comment.user || 'Anonymous'}</strong>
+                                                <strong>\${comment.user_name || comment.user_id || 'Anonymous'}</strong>
                                                 <div style="font-size: 0.8rem; color: var(--gray-500);">
                                                     \${new Date(comment.created_at).toLocaleDateString()}
                                                 </div>
@@ -2755,43 +2790,25 @@ class SimpleIPDBServer {
     // Get entities from database
     async handleGetEntities(req, res) {
         try {
-            const pythonScript = `
-import sys
-sys.path.append('${path.dirname(__filename)}')
-from database_manager import IPDBManager
-import json
-
-try:
-    db = IPDBManager("/tmp/socionics_demo.db")
-    entities = db.get_all_entities(limit=50)
-    print(json.dumps({"success": True, "entities": entities}))
-except Exception as e:
-    print(json.dumps({"success": False, "error": str(e)}))
-            `;
-
-            const python = spawn('python3', ['-c', pythonScript]);
-            let output = '';
-            let error = '';
-
-            python.stdout.on('data', (data) => output += data.toString());
-            python.stderr.on('data', (data) => error += data.toString());
-
-            python.on('close', (code) => {
-                try {
-                    const result = JSON.parse(output.trim());
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify(result));
-                } catch (e) {
-                    res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({
-                        success: false,
-                        error: 'Failed to get entities',
-                        python_error: error
-                    }));
-                }
-            });
-
+            const parsedUrl = url.parse(req.url, true);
+            const query = parsedUrl.query;
+            
+            const filters = {
+                search: query.search,
+                category: query.category,
+                sort: query.sort
+            };
+            
+            const limit = parseInt(query.limit) || 50;
+            const offset = parseInt(query.offset) || 0;
+            
+            const entities = await this.dbManager.getAllEntities(limit, offset, filters);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, entities }));
+            
         } catch (error) {
+            console.error('Failed to get entities:', error);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: false, error: error.message }));
         }
@@ -2800,39 +2817,18 @@ except Exception as e:
     // Get specific entity
     async handleGetEntity(req, res, parsedUrl, params) {
         try {
-            const pythonScript = `
-import sys
-sys.path.append('${path.dirname(__filename)}')
-from database_manager import IPDBManager
-import json
-
-try:
-    db = IPDBManager("/tmp/socionics_demo.db")
-    entity = db.get_entity('${params.id}')
-    if entity:
-        print(json.dumps({"success": True, "entity": entity}))
-    else:
-        print(json.dumps({"success": False, "error": "Entity not found"}))
-except Exception as e:
-    print(json.dumps({"success": False, "error": str(e)}))
-            `;
-
-            const python = spawn('python3', ['-c', pythonScript]);
-            let output = '';
-
-            python.stdout.on('data', (data) => output += data.toString());
-            python.on('close', () => {
-                try {
-                    const result = JSON.parse(output.trim());
-                    res.writeHead(result.success ? 200 : 404, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify(result));
-                } catch (e) {
-                    res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: false, error: 'Failed to get entity' }));
-                }
-            });
-
+            const entity = await this.dbManager.getEntity(params.id);
+            
+            if (entity) {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, entity }));
+            } else {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: 'Entity not found' }));
+            }
+            
         } catch (error) {
+            console.error('Failed to get entity:', error);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: false, error: error.message }));
         }
@@ -2842,52 +2838,13 @@ except Exception as e:
     async handleCreateRating(req, res) {
         try {
             const rating = await this.getRequestBody(req);
+            const ratingId = await this.dbManager.addRating(rating);
             
-            const pythonScript = `
-import sys
-sys.path.append('${path.dirname(__filename)}')
-from database_manager import IPDBManager
-import json
-import uuid
-
-try:
-    db = IPDBManager("/tmp/socionics_demo.db")
-    
-    rating_id = str(uuid.uuid4())
-    rating_data = {
-        'id': rating_id,
-        'entity_id': '${rating.entity_id}',
-        'user': '${rating.user}',
-        'personality_system': '${rating.personality_system}',
-        'personality_type': '${rating.personality_type}',
-        'confidence': ${rating.confidence || 0.6},
-        'reasoning': '''${rating.reasoning || ''}''',
-        'created_at': db.get_current_timestamp()
-    }
-    
-    db.add_rating(rating_data)
-    print(json.dumps({"success": True, "rating_id": rating_id}))
-    
-except Exception as e:
-    print(json.dumps({"success": False, "error": str(e)}))
-            `;
-
-            const python = spawn('python3', ['-c', pythonScript]);
-            let output = '';
-
-            python.stdout.on('data', (data) => output += data.toString());
-            python.on('close', () => {
-                try {
-                    const result = JSON.parse(output.trim());
-                    res.writeHead(result.success ? 201 : 400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify(result));
-                } catch (e) {
-                    res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: false, error: 'Failed to create rating' }));
-                }
-            });
-
+            res.writeHead(201, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, rating_id: ratingId }));
+            
         } catch (error) {
+            console.error('Failed to create rating:', error);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: false, error: error.message }));
         }
@@ -2896,36 +2853,13 @@ except Exception as e:
     // Get ratings for entity
     async handleGetRatings(req, res, parsedUrl, params) {
         try {
-            const pythonScript = `
-import sys
-sys.path.append('${path.dirname(__filename)}')
-from database_manager import IPDBManager
-import json
-
-try:
-    db = IPDBManager("/tmp/socionics_demo.db")
-    ratings = db.get_entity_ratings('${params.entityId}')
-    print(json.dumps({"success": True, "ratings": ratings}))
-except Exception as e:
-    print(json.dumps({"success": False, "error": str(e)}))
-            `;
-
-            const python = spawn('python3', ['-c', pythonScript]);
-            let output = '';
-
-            python.stdout.on('data', (data) => output += data.toString());
-            python.on('close', () => {
-                try {
-                    const result = JSON.parse(output.trim());
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify(result));
-                } catch (e) {
-                    res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: false, error: 'Failed to get ratings' }));
-                }
-            });
-
+            const ratings = await this.dbManager.getEntityRatings(params.entityId);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, ratings }));
+            
         } catch (error) {
+            console.error('Failed to get ratings:', error);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: false, error: error.message }));
         }
@@ -2935,50 +2869,13 @@ except Exception as e:
     async handleCreateComment(req, res) {
         try {
             const comment = await this.getRequestBody(req);
+            const commentId = await this.dbManager.addComment(comment);
             
-            const pythonScript = `
-import sys
-sys.path.append('${path.dirname(__filename)}')
-from database_manager import IPDBManager
-import json
-import uuid
-from datetime import datetime
-
-try:
-    db = IPDBManager("/tmp/socionics_demo.db")
-    
-    comment_id = str(uuid.uuid4())
-    comment_data = {
-        'id': comment_id,
-        'entity_id': '${comment.entity_id}',
-        'user': '${comment.user}',
-        'content': '''${comment.content}''',
-        'created_at': datetime.now().isoformat()
-    }
-    
-    db.add_comment(comment_data)
-    print(json.dumps({"success": True, "comment_id": comment_id}))
-    
-except Exception as e:
-    print(json.dumps({"success": False, "error": str(e)}))
-            `;
-
-            const python = spawn('python3', ['-c', pythonScript]);
-            let output = '';
-
-            python.stdout.on('data', (data) => output += data.toString());
-            python.on('close', () => {
-                try {
-                    const result = JSON.parse(output.trim());
-                    res.writeHead(result.success ? 201 : 400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify(result));
-                } catch (e) {
-                    res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: false, error: 'Failed to create comment' }));
-                }
-            });
-
+            res.writeHead(201, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, comment_id: commentId }));
+            
         } catch (error) {
+            console.error('Failed to create comment:', error);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: false, error: error.message }));
         }
@@ -2987,36 +2884,48 @@ except Exception as e:
     // Get comments for entity
     async handleGetComments(req, res, parsedUrl, params) {
         try {
-            const pythonScript = `
-import sys
-sys.path.append('${path.dirname(__filename)}')
-from database_manager import IPDBManager
-import json
-
-try:
-    db = IPDBManager("/tmp/socionics_demo.db")
-    comments = db.get_entity_comments('${params.entityId}')
-    print(json.dumps({"success": True, "comments": comments}))
-except Exception as e:
-    print(json.dumps({"success": False, "error": str(e)}))
-            `;
-
-            const python = spawn('python3', ['-c', pythonScript]);
-            let output = '';
-
-            python.stdout.on('data', (data) => output += data.toString());
-            python.on('close', () => {
-                try {
-                    const result = JSON.parse(output.trim());
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify(result));
-                } catch (e) {
-                    res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: false, error: 'Failed to get comments' }));
-                }
-            });
-
+            const comments = await this.dbManager.getEntityComments(params.entityId);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, comments }));
+            
         } catch (error) {
+            console.error('Failed to get comments:', error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: error.message }));
+        }
+    }
+
+    // Update entity (character sheet)
+    async handleUpdateEntity(req, res, parsedUrl, params) {
+        try {
+            const updates = await this.getRequestBody(req);
+            const userId = updates.last_edited_by || 'anonymous';
+            
+            delete updates.last_edited_by; // Remove from updates object
+            
+            const updatedEntity = await this.dbManager.updateEntity(params.id, updates, userId);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, entity: updatedEntity }));
+            
+        } catch (error) {
+            console.error('Failed to update entity:', error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: error.message }));
+        }
+    }
+
+    // Get entity edit history
+    async handleGetEntityHistory(req, res, parsedUrl, params) {
+        try {
+            const history = await this.dbManager.getEntityHistory(params.id);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, history }));
+            
+        } catch (error) {
+            console.error('Failed to get entity history:', error);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: false, error: error.message }));
         }
@@ -3026,50 +2935,13 @@ except Exception as e:
     async handleCreateUser(req, res) {
         try {
             const user = await this.getRequestBody(req);
+            const userId = await this.dbManager.addUser(user);
             
-            const pythonScript = `
-import sys
-sys.path.append('${path.dirname(__filename)}')
-from database_manager import IPDBManager
-import json
-import uuid
-
-try:
-    db = IPDBManager("/tmp/socionics_demo.db")
-    
-    user_id = str(uuid.uuid4())
-    user_data = {
-        'id': user_id,
-        'username': '${user.username}',
-        'display_name': '${user.display_name || user.username}',
-        'role': '${user.role || 'annotator'}',
-        'experience_level': '${user.experience_level || 'novice'}',
-        'created_at': db.get_current_timestamp()
-    }
-    
-    db.add_user(user_data)
-    print(json.dumps({"success": True, "user_id": user_id}))
-    
-except Exception as e:
-    print(json.dumps({"success": False, "error": str(e)}))
-            `;
-
-            const python = spawn('python3', ['-c', pythonScript]);
-            let output = '';
-
-            python.stdout.on('data', (data) => output += data.toString());
-            python.on('close', () => {
-                try {
-                    const result = JSON.parse(output.trim());
-                    res.writeHead(result.success ? 201 : 400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify(result));
-                } catch (e) {
-                    res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: false, error: 'Failed to create user' }));
-                }
-            });
-
+            res.writeHead(201, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, user_id: userId }));
+            
         } catch (error) {
+            console.error('Failed to create user:', error);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: false, error: error.message }));
         }
@@ -3112,128 +2984,41 @@ except Exception as e:
 
     async handleStats(req, res) {
         try {
-            const pythonScript = `
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath('${__filename}')))
-
-try:
-    from database_manager import IPDBManager
-    import json
-    
-    db_path = "/tmp/socionics_demo.db"
-    if not os.path.exists(db_path):
-        db_path = ":memory:"
-        
-    db = IPDBManager(db_path)
-    
-    if db_path == ":memory:":
-        db.initialize_database()
-    
-    conn = db.get_connection()
-    cursor = conn.cursor()
-    
-    stats = {}
-    
-    try:
-        cursor.execute("SELECT COUNT(*) FROM entities")
-        stats['entities'] = cursor.fetchone()[0]
-    except:
-        stats['entities'] = 0
-        
-    try:
-        cursor.execute("SELECT COUNT(*) FROM users")
-        stats['users'] = cursor.fetchone()[0]
-    except:
-        stats['users'] = 0
-        
-    try:
-        cursor.execute("SELECT COUNT(*) FROM personality_types")
-        stats['personality_types'] = cursor.fetchone()[0]
-    except:
-        stats['personality_types'] = 0
-    
-    db.close()
-    print(json.dumps(stats))
-    
-except Exception as e:
-    print(json.dumps({"error": str(e), "entities": 0, "users": 0, "personality_types": 0}))
-            `;
-
-            const python = spawn('python3', ['-c', pythonScript], {
-                cwd: path.dirname(__filename)
-            });
-
-            let output = '';
-            let error = '';
-
-            python.stdout.on('data', (data) => {
-                output += data.toString();
-            });
-
-            python.stderr.on('data', (data) => {
-                error += data.toString();
-            });
-
-            python.on('close', (code) => {
-                try {
-                    const stats = JSON.parse(output.trim());
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({
-                        success: true,
-                        database_stats: stats,
-                        python_available: code === 0,
-                        last_updated: new Date().toISOString()
-                    }));
-                } catch (e) {
-                    res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({
-                        success: false,
-                        error: 'Failed to get database stats',
-                        python_error: error,
-                        python_available: false
-                    }));
-                }
-            });
-
+            const stats = await this.dbManager.getStats();
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                database_stats: stats,
+                node_only: true,
+                last_updated: new Date().toISOString()
+            }));
+            
         } catch (error) {
+            console.error('Failed to get stats:', error);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 success: false,
                 error: error.message,
-                python_available: false
+                node_only: true
             }));
         }
     }
 
     async handleTest(req, res) {
         try {
-            const python = spawn('python3', [
-                path.join(__dirname, 'demo.py')
-            ]);
-
-            let output = '';
-            let error = '';
-
-            python.stdout.on('data', (data) => {
-                output += data.toString();
-            });
-
-            python.stderr.on('data', (data) => {
-                error += data.toString();
-            });
-
-            python.on('close', (code) => {
-                const success = code === 0;
-                res.writeHead(success ? 200 : 500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    success,
-                    exit_code: code,
-                    output: output,
-                    error: error,
-                    timestamp: new Date().toISOString()
-                }));
-            });
+            // Test the Node.js database instead of Python
+            const stats = await this.dbManager.getStats();
+            const testEntity = await this.dbManager.getAllEntities(1);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                message: 'Node.js IPDB system test successful',
+                stats: stats,
+                sample_entity: testEntity.length > 0 ? testEntity[0].name : 'No entities found',
+                timestamp: new Date().toISOString()
+            }));
 
         } catch (error) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -3264,19 +3049,22 @@ except Exception as e:
 
     start() {
         this.server.listen(this.port, () => {
-            console.log(`\n🚀 IPDB Enhanced Research Platform`);
+            console.log(`\n🚀 IPDB Enhanced Research Platform (Node.js Only)`);
             console.log(`📍 Server: http://localhost:${this.port}`);
             console.log(`🎨 App: http://localhost:${this.port}/app`);
             console.log(`🏥 Health: http://localhost:${this.port}/health`);
             console.log(`📊 Stats:  http://localhost:${this.port}/api/stats`);
             console.log(`ℹ️  Info:   http://localhost:${this.port}/api/info`);
             console.log(`\n✨ Features Available:`);
+            console.log(`   📋 Collaborative Character Sheet Management`);
+            console.log(`   🔍 Advanced Search & Taxonomy Organization`);
+            console.log(`   📊 Interactive Multi-Mode Browsing`);
             console.log(`   🎪 Panel View (4 characters)`);
             console.log(`   ⚔️  Head-to-Head Comparisons`);
             console.log(`   📸 Picture Upload & Association`);
             console.log(`   🧠 Multi-system Personality Typing`);
             console.log(`   💬 Interactive Comments & Ratings`);
-            console.log(`\n✅ Enhanced UI with modern design ready!`);
+            console.log(`\n🚀 100% Node.js implementation - no Python dependencies!`);
             console.log(`   Use Ctrl+C to stop the server\n`);
         });
 
