@@ -8,9 +8,9 @@
     "build": "echo 'Build not required - using JavaScript files directly'",
     "dev": "echo 'Development mode - files ready'",
     "test": "node --test",
-    "demo": "node ipdb/simple_server.cjs",
-    "api": "node ipdb/simple_server.cjs",
-    "start": "node ipdb/simple_server.cjs"
+    "demo": "node ipdb/wikia_server.cjs",
+    "api": "node ipdb/wikia_server.cjs",
+    "start": "node ipdb/wikia_server.cjs"
   },
   "keywords": [
     "socionics",

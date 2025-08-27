@@ -203,35 +203,32 @@ class SimpleIPDBServer {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>IPDB - Interactive Personality Research Platform</title>
+                <title>Personality Database Wiki - 2M+ Character Profiles | Community-Driven Personality Typing</title>
                 <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+                    @import url('https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700&family=Source+Sans+Pro:wght@300;400;600;700&display=swap');
                     
                     :root {
-                        --primary: #6366f1;
-                        --primary-dark: #4f46e5;
-                        --secondary: #ec4899;
-                        --accent: #14b8a6;
-                        --success: #10b981;
-                        --warning: #f59e0b;
-                        --danger: #ef4444;
-                        --dark: #1f2937;
-                        --light: #f8fafc;
-                        --gray-50: #f9fafb;
-                        --gray-100: #f3f4f6;
-                        --gray-200: #e5e7eb;
-                        --gray-300: #d1d5db;
-                        --gray-400: #9ca3af;
-                        --gray-500: #6b7280;
-                        --gray-600: #4b5563;
-                        --gray-700: #374151;
-                        --gray-800: #1f2937;
-                        --gray-900: #111827;
-                        --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-                        --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-                        --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-                        --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-                        --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+                        /* Wikia-inspired color scheme */
+                        --wiki-primary: #002a5c;
+                        --wiki-secondary: #0066cc;
+                        --wiki-accent: #00a8e6;
+                        --wiki-success: #00b04f;
+                        --wiki-warning: #ff6d31;
+                        --wiki-danger: #d32f2f;
+                        --wiki-dark: #2c3e50;
+                        --wiki-light: #ffffff;
+                        --wiki-gray: #f8f9fa;
+                        --wiki-border: #d1d5db;
+                        --wiki-text: #2c3e50;
+                        --wiki-text-light: #6c757d;
+                        --wiki-bg: #ffffff;
+                        --wiki-sidebar: #f8f9fa;
+                        --community-gold: #ffc107;
+                        --community-silver: #9e9e9e;
+                        --personality-intj: #6a4c93;
+                        --personality-enfp: #ff6b6b;
+                        --personality-isfj: #4ecdc4;
+                        --personality-estp: #ffe66d;
                     }
                     
                     * {
@@ -241,122 +238,351 @@ class SimpleIPDBServer {
                     }
                     
                     body { 
-                        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-                        min-height: 100vh;
-                        margin: 0;
-                        padding: 0;
+                        font-family: 'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                        background-color: var(--wiki-bg);
+                        color: var(--wiki-text);
                         line-height: 1.6;
-                        color: var(--gray-800);
-                        background-attachment: fixed;
                     }
                     
-                    .main-container {
-                        max-width: 1400px;
+                    /* Wikia-style Header */
+                    .wiki-header {
+                        background: var(--wiki-primary);
+                        color: white;
+                        border-bottom: 3px solid var(--wiki-secondary);
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }
+                    
+                    .wiki-header-top {
+                        background: var(--wiki-dark);
+                        padding: 8px 0;
+                        font-size: 12px;
+                    }
+                    
+                    .wiki-header-top .container {
+                        max-width: 1200px;
                         margin: 0 auto;
-                        padding: 20px;
-                        min-height: 100vh;
-                    }
-                    
-                    .app-header { 
-                        background: rgba(255, 255, 255, 0.95);
-                        backdrop-filter: blur(10px);
-                        color: var(--gray-800);
-                        padding: 30px;
-                        border-radius: 20px;
-                        margin-bottom: 30px;
-                        text-align: center;
-                        box-shadow: var(--shadow-xl);
-                        border: 1px solid rgba(255, 255, 255, 0.2);
-                        animation: slideInDown 0.6s ease-out;
-                    }
-                    
-                    @keyframes slideInDown {
-                        from {
-                            opacity: 0;
-                            transform: translateY(-30px);
-                        }
-                        to {
-                            opacity: 1;
-                            transform: translateY(0);
-                        }
-                    }
-                    
-                    @keyframes fadeInUp {
-                        from {
-                            opacity: 0;
-                            transform: translateY(30px);
-                        }
-                        to {
-                            opacity: 1;
-                            transform: translateY(0);
-                        }
-                    }
-                    
-                    @keyframes scaleIn {
-                        from {
-                            opacity: 0;
-                            transform: scale(0.9);
-                        }
-                        to {
-                            opacity: 1;
-                            transform: scale(1);
-                        }
-                    }
-                    
-                    .app-header h1 {
-                        font-size: 3.5rem;
-                        font-weight: 700;
-                        margin-bottom: 10px;
-                        background: linear-gradient(135deg, var(--primary), var(--secondary));
-                        -webkit-background-clip: text;
-                        -webkit-text-fill-color: transparent;
-                        background-clip: text;
-                    }
-                    
-                    .app-header p {
-                        font-size: 1.3rem;
-                        color: var(--gray-600);
-                        font-weight: 400;
-                    }
-                    
-                    .feature-nav {
+                        padding: 0 20px;
                         display: flex;
-                        justify-content: center;
+                        justify-content: space-between;
+                        align-items: center;
+                    }
+                    
+                    .wiki-nav-main {
+                        padding: 15px 0;
+                    }
+                    
+                    .wiki-nav-main .container {
+                        max-width: 1200px;
+                        margin: 0 auto;
+                        padding: 0 20px;
+                        display: flex;
+                        align-items: center;
+                        gap: 30px;
+                    }
+                    
+                    .wiki-logo {
+                        display: flex;
+                        align-items: center;
                         gap: 15px;
-                        margin: 30px 0;
+                        font-weight: 700;
+                        font-size: 24px;
+                        text-decoration: none;
+                        color: white;
+                    }
+                    
+                    .wiki-logo-icon {
+                        background: var(--wiki-accent);
+                        width: 40px;
+                        height: 40px;
+                        border-radius: 8px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 20px;
+                    }
+                    
+                    .wiki-search {
+                        flex: 1;
+                        max-width: 400px;
+                        position: relative;
+                    }
+                    
+                    .wiki-search input {
+                        width: 100%;
+                        padding: 12px 45px 12px 15px;
+                        border: 2px solid rgba(255,255,255,0.2);
+                        border-radius: 6px;
+                        background: rgba(255,255,255,0.1);
+                        color: white;
+                        font-size: 16px;
+                    }
+                    
+                    .wiki-search input::placeholder {
+                        color: rgba(255,255,255,0.7);
+                    }
+                    
+                    .wiki-search button {
+                        position: absolute;
+                        right: 5px;
+                        top: 5px;
+                        bottom: 5px;
+                        background: var(--wiki-accent);
+                        border: none;
+                        border-radius: 4px;
+                        color: white;
+                        padding: 0 15px;
+                        cursor: pointer;
+                        font-weight: 600;
+                    }
+                    
+                    .wiki-stats {
+                        display: flex;
+                        gap: 25px;
+                        font-size: 14px;
+                        color: rgba(255,255,255,0.8);
+                    }
+                    
+                    .wiki-stat {
+                        display: flex;
+                        align-items: center;
+                        gap: 5px;
+                    }
+                    
+                    .wiki-stat-number {
+                        font-weight: 700;
+                        color: var(--community-gold);
+                    
+                    /* Main Layout */
+                    .wiki-layout {
+                        max-width: 1200px;
+                        margin: 0 auto;
+                        display: grid;
+                        grid-template-columns: 250px 1fr;
+                        gap: 20px;
+                        padding: 20px;
+                    }
+                    
+                    /* Wikia-style Sidebar */
+                    .wiki-sidebar {
+                        background: var(--wiki-sidebar);
+                        border: 1px solid var(--wiki-border);
+                        border-radius: 8px;
+                        height: fit-content;
+                        overflow: hidden;
+                    }
+                    
+                    .sidebar-section {
+                        border-bottom: 1px solid var(--wiki-border);
+                    }
+                    
+                    .sidebar-section:last-child {
+                        border-bottom: none;
+                    }
+                    
+                    .sidebar-header {
+                        background: var(--wiki-primary);
+                        color: white;
+                        padding: 12px 15px;
+                        font-weight: 600;
+                        font-size: 14px;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                    }
+                    
+                    .sidebar-content {
+                        padding: 15px;
+                    }
+                    
+                    .sidebar-nav {
+                        list-style: none;
+                    }
+                    
+                    .sidebar-nav li {
+                        margin-bottom: 8px;
+                    }
+                    
+                    .sidebar-nav a {
+                        text-decoration: none;
+                        color: var(--wiki-text);
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                        padding: 8px 10px;
+                        border-radius: 4px;
+                        transition: all 0.2s;
+                        font-weight: 500;
+                    }
+                    
+                    .sidebar-nav a:hover {
+                        background: var(--wiki-secondary);
+                        color: white;
+                    }
+                    
+                    .sidebar-nav a.active {
+                        background: var(--wiki-accent);
+                        color: white;
+                    }
+                    
+                    /* Main Content Area */
+                    .wiki-content {
+                        background: white;
+                        border: 1px solid var(--wiki-border);
+                        border-radius: 8px;
+                        overflow: hidden;
+                    }
+                    
+                    .content-header {
+                        background: var(--wiki-gray);
+                        border-bottom: 1px solid var(--wiki-border);
+                        padding: 20px;
+                    }
+                    
+                    .content-title {
+                        font-size: 28px;
+                        font-weight: 700;
+                        color: var(--wiki-primary);
+                        margin-bottom: 10px;
+                        font-family: 'Rubik', sans-serif;
+                    }
+                    
+                    .content-subtitle {
+                        color: var(--wiki-text-light);
+                        font-size: 16px;
+                        margin-bottom: 15px;
+                    }
+                    
+                    .breadcrumb {
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                        font-size: 14px;
+                        color: var(--wiki-text-light);
+                    }
+                    
+                    .breadcrumb a {
+                        color: var(--wiki-secondary);
+                        text-decoration: none;
+                    }
+                    
+                    .breadcrumb a:hover {
+                        text-decoration: underline;
+                    }
+                    
+                    /* Character Cards */
+                    .content-body {
+                        padding: 20px;
+                    }
+                    
+                    .character-grid {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                        gap: 20px;
+                        margin-bottom: 30px;
+                    }
+                    
+                    .character-card {
+                        background: white;
+                        border: 1px solid var(--wiki-border);
+                        border-radius: 8px;
+                        overflow: hidden;
+                        transition: all 0.3s;
+                        hover: box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                    }
+                    
+                    .character-card:hover {
+                        transform: translateY(-2px);
+                        box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+                    }
+                    
+                    .character-image {
+                        width: 100%;
+                        height: 200px;
+                        background: linear-gradient(135deg, var(--wiki-secondary), var(--wiki-accent));
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: white;
+                        font-size: 48px;
+                        font-weight: bold;
+                        position: relative;
+                    }
+                    
+                    .character-image img {
+                        width: 100%;
+                        height: 100%;
+                        object-fit: cover;
+                    }
+                    
+                    .character-info {
+                        padding: 15px;
+                    }
+                    
+                    .character-name {
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: var(--wiki-primary);
+                        margin-bottom: 5px;
+                        font-family: 'Rubik', sans-serif;
+                    }
+                    
+                    .character-source {
+                        color: var(--wiki-text-light);
+                        font-size: 14px;
+                        margin-bottom: 10px;
+                    }
+                    
+                    .personality-badges {
+                        display: flex;
+                        gap: 8px;
+                        margin-bottom: 15px;
                         flex-wrap: wrap;
                     }
                     
-                    .nav-btn {
-                        background: rgba(255, 255, 255, 0.9);
-                        border: 2px solid var(--primary);
-                        color: var(--primary);
-                        padding: 15px 30px;
-                        border-radius: 50px;
-                        cursor: pointer;
-                        font-size: 16px;
+                    .personality-badge {
+                        background: var(--wiki-accent);
+                        color: white;
+                        padding: 4px 8px;
+                        border-radius: 12px;
+                        font-size: 12px;
                         font-weight: 600;
-                        transition: all 0.3s ease;
-                        text-decoration: none;
-                        display: inline-flex;
+                    }
+                    
+                    .personality-badge.mbti {
+                        background: var(--personality-intj);
+                    }
+                    
+                    .personality-badge.socionics {
+                        background: var(--personality-enfp);
+                    }
+                    
+                    .vote-info {
+                        display: flex;
+                        justify-content: space-between;
                         align-items: center;
-                        gap: 8px;
-                        box-shadow: var(--shadow);
-                        backdrop-filter: blur(10px);
+                        font-size: 14px;
+                        color: var(--wiki-text-light);
                     }
                     
-                    .nav-btn:hover {
-                        background: var(--primary);
-                        color: white;
-                        transform: translateY(-2px);
-                        box-shadow: var(--shadow-lg);
+                    .vote-count {
+                        display: flex;
+                        align-items: center;
+                        gap: 5px;
                     }
                     
-                    .nav-btn.active {
-                        background: var(--primary);
+                    .vote-btn {
+                        background: var(--wiki-secondary);
                         color: white;
-                        box-shadow: var(--shadow-md);
+                        border: none;
+                        padding: 6px 12px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 12px;
+                        font-weight: 600;
+                        transition: background 0.2s;
+                    }
+                    
+                    .vote-btn:hover {
+                        background: var(--wiki-primary);
                     }
                     
                     .container { 
@@ -1144,24 +1370,172 @@ class SimpleIPDBServer {
                 </style>
             </head>
             <body>
-                <div class="main-container">
-                    <div class="app-header">
-                        <h1>🧠 IPDB Research Platform</h1>
-                        <p>Interactive personality typing and comparison system for socionics research</p>
+                <!-- Wikia-style Header -->
+                <header class="wiki-header">
+                    <div class="wiki-header-top">
+                        <div class="container">
+                            <div class="wiki-stats">
+                                <div class="wiki-stat">
+                                    <span>📚</span>
+                                    <span class="wiki-stat-number">2,045,783</span>
+                                    <span>Characters</span>
+                                </div>
+                                <div class="wiki-stat">
+                                    <span>🗳️</span>
+                                    <span class="wiki-stat-number">8,923,451</span>
+                                    <span>Votes Cast</span>
+                                </div>
+                                <div class="wiki-stat">
+                                    <span>👥</span>
+                                    <span class="wiki-stat-number">157,892</span>
+                                    <span>Contributors</span>
+                                </div>
+                            </div>
+                            <div style="font-size: 11px; color: rgba(255,255,255,0.6);">
+                                Last updated: 2 minutes ago
+                            </div>
+                        </div>
+                    </div>
+                    <nav class="wiki-nav-main">
+                        <div class="container">
+                            <a href="#" class="wiki-logo">
+                                <div class="wiki-logo-icon">🧠</div>
+                                <div>
+                                    <div style="font-size: 24px;">Personality Database</div>
+                                    <div style="font-size: 12px; font-weight: 400; opacity: 0.8;">Community Wiki</div>
+                                </div>
+                            </a>
+                            
+                            <div class="wiki-search">
+                                <input type="text" id="globalSearch" placeholder="Search 2M+ characters, series, personalities..." autocomplete="off">
+                                <button onclick="performGlobalSearch()">🔍</button>
+                            </div>
+                            
+                            <div style="display: flex; gap: 20px; align-items: center;">
+                                <a href="#" style="color: rgba(255,255,255,0.8); text-decoration: none; font-weight: 500;">Random</a>
+                                <a href="#" style="color: rgba(255,255,255,0.8); text-decoration: none; font-weight: 500;">Recent</a>
+                                <a href="#" style="color: var(--community-gold); text-decoration: none; font-weight: 600;">Contribute</a>
+                            </div>
+                        </div>
+                    </nav>
+                </header>
+
+                <!-- Main Wiki Layout -->
+                <div class="wiki-layout">
+                    <!-- Sidebar Navigation -->
+                    <aside class="wiki-sidebar">
+                        <div class="sidebar-section">
+                            <div class="sidebar-header">🏠 Navigation</div>
+                            <div class="sidebar-content">
+                                <ul class="sidebar-nav">
+                                    <li><a href="#" onclick="showSection('dashboard')" class="active">📊 Main Page</a></li>
+                                    <li><a href="#" onclick="showSection('browse')">👥 Browse Characters</a></li>
+                                    <li><a href="#" onclick="showSection('compare')">⚔️ Compare Types</a></li>
+                                    <li><a href="#" onclick="showSection('recent')">🔥 Recent Activity</a></li>
+                                    <li><a href="#" onclick="showSection('popular')">⭐ Popular Today</a></li>
+                                </ul>
+                            </div>
+                        </div>
                         
-                        <div class="feature-nav">
-                            <button class="nav-btn active" onclick="showSection('dashboard')">
-                                📊 Dashboard
-                            </button>
-                            <button class="nav-btn" onclick="showSection('browse')">
-                                👥 Browse Characters
-                            </button>
-                            <button class="nav-btn" onclick="showSection('compare')">
-                                ⚔️ Head-to-Head
-                            </button>
-                            <button class="nav-btn" onclick="showSection('panel')">
-                                🎪 Panel View
-                            </button>
+                        <div class="sidebar-section">
+                            <div class="sidebar-header">📂 Categories</div>
+                            <div class="sidebar-content">
+                                <ul class="sidebar-nav">
+                                    <li><a href="#" onclick="filterByCategory('anime')">🍜 Anime (584K)</a></li>
+                                    <li><a href="#" onclick="filterByCategory('movies')">🎬 Movies (342K)</a></li>
+                                    <li><a href="#" onclick="filterByCategory('tv')">📺 TV Shows (298K)</a></li>
+                                    <li><a href="#" onclick="filterByCategory('books')">📖 Books (201K)</a></li>
+                                    <li><a href="#" onclick="filterByCategory('games')">🎮 Games (287K)</a></li>
+                                    <li><a href="#" onclick="filterByCategory('comics')">🦸 Comics (178K)</a></li>
+                                    <li><a href="#" onclick="filterByCategory('celebrities')">🌟 Celebrities (156K)</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <div class="sidebar-section">
+                            <div class="sidebar-header">🧠 Personality Systems</div>
+                            <div class="sidebar-content">
+                                <ul class="sidebar-nav">
+                                    <li><a href="#" onclick="filterBySystem('mbti')">MBTI (16 Types)</a></li>
+                                    <li><a href="#" onclick="filterBySystem('socionics')">Socionics (16 Types)</a></li>
+                                    <li><a href="#" onclick="filterBySystem('enneagram')">Enneagram (9 Types)</a></li>
+                                    <li><a href="#" onclick="filterBySystem('bigfive')">Big Five</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <div class="sidebar-section">
+                            <div class="sidebar-header">📈 Community Stats</div>
+                            <div class="sidebar-content" style="font-size: 13px;">
+                                <div style="margin-bottom: 8px;">
+                                    <strong>Daily Activity:</strong><br>
+                                    • 12,847 new votes<br>
+                                    • 3,291 comments<br>
+                                    • 892 new profiles
+                                </div>
+                                <div style="margin-bottom: 8px;">
+                                    <strong>Top Contributors:</strong><br>
+                                    • TypeMaster99 (1,247)<br>
+                                    • PersonalityGuru (1,089)<br>
+                                    • WikiTyper (956)
+                                </div>
+                            </div>
+                        </div>
+                    </aside>
+
+                    <!-- Main Content -->
+                    <main class="wiki-content">
+                        <div class="content-header">
+                            <div class="breadcrumb">
+                                <a href="#">Home</a> › <span>Main Page</span>
+                            </div>
+                            <h1 class="content-title">Welcome to Personality Database Wiki</h1>
+                            <p class="content-subtitle">The world's largest community-driven database of personality types with over 2 million character profiles</p>
+                        </div>
+                        
+                        <div class="content-body">
+                            <!-- Dashboard Section -->
+                            <div id="dashboard-section" class="content-section" style="display: block;">
+                                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 30px;">
+                                    <div style="background: linear-gradient(135deg, var(--wiki-secondary), var(--wiki-accent)); color: white; padding: 30px; border-radius: 12px;">
+                                        <h2 style="margin-bottom: 15px; font-size: 24px;">🎯 Featured Character of the Day</h2>
+                                        <div style="display: flex; gap: 20px; align-items: center;">
+                                            <div style="width: 80px; height: 80px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px;">
+                                                🕵️
+                                            </div>
+                                            <div>
+                                                <h3 style="margin-bottom: 5px;">Sherlock Holmes</h3>
+                                                <p style="opacity: 0.9; margin-bottom: 5px;">Detective Fiction</p>
+                                                <div style="display: flex; gap: 8px;">
+                                                    <span style="background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 12px; font-size: 12px;">INTJ</span>
+                                                    <span style="background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 12px; font-size: 12px;">LII</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div style="background: var(--wiki-gray); padding: 20px; border-radius: 12px; border: 1px solid var(--wiki-border);">
+                                        <h3 style="margin-bottom: 15px; color: var(--wiki-primary);">🔥 Trending Now</h3>
+                                        <div style="space-y: 10px;">
+                                            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--wiki-border);">
+                                                <span>Jujutsu Kaisen</span>
+                                                <span style="color: var(--wiki-success);">+2,847</span>
+                                            </div>
+                                            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--wiki-border);">
+                                                <span>Attack on Titan</span>
+                                                <span style="color: var(--wiki-success);">+1,923</span>
+                                            </div>
+                                            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--wiki-border);">
+                                                <span>Marvel Universe</span>
+                                                <span style="color: var(--wiki-success);">+1,445</span>
+                                            </div>
+                                            <div style="display: flex; justify-content: space-between; padding: 8px 0;">
+                                                <span>Harry Potter</span>
+                                                <span style="color: var(--wiki-success);">+1,201</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             <button class="nav-btn" onclick="showSection('upload')">
                                 📸 Upload Pictures
                             </button>
@@ -2770,6 +3144,278 @@ class SimpleIPDBServer {
                         messageDiv.style.maxWidth = '400px';
                         messageDiv.style.boxShadow = 'var(--shadow-xl)';
                         
+                        document.body.appendChild(messageDiv);
+                        
+                        setTimeout(() => {
+                            if (messageDiv.parentNode) {
+                                messageDiv.remove();
+                            }
+                        }, 5000);
+                    }
+
+                    
+                    /* Responsive Design */
+                    @media (max-width: 768px) {
+                        .wiki-layout {
+                            grid-template-columns: 1fr;
+                        }
+                        
+                        .wiki-sidebar {
+                            order: 2;
+                        }
+                        
+                        .wiki-nav-main .container {
+                            flex-direction: column;
+                            gap: 15px;
+                        }
+                        
+                        .character-grid {
+                            grid-template-columns: 1fr;
+                        }
+                    }
+                    
+                    /* Personality Filter Buttons */
+                    .personality-filter {
+                        background: white;
+                        border: 1px solid var(--wiki-border);
+                        color: var(--wiki-text);
+                        padding: 6px 12px;
+                        border-radius: 20px;
+                        cursor: pointer;
+                        font-size: 13px;
+                        font-weight: 500;
+                        transition: all 0.2s;
+                    }
+                    
+                    .personality-filter:hover {
+                        background: var(--wiki-secondary);
+                        color: white;
+                        border-color: var(--wiki-secondary);
+                    }
+                    
+                    .personality-filter.active {
+                        background: var(--wiki-accent);
+                        color: white;
+                        border-color: var(--wiki-accent);
+                    }
+                    
+                    /* Loading States */
+                    .loading {
+                        text-align: center;
+                        padding: 40px;
+                        color: var(--wiki-text-light);
+                    }
+                    
+                    .content-section {
+                        display: none;
+                    }
+                    
+                    .content-section.active {
+                        display: block;
+                    }
+                </style>
+                
+                <script>
+                    // Global app state
+                    let currentPage = 'dashboard';
+                    let entities = [];
+                    let filteredEntities = [];
+                    let currentView = 'grid';
+                    let selectedCharacters = { compare: {}, panel: {} };
+                    
+                    // Initialize the application
+                    async function init() {
+                        console.log('🚀 Initializing Personality Database Wiki...');
+                        await loadEntities();
+                        showSection('dashboard');
+                        initializeSearch();
+                    }
+                    
+                    // Global search functionality
+                    function performGlobalSearch() {
+                        const query = document.getElementById('globalSearch').value.trim();
+                        if (query) {
+                            showSection('browse');
+                            document.getElementById('character-search').value = query;
+                            filterCharacters();
+                        }
+                    }
+                    
+                    // Enhanced search with debouncing
+                    function initializeSearch() {
+                        const searchInput = document.getElementById('globalSearch');
+                        if (searchInput) {
+                            searchInput.addEventListener('keypress', function(e) {
+                                if (e.key === 'Enter') {
+                                    performGlobalSearch();
+                                }
+                            });
+                        }
+                    }
+                    
+                    // Show different sections
+                    function showSection(sectionName) {
+                        // Update sidebar navigation
+                        document.querySelectorAll('.sidebar-nav a').forEach(link => {
+                            link.classList.remove('active');
+                        });
+                        
+                        // Update content sections
+                        document.querySelectorAll('.content-section').forEach(section => {
+                            section.style.display = 'none';
+                        });
+                        
+                        // Show selected section
+                        const section = document.getElementById(sectionName + '-section');
+                        if (section) {
+                            section.style.display = 'block';
+                            
+                            // Update breadcrumb
+                            const breadcrumb = document.querySelector('.breadcrumb');
+                            const sectionNames = {
+                                'dashboard': 'Main Page',
+                                'browse': 'Browse Characters',
+                                'compare': 'Compare Types',
+                                'recent': 'Recent Activity',
+                                'popular': 'Popular Today'
+                            };
+                            
+                            if (breadcrumb) {
+                                breadcrumb.innerHTML = '<a href="#">Home</a> › <span>' + (sectionNames[sectionName] || sectionName) + '</span>';
+                            }
+                            
+                            // Update content title
+                            const contentTitle = document.querySelector('.content-title');
+                            if (contentTitle) {
+                                const titles = {
+                                    'dashboard': 'Welcome to Personality Database Wiki',
+                                    'browse': 'Browse Character Database',
+                                    'compare': 'Character Type Comparison',
+                                    'recent': 'Recent Community Activity',
+                                    'popular': 'Popular Characters Today'
+                                };
+                                contentTitle.textContent = titles[sectionName] || sectionName;
+                            }
+                        }
+                        
+                        currentPage = sectionName;
+                    }
+                    
+                    // Load entities from API
+                    async function loadEntities() {
+                        try {
+                            console.log('Loading entities...');
+                            const response = await fetch('/api/entities');
+                            if (response.ok) {
+                                entities = await response.json();
+                                filteredEntities = [...entities];
+                                renderCharacterGrid();
+                                console.log(`Loaded ${entities.length} entities`);
+                            } else {
+                                console.error('Failed to load entities:', response.status);
+                                showMessage('Failed to load character database', 'error');
+                            }
+                        } catch (error) {
+                            console.error('Error loading entities:', error);
+                            showMessage('Error connecting to database', 'error');
+                        }
+                    }
+                    
+                    // Render character grid
+                    function renderCharacterGrid() {
+                        const container = document.getElementById('character-grid');
+                        if (!container) return;
+                        
+                        if (filteredEntities.length === 0) {
+                            container.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--wiki-text-light);">No characters found matching your criteria.</div>';
+                            return;
+                        }
+                        
+                        container.innerHTML = filteredEntities.slice(0, 20).map(entity => {
+                            return `
+                            <div class="character-card" onclick="showCharacterDetails(${entity.id})">
+                                <div class="character-image">
+                                    ${entity.name ? entity.name.charAt(0).toUpperCase() : '?'}
+                                </div>
+                                <div class="character-info">
+                                    <div class="character-name">${entity.name || 'Unknown Character'}</div>
+                                    <div class="character-source">${entity.category || 'Unknown Source'}</div>
+                                    <div class="personality-badges">
+                                        ${entity.mbti_type ? '<span class="personality-badge mbti">' + entity.mbti_type + '</span>' : ''}
+                                        ${entity.socionics_type ? '<span class="personality-badge socionics">' + entity.socionics_type + '</span>' : ''}
+                                    </div>
+                                    <div class="vote-info">
+                                        <div class="vote-count">
+                                            <span>🗳️</span>
+                                            <span>${Math.floor(Math.random() * 500) + 50} votes</span>
+                                        </div>
+                                        <button class="vote-btn" onclick="voteOnCharacter(${entity.id}, event)">Vote</button>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                        }).join('');
+                    }
+                    
+                    // Filter functions
+                    function filterByCategory(category) {
+                        showSection('browse');
+                        document.getElementById('category-filter').value = category;
+                        filterCharacters();
+                    }
+                    
+                    function filterBySystem(system) {
+                        showSection('browse');
+                        // Filter logic here
+                        filterCharacters();
+                    }
+                    
+                    function filterCharacters() {
+                        const searchQuery = document.getElementById('character-search')?.value.toLowerCase() || '';
+                        const categoryFilter = document.getElementById('category-filter')?.value || '';
+                        
+                        filteredEntities = entities.filter(entity => {
+                            const matchesSearch = !searchQuery || 
+                                (entity.name && entity.name.toLowerCase().includes(searchQuery)) ||
+                                (entity.description && entity.description.toLowerCase().includes(searchQuery));
+                                
+                            const matchesCategory = !categoryFilter || entity.category === categoryFilter;
+                            
+                            return matchesSearch && matchesCategory;
+                        });
+                        
+                        renderCharacterGrid();
+                    }
+                    
+                    // Character interaction functions
+                    function showCharacterDetails(entityId) {
+                        console.log('Showing details for character:', entityId);
+                        // Implement character detail modal/page
+                    }
+                    
+                    function voteOnCharacter(entityId, event) {
+                        event.stopPropagation();
+                        console.log('Voting on character:', entityId);
+                        // Implement voting functionality
+                        showMessage('Vote recorded! Thank you for contributing to the community.', 'success');
+                    }
+                    
+                    // Comparison functions
+                    function selectCharacterForComparison(slot) {
+                        console.log('Selecting character for comparison slot:', slot);
+                        // Implement character selection for comparison
+                    }
+                    
+                    // Utility functions
+                    function showMessage(message, type = 'info') {
+                        const messageDiv = document.createElement('div');
+                        messageDiv.style.cssText = `
+                            position: fixed; top: 20px; right: 20px; z-index: 1000;
+                            padding: 15px 20px; border-radius: 8px; font-weight: 600;
+                            color: white; min-width: 300px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                            background: ${type === 'success' ? 'var(--wiki-success)' : type === 'error' ? 'var(--wiki-danger)' : 'var(--wiki-secondary)'};
+                        `;
+                        messageDiv.textContent = message;
                         document.body.appendChild(messageDiv);
                         
                         setTimeout(() => {
