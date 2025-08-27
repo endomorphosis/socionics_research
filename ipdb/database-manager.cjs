@@ -613,6 +613,82 @@ class IPDBManager {
     }
 
     /**
+     * Create a new entity (for data ingestion)
+     */
+    async createEntity(entityData) {
+        const sql = `INSERT INTO entities (
+            id, name, description, entity_type, source, external_id, external_source, metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+        
+        return this.runQuery(sql, [
+            entityData.id,
+            entityData.name,
+            entityData.description,
+            entityData.entity_type,
+            entityData.source,
+            entityData.external_id,
+            entityData.external_source,
+            entityData.metadata
+        ]);
+    }
+
+    /**
+     * Create a new user (for data ingestion)
+     */
+    async createUser(userData) {
+        const sql = `INSERT INTO users (
+            id, username, display_name, role, experience_level
+        ) VALUES (?, ?, ?, ?, ?)`;
+        
+        return this.runQuery(sql, [
+            userData.id,
+            userData.username,
+            userData.display_name,
+            userData.role,
+            userData.experience_level
+        ]);
+    }
+
+    /**
+     * Get personality systems (simplified)
+     */
+    async getPersonalitySystems() {
+        // Return hardcoded systems since we don't have a systems table
+        return [
+            { id: 1, name: 'socionics' },
+            { id: 2, name: 'mbti' },
+            { id: 3, name: 'enneagram' }
+        ];
+    }
+
+    /**
+     * Get personality types for a system (simplified)
+     */
+    async getPersonalityTypes(systemId) {
+        const systemName = systemId === 1 ? 'socionics' : systemId === 2 ? 'mbti' : 'enneagram';
+        return this.allQuery('SELECT * FROM personality_types WHERE system = ?', [systemName]);
+    }
+
+    /**
+     * Create a rating (for data ingestion)
+     */
+    async createRating(ratingData) {
+        const sql = `INSERT INTO ratings (
+            id, entity_id, user_id, personality_system, personality_type, confidence, reasoning
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+        
+        return this.runQuery(sql, [
+            ratingData.id,
+            ratingData.entity_id,
+            ratingData.rater_id,
+            ratingData.system_name || 'imported',
+            ratingData.type_code || 'unknown',
+            ratingData.confidence,
+            ratingData.rationale
+        ]);
+    }
+
+    /**
      * Close database connection
      */
     close() {
