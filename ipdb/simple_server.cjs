@@ -555,6 +555,298 @@ class SimpleIPDBServer {
                         transform: translateY(-2px);
                         box-shadow: var(--shadow-md);
                     }
+                    
+                    .search-filter-panel {
+                        background: rgba(255, 255, 255, 0.8);
+                        backdrop-filter: blur(10px);
+                        border-radius: 16px;
+                        padding: 25px;
+                        margin-bottom: 25px;
+                        box-shadow: var(--shadow-md);
+                        border: 1px solid rgba(255, 255, 255, 0.2);
+                    }
+                    
+                    .search-controls {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 20px;
+                    }
+                    
+                    .search-bar {
+                        position: relative;
+                        flex: 1;
+                    }
+                    
+                    .search-bar .search-icon {
+                        position: absolute;
+                        left: 15px;
+                        top: 50%;
+                        transform: translateY(-50%);
+                        color: var(--gray-400);
+                        font-size: 1.1rem;
+                        pointer-events: none;
+                    }
+                    
+                    .filter-controls {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                        gap: 15px;
+                        align-items: end;
+                    }
+                    
+                    .filter-group {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 5px;
+                    }
+                    
+                    .filter-group .form-label {
+                        margin: 0;
+                        font-size: 0.9rem;
+                        font-weight: 600;
+                    }
+                    
+                    .view-controls {
+                        display: flex;
+                        gap: 5px;
+                        justify-self: end;
+                    }
+                    
+                    .view-btn {
+                        background: rgba(255, 255, 255, 0.8);
+                        border: 2px solid var(--gray-200);
+                        color: var(--gray-600);
+                        padding: 8px 16px;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        font-size: 0.9rem;
+                        font-weight: 500;
+                        transition: all 0.3s ease;
+                        white-space: nowrap;
+                    }
+                    
+                    .view-btn:hover {
+                        border-color: var(--primary);
+                        background: rgba(99, 102, 241, 0.1);
+                        color: var(--primary);
+                    }
+                    
+                    .view-btn.active {
+                        background: var(--primary);
+                        border-color: var(--primary);
+                        color: white;
+                    }
+                    
+                    .active-filters {
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 8px;
+                        margin-top: 15px;
+                        padding-top: 15px;
+                        border-top: 1px solid rgba(255, 255, 255, 0.3);
+                    }
+                    
+                    .filter-tag {
+                        background: var(--primary);
+                        color: white;
+                        padding: 6px 12px;
+                        border-radius: 20px;
+                        font-size: 0.8rem;
+                        font-weight: 500;
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                        animation: slideInRight 0.3s ease;
+                    }
+                    
+                    .filter-tag .remove-filter {
+                        cursor: pointer;
+                        opacity: 0.7;
+                        transition: opacity 0.2s ease;
+                    }
+                    
+                    .filter-tag .remove-filter:hover {
+                        opacity: 1;
+                    }
+                    
+                    @keyframes slideInRight {
+                        from {
+                            opacity: 0;
+                            transform: translateX(20px);
+                        }
+                        to {
+                            opacity: 1;
+                            transform: translateX(0);
+                        }
+                    }
+                    
+                    .entity-list-view .entity-grid {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 15px;
+                    }
+                    
+                    .entity-list-view .entity-card {
+                        display: flex;
+                        flex-direction: row;
+                        padding: 20px;
+                        align-items: center;
+                    }
+                    
+                    .entity-list-view .entity-header {
+                        flex: 0 0 auto;
+                        margin-right: 20px;
+                        margin-bottom: 0;
+                    }
+                    
+                    .entity-list-view .entity-info {
+                        flex: 1;
+                    }
+                    
+                    .entity-list-view .action-buttons {
+                        flex: 0 0 auto;
+                        margin-top: 0;
+                        margin-left: 20px;
+                    }
+                    
+                    .entity-table-view {
+                        background: rgba(255, 255, 255, 0.95);
+                        backdrop-filter: blur(10px);
+                        border-radius: 16px;
+                        overflow: hidden;
+                        box-shadow: var(--shadow-md);
+                        border: 1px solid rgba(255, 255, 255, 0.2);
+                    }
+                    
+                    .entity-table {
+                        width: 100%;
+                        border-collapse: collapse;
+                    }
+                    
+                    .entity-table th {
+                        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+                        color: white;
+                        padding: 15px;
+                        text-align: left;
+                        font-weight: 600;
+                        font-size: 0.9rem;
+                        border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+                    }
+                    
+                    .entity-table td {
+                        padding: 15px;
+                        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+                        vertical-align: middle;
+                    }
+                    
+                    .entity-table tr:hover {
+                        background: rgba(99, 102, 241, 0.02);
+                    }
+                    
+                    .pagination-controls {
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        gap: 10px;
+                        margin-top: 30px;
+                        padding: 20px;
+                    }
+                    
+                    .pagination-btn {
+                        background: rgba(255, 255, 255, 0.9);
+                        border: 2px solid var(--gray-200);
+                        color: var(--gray-700);
+                        padding: 10px 15px;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        font-size: 0.9rem;
+                        font-weight: 500;
+                        transition: all 0.3s ease;
+                        min-width: 40px;
+                        text-align: center;
+                    }
+                    
+                    .pagination-btn:hover:not(:disabled) {
+                        border-color: var(--primary);
+                        background: rgba(99, 102, 241, 0.1);
+                        color: var(--primary);
+                    }
+                    
+                    .pagination-btn.active {
+                        background: var(--primary);
+                        border-color: var(--primary);
+                        color: white;
+                    }
+                    
+                    .pagination-btn:disabled {
+                        opacity: 0.5;
+                        cursor: not-allowed;
+                    }
+                    
+                    .pagination-info {
+                        font-size: 0.9rem;
+                        color: var(--gray-600);
+                        margin: 0 15px;
+                    }
+                    
+                    .character-sheet-modal .modal-content {
+                        max-width: 800px;
+                        max-height: 90vh;
+                        overflow-y: auto;
+                    }
+                    
+                    .character-sheet-form {
+                        display: grid;
+                        grid-template-columns: 1fr 1fr;
+                        gap: 20px;
+                    }
+                    
+                    .character-sheet-form .form-group.full-width {
+                        grid-column: 1 / -1;
+                    }
+                    
+                    .character-activity {
+                        background: rgba(249, 250, 251, 0.8);
+                        border-radius: 12px;
+                        padding: 15px;
+                        margin: 15px 0;
+                    }
+                    
+                    .activity-item {
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
+                        padding: 8px 0;
+                        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+                    }
+                    
+                    .activity-item:last-child {
+                        border-bottom: none;
+                    }
+                    
+                    .activity-avatar {
+                        width: 24px;
+                        height: 24px;
+                        border-radius: 50%;
+                        background: linear-gradient(135deg, var(--accent), var(--primary));
+                        color: white;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 0.7rem;
+                        font-weight: 600;
+                    }
+                    
+                    .activity-text {
+                        flex: 1;
+                        font-size: 0.9rem;
+                        color: var(--gray-700);
+                    }
+                    
+                    .activity-time {
+                        font-size: 0.8rem;
+                        color: var(--gray-500);
+                    }
                     .form-group {
                         margin: 20px 0;
                     }
@@ -859,8 +1151,66 @@ class SimpleIPDBServer {
                     <!-- Browse Section -->
                     <div id="browse-section" class="container" style="display: none;">
                         <h2 class="section-title">👥 Character Database</h2>
-                        <p class="section-subtitle">Browse, rate, and discuss personality types of characters from popular media</p>
+                        <p class="section-subtitle">Browse, search, and collaborate on personality types of characters from popular media</p>
+                        
+                        <!-- Search and Filter Controls -->
+                        <div class="search-filter-panel">
+                            <div class="search-controls">
+                                <div class="search-bar">
+                                    <input type="text" id="character-search" class="form-control" placeholder="🔍 Search characters by name, personality type, or description..." 
+                                           oninput="searchCharacters()" style="padding-left: 45px;">
+                                    <div class="search-icon">🔍</div>
+                                </div>
+                                
+                                <div class="filter-controls">
+                                    <div class="filter-group">
+                                        <label class="form-label">📚 Category:</label>
+                                        <select id="category-filter" class="form-control" onchange="filterCharacters()">
+                                            <option value="">All Categories</option>
+                                            <option value="anime">🍜 Anime</option>
+                                            <option value="movie">🎬 Movies</option>
+                                            <option value="tv">📺 TV Shows</option>
+                                            <option value="book">📖 Books</option>
+                                            <option value="game">🎮 Video Games</option>
+                                            <option value="comic">🦸 Comics</option>
+                                            <option value="other">🌟 Other</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="filter-group">
+                                        <label class="form-label">🧠 Personality System:</label>
+                                        <select id="personality-system-filter" class="form-control" onchange="filterCharacters()">
+                                            <option value="">All Systems</option>
+                                            <option value="socionics">Socionics</option>
+                                            <option value="mbti">MBTI</option>
+                                            <option value="enneagram">Enneagram</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="filter-group">
+                                        <label class="form-label">📊 Sort By:</label>
+                                        <select id="sort-filter" class="form-control" onchange="sortCharacters()">
+                                            <option value="name">Name (A-Z)</option>
+                                            <option value="name-desc">Name (Z-A)</option>
+                                            <option value="category">Category</option>
+                                            <option value="ratings">Most Rated</option>
+                                            <option value="recent">Recently Updated</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="view-controls">
+                                    <button class="view-btn active" onclick="setViewMode('grid')" data-view="grid">⊞ Grid</button>
+                                    <button class="view-btn" onclick="setViewMode('list')" data-view="list">☰ List</button>
+                                    <button class="view-btn" onclick="setViewMode('table')" data-view="table">☳ Table</button>
+                                </div>
+                            </div>
+                            
+                            <div class="active-filters" id="active-filters" style="display: none;"></div>
+                        </div>
+                        
                         <div id="entities-container" class="loading">Loading entities...</div>
+                        <div id="pagination-controls" class="pagination-controls"></div>
                     </div>
 
                     <!-- Head-to-Head Comparison Section -->
@@ -951,9 +1301,16 @@ class SimpleIPDBServer {
                 <script>
                     let currentUser = 'demo-user-' + Date.now();
                     let entities = [];
+                    let filteredEntities = [];
                     let selectedCompareCharacters = {};
                     let selectedPanelCharacters = {};
                     let currentSection = 'dashboard';
+                    let currentPage = 1;
+                    let itemsPerPage = 12;
+                    let currentViewMode = 'grid';
+                    let searchQuery = '';
+                    let activeFilters = {};
+                    let sortBy = 'name';
                     
                     // Initialize the application
                     async function init() {
@@ -1003,6 +1360,10 @@ class SimpleIPDBServer {
                         // Load section-specific data
                         if (sectionName === 'browse' && entities.length === 0) {
                             loadEntities();
+                        } else if (sectionName === 'browse') {
+                            // Reset filters when navigating to browse
+                            applyFiltersAndSearch();
+                            displayEntities();
                         }
                     }
 
@@ -1063,8 +1424,18 @@ class SimpleIPDBServer {
                             const data = await response.json();
                             
                             if (data.success && data.entities) {
-                                entities = data.entities;
-                                displayEntities(data.entities);
+                                entities = data.entities.map(entity => ({
+                                    ...entity,
+                                    // Enhanced entity properties
+                                    category: entity.category || getCategoryFromName(entity.name),
+                                    last_updated: entity.last_updated || new Date().toISOString(),
+                                    rating_count: entity.rating_count || 0,
+                                    avg_confidence: entity.avg_confidence || 0
+                                }));
+                                
+                                filteredEntities = [...entities];
+                                applyFiltersAndSearch();
+                                displayEntities();
                             } else {
                                 throw new Error(data.error || 'Failed to load entities');
                             }
@@ -1080,15 +1451,56 @@ class SimpleIPDBServer {
                             document.getElementById('entities-container').innerHTML = errorHtml;
                         }
                     }
+                    
+                    function getCategoryFromName(name) {
+                        // Simple heuristic to categorize characters
+                        const animeKeywords = ['Naruto', 'Goku', 'Luffy', 'Ichigo', 'Edward', 'Light', 'Natsu'];
+                        const movieKeywords = ['Batman', 'Superman', 'Spider', 'Iron Man', 'Captain'];
+                        const tvKeywords = ['Sherlock', 'House', 'Walter', 'Tyrion'];
+                        
+                        const lowerName = name.toLowerCase();
+                        
+                        if (animeKeywords.some(keyword => lowerName.includes(keyword.toLowerCase()))) {
+                            return 'anime';
+                        } else if (movieKeywords.some(keyword => lowerName.includes(keyword.toLowerCase()))) {
+                            return 'movie';
+                        } else if (tvKeywords.some(keyword => lowerName.includes(keyword.toLowerCase()))) {
+                            return 'tv';
+                        }
+                        
+                        return 'other';
+                    }
 
-                    function displayEntities(entities) {
-                        if (!entities || entities.length === 0) {
+                    function displayEntities() {
+                        const entitiesToShow = filteredEntities;
+                        
+                        if (!entitiesToShow || entitiesToShow.length === 0) {
                             document.getElementById('entities-container').innerHTML = \`
-                                <div class="error">No entities found. Please run the database initialization first.</div>
+                                <div class="error">No characters match your search criteria. Try adjusting your filters.</div>
                             \`;
                             return;
                         }
 
+                        // Calculate pagination
+                        const totalPages = Math.ceil(entitiesToShow.length / itemsPerPage);
+                        const startIndex = (currentPage - 1) * itemsPerPage;
+                        const endIndex = startIndex + itemsPerPage;
+                        const pageEntities = entitiesToShow.slice(startIndex, endIndex);
+
+                        // Display based on view mode
+                        if (currentViewMode === 'table') {
+                            displayTableView(pageEntities);
+                        } else if (currentViewMode === 'list') {
+                            displayListView(pageEntities);
+                        } else {
+                            displayGridView(pageEntities);
+                        }
+                        
+                        // Update pagination
+                        updatePaginationControls(totalPages, entitiesToShow.length);
+                    }
+                    
+                    function displayGridView(entities) {
                         const entitiesHtml = entities.map(entity => \`
                             <div class="entity-card">
                                 <div class="entity-header">
@@ -1097,7 +1509,7 @@ class SimpleIPDBServer {
                                     </div>
                                     <div class="entity-info">
                                         <div class="entity-name">\${entity.name}</div>
-                                        <div class="entity-type">\${entity.category || 'fictional_character'}</div>
+                                        <div class="entity-type">\${getCategoryIcon(entity.category)} \${entity.category || 'fictional_character'}</div>
                                     </div>
                                 </div>
                                 
@@ -1105,14 +1517,15 @@ class SimpleIPDBServer {
                                     \${(entity.personality_types || []).map(type => 
                                         \`<span class="personality-type">🧠 \${type}</span>\`
                                     ).join('')}
+                                    \${entity.rating_count ? \`<span class="personality-type" style="background: var(--success);">⭐ \${entity.rating_count} ratings</span>\` : ''}
                                 </div>
                                 
                                 <div class="action-buttons">
-                                    <button class="btn btn-primary" onclick="rateCharacter('\${entity.id}', '\${entity.name.replace(/'/g, '\\\\'')}')">
+                                    <button class="btn btn-primary" onclick="rateCharacter('\${entity.id}', '\${entity.name.replace(/'/g, \"&apos;\")}')">
                                         ⭐ Rate Character
                                     </button>
-                                    <button class="btn btn-secondary" onclick="viewComments('\${entity.id}', '\${entity.name.replace(/'/g, '\\\\'')}')">
-                                        💬 Comments
+                                    <button class="btn btn-secondary" onclick="editCharacterSheet('\${entity.id}', '\${entity.name.replace(/'/g, \"&apos;\")}')">
+                                        ✏️ Edit Sheet
                                     </button>
                                 </div>
                             </div>
@@ -1124,8 +1537,589 @@ class SimpleIPDBServer {
                             </div>
                         \`;
                     }
+                    
+                    function displayListView(entities) {
+                        const entitiesHtml = entities.map(entity => \`
+                            <div class="entity-card">
+                                <div class="entity-header">
+                                    <div class="entity-avatar">
+                                        \${entity.name.charAt(0).toUpperCase()}
+                                    </div>
+                                </div>
+                                <div class="entity-info">
+                                    <div class="entity-name">\${entity.name}</div>
+                                    <div class="entity-type">\${getCategoryIcon(entity.category)} \${entity.category || 'fictional_character'}</div>
+                                    <div class="personality-types">
+                                        \${(entity.personality_types || []).map(type => 
+                                            \`<span class="personality-type">🧠 \${type}</span>\`
+                                        ).join('')}
+                                    </div>
+                                </div>
+                                <div class="action-buttons">
+                                    <button class="btn btn-primary" onclick="rateCharacter('\${entity.id}', '\${entity.name.replace(/'/g, \"&apos;\")}')">
+                                        ⭐ Rate
+                                    </button>
+                                    <button class="btn btn-secondary" onclick="editCharacterSheet('\${entity.id}', '\${entity.name.replace(/'/g, \"&apos;\")}')">
+                                        ✏️ Edit
+                                    </button>
+                                </div>
+                            </div>
+                        \`).join('');
 
-                    // Character comparison functions
+                        document.getElementById('entities-container').innerHTML = \`
+                            <div class="entity-grid entity-list-view">
+                                \${entitiesHtml}
+                            </div>
+                        \`;
+                    }
+                    
+                    function displayTableView(entities) {
+                        const entitiesHtml = entities.map(entity => \`
+                            <tr>
+                                <td>
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        <div class="entity-avatar" style="width: 32px; height: 32px; font-size: 0.8rem;">
+                                            \${entity.name.charAt(0).toUpperCase()}
+                                        </div>
+                                        <strong>\${entity.name}</strong>
+                                    </div>
+                                </td>
+                                <td>\${getCategoryIcon(entity.category)} \${entity.category || 'N/A'}</td>
+                                <td>
+                                    \${(entity.personality_types || []).map(type => 
+                                        \`<span class="personality-type" style="margin: 2px; font-size: 0.7rem;">\${type}</span>\`
+                                    ).join('')}
+                                </td>
+                                <td>\${entity.rating_count || 0} ratings</td>
+                                <td>
+                                    <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="rateCharacter('\${entity.id}', '\${entity.name.replace(/'/g, \"&apos;\")}')">
+                                        Rate
+                                    </button>
+                                    <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem; margin-left: 5px;" onclick="editCharacterSheet('\${entity.id}', '\${entity.name.replace(/'/g, \"&apos;\")}')">
+                                        Edit
+                                    </button>
+                                </td>
+                            </tr>
+                        \`).join('');
+
+                        document.getElementById('entities-container').innerHTML = \`
+                            <div class="entity-table-view">
+                                <table class="entity-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Character</th>
+                                            <th>Category</th>
+                                            <th>Personality Types</th>
+                                            <th>Ratings</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        \${entitiesHtml}
+                                    </tbody>
+                                </table>
+                            </div>
+                        \`;
+                    }
+                    
+                    function getCategoryIcon(category) {
+                        const icons = {
+                            'anime': '🍜',
+                            'movie': '🎬',
+                            'tv': '📺',
+                            'book': '📖',
+                            'game': '🎮',
+                            'comic': '🦸',
+                            'other': '🌟'
+                        };
+                        return icons[category] || '🌟';
+                    }
+
+                    // Search and Filter Functions
+                    function searchCharacters() {
+                        searchQuery = document.getElementById('character-search').value.toLowerCase().trim();
+                        currentPage = 1; // Reset to first page when searching
+                        applyFiltersAndSearch();
+                        displayEntities();
+                    }
+                    
+                    function filterCharacters() {
+                        // Get filter values
+                        const categoryFilter = document.getElementById('category-filter').value;
+                        const personalitySystemFilter = document.getElementById('personality-system-filter').value;
+                        
+                        // Update active filters
+                        activeFilters = {};
+                        if (categoryFilter) activeFilters.category = categoryFilter;
+                        if (personalitySystemFilter) activeFilters.personalitySystem = personalitySystemFilter;
+                        
+                        currentPage = 1; // Reset to first page when filtering
+                        applyFiltersAndSearch();
+                        displayEntities();
+                        updateActiveFilters();
+                    }
+                    
+                    function sortCharacters() {
+                        sortBy = document.getElementById('sort-filter').value;
+                        applyFiltersAndSearch();
+                        displayEntities();
+                    }
+                    
+                    function applyFiltersAndSearch() {
+                        filteredEntities = entities.filter(entity => {
+                            // Apply search query
+                            if (searchQuery) {
+                                const searchableText = \`
+                                    \${entity.name} 
+                                    \${entity.category || ''} 
+                                    \${(entity.personality_types || []).join(' ')}
+                                \`.toLowerCase();
+                                
+                                if (!searchableText.includes(searchQuery)) {
+                                    return false;
+                                }
+                            }
+                            
+                            // Apply category filter
+                            if (activeFilters.category) {
+                                if (entity.category !== activeFilters.category) {
+                                    return false;
+                                }
+                            }
+                            
+                            // Apply personality system filter
+                            if (activeFilters.personalitySystem) {
+                                // This would need to be expanded based on actual personality system data
+                                // For now, we'll skip this filter
+                            }
+                            
+                            return true;
+                        });
+                        
+                        // Apply sorting
+                        filteredEntities.sort((a, b) => {
+                            switch (sortBy) {
+                                case 'name':
+                                    return a.name.localeCompare(b.name);
+                                case 'name-desc':
+                                    return b.name.localeCompare(a.name);
+                                case 'category':
+                                    return (a.category || '').localeCompare(b.category || '');
+                                case 'ratings':
+                                    return (b.rating_count || 0) - (a.rating_count || 0);
+                                case 'recent':
+                                    return new Date(b.last_updated || 0) - new Date(a.last_updated || 0);
+                                default:
+                                    return 0;
+                            }
+                        });
+                    }
+                    
+                    function updateActiveFilters() {
+                        const activeFiltersContainer = document.getElementById('active-filters');
+                        const filterTags = [];
+                        
+                        Object.entries(activeFilters).forEach(([key, value]) => {
+                            let displayName = value;
+                            let filterType = key;
+                            
+                            if (key === 'category') {
+                                displayName = \`Category: \${getCategoryIcon(value)} \${value}\`;
+                                filterType = 'category';
+                            } else if (key === 'personalitySystem') {
+                                displayName = \`System: \${value}\`;
+                                filterType = 'personalitySystem';
+                            }
+                            
+                            filterTags.push(\`
+                                <div class="filter-tag">
+                                    \${displayName}
+                                    <span class="remove-filter" onclick="removeFilter('\${filterType}')">&times;</span>
+                                </div>
+                            \`);
+                        });
+                        
+                        if (searchQuery) {
+                            filterTags.push(\`
+                                <div class="filter-tag">
+                                    Search: "\${searchQuery}"
+                                    <span class="remove-filter" onclick="clearSearch()">&times;</span>
+                                </div>
+                            \`);
+                        }
+                        
+                        if (filterTags.length > 0) {
+                            activeFiltersContainer.innerHTML = filterTags.join('');
+                            activeFiltersContainer.style.display = 'flex';
+                        } else {
+                            activeFiltersContainer.style.display = 'none';
+                        }
+                    }
+                    
+                    function removeFilter(filterType) {
+                        delete activeFilters[filterType];
+                        
+                        // Reset the corresponding UI element
+                        if (filterType === 'category') {
+                            document.getElementById('category-filter').value = '';
+                        } else if (filterType === 'personalitySystem') {
+                            document.getElementById('personality-system-filter').value = '';
+                        }
+                        
+                        currentPage = 1;
+                        applyFiltersAndSearch();
+                        displayEntities();
+                        updateActiveFilters();
+                    }
+                    
+                    function clearSearch() {
+                        searchQuery = '';
+                        document.getElementById('character-search').value = '';
+                        currentPage = 1;
+                        applyFiltersAndSearch();
+                        displayEntities();
+                        updateActiveFilters();
+                    }
+                    
+                    function setViewMode(mode) {
+                        currentViewMode = mode;
+                        
+                        // Update view buttons
+                        document.querySelectorAll('.view-btn').forEach(btn => {
+                            btn.classList.remove('active');
+                        });
+                        
+                        document.querySelector(\`[data-view="\${mode}"]\`).classList.add('active');
+                        
+                        // Redisplay with new view mode
+                        displayEntities();
+                    }
+                    
+                    function updatePaginationControls(totalPages, totalItems) {
+                        const paginationContainer = document.getElementById('pagination-controls');
+                        
+                        if (totalPages <= 1) {
+                            paginationContainer.innerHTML = '';
+                            return;
+                        }
+                        
+                        let paginationHtml = \`
+                            <div class="pagination-info">
+                                Showing \${((currentPage - 1) * itemsPerPage) + 1}-\${Math.min(currentPage * itemsPerPage, totalItems)} of \${totalItems} characters
+                            </div>
+                        \`;
+                        
+                        // Previous button
+                        paginationHtml += \`
+                            <button class="pagination-btn" onclick="changePage(\${currentPage - 1})" \${currentPage === 1 ? 'disabled' : ''}>
+                                ‹ Previous
+                            </button>
+                        \`;
+                        
+                        // Page numbers
+                        const startPage = Math.max(1, currentPage - 2);
+                        const endPage = Math.min(totalPages, currentPage + 2);
+                        
+                        if (startPage > 1) {
+                            paginationHtml += \`<button class="pagination-btn" onclick="changePage(1)">1</button>\`;
+                            if (startPage > 2) {
+                                paginationHtml += \`<span style="padding: 0 10px; color: var(--gray-500);">...</span>\`;
+                            }
+                        }
+                        
+                        for (let i = startPage; i <= endPage; i++) {
+                            paginationHtml += \`
+                                <button class="pagination-btn \${i === currentPage ? 'active' : ''}" onclick="changePage(\${i})">
+                                    \${i}
+                                </button>
+                            \`;
+                        }
+                        
+                        if (endPage < totalPages) {
+                            if (endPage < totalPages - 1) {
+                                paginationHtml += \`<span style="padding: 0 10px; color: var(--gray-500);">...</span>\`;
+                            }
+                            paginationHtml += \`<button class="pagination-btn" onclick="changePage(\${totalPages})">\${totalPages}</button>\`;
+                        }
+                        
+                        // Next button
+                        paginationHtml += \`
+                            <button class="pagination-btn" onclick="changePage(\${currentPage + 1})" \${currentPage === totalPages ? 'disabled' : ''}>
+                                Next ›
+                            </button>
+                        \`;
+                        
+                        paginationContainer.innerHTML = paginationHtml;
+                    }
+                    
+                    function changePage(page) {
+                        if (page < 1 || page > Math.ceil(filteredEntities.length / itemsPerPage)) {
+                            return;
+                        }
+                        
+                        currentPage = page;
+                        displayEntities();
+                        
+                        // Scroll to top of results
+                        document.getElementById('entities-container').scrollIntoView({ 
+                            behavior: 'smooth', 
+                            block: 'start' 
+                        });
+                    }
+                    
+                    // Character Sheet Management Functions
+                    function editCharacterSheet(entityId, entityName) {
+                        const entity = entities.find(e => e.id === entityId);
+                        if (!entity) {
+                            showErrorMessage('Character not found');
+                            return;
+                        }
+                        
+                        const modalHtml = \`
+                            <div class="modal show character-sheet-modal" id="character-sheet-modal">
+                                <div class="modal-content">
+                                    <button class="close-btn" onclick="closeModal('character-sheet-modal')">&times;</button>
+                                    <h2>✏️ Edit Character Sheet: \${entityName}</h2>
+                                    
+                                    <div class="character-activity">
+                                        <h4>📊 Recent Activity</h4>
+                                        <div id="character-activity-list">
+                                            <div class="activity-item">
+                                                <div class="activity-avatar">U</div>
+                                                <div class="activity-text">User started editing this character</div>
+                                                <div class="activity-time">Just now</div>
+                                            </div>
+                                            <div class="activity-item">
+                                                <div class="activity-avatar">S</div>
+                                                <div class="activity-text">System initialized character sheet</div>
+                                                <div class="activity-time">1 day ago</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <form id="character-sheet-form" class="character-sheet-form">
+                                        <div class="form-group">
+                                            <label class="form-label">Character Name:</label>
+                                            <input type="text" id="sheet-name" class="form-control" value="\${entityName}" />
+                                        </div>
+                                        
+                                        <div class="form-group">
+                                            <label class="form-label">Category:</label>
+                                            <select id="sheet-category" class="form-control">
+                                                <option value="anime" \${entity.category === 'anime' ? 'selected' : ''}>🍜 Anime</option>
+                                                <option value="movie" \${entity.category === 'movie' ? 'selected' : ''}>🎬 Movies</option>
+                                                <option value="tv" \${entity.category === 'tv' ? 'selected' : ''}>📺 TV Shows</option>
+                                                <option value="book" \${entity.category === 'book' ? 'selected' : ''}>📖 Books</option>
+                                                <option value="game" \${entity.category === 'game' ? 'selected' : ''}>🎮 Video Games</option>
+                                                <option value="comic" \${entity.category === 'comic' ? 'selected' : ''}>🦸 Comics</option>
+                                                <option value="other" \${entity.category === 'other' ? 'selected' : ''}>🌟 Other</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="form-group full-width">
+                                            <label class="form-label">Description:</label>
+                                            <textarea id="sheet-description" class="form-control" rows="3" placeholder="Brief description of the character...">\${entity.description || ''}</textarea>
+                                        </div>
+                                        
+                                        <div class="form-group">
+                                            <label class="form-label">Source Material:</label>
+                                            <input type="text" id="sheet-source" class="form-control" value="\${entity.source || ''}" placeholder="e.g., Naruto, The Office, etc." />
+                                        </div>
+                                        
+                                        <div class="form-group">
+                                            <label class="form-label">Primary Personality Type:</label>
+                                            <select id="sheet-primary-type" class="form-control">
+                                                <option value="">Select type...</option>
+                                                \${getSocionicsTypes().map(type => 
+                                                    \`<option value="\${type.value}" \${(entity.personality_types || []).includes(type.value) ? 'selected' : ''}>\${type.name}</option>\`
+                                                ).join('')}
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="form-group full-width">
+                                            <label class="form-label">Personality Notes:</label>
+                                            <textarea id="sheet-personality-notes" class="form-control" rows="4" placeholder="Detailed analysis of personality traits, cognitive functions, etc...">\${entity.personality_notes || ''}</textarea>
+                                        </div>
+                                        
+                                        <div class="form-group">
+                                            <label class="form-label">Confidence Level:</label>
+                                            <div class="star-rating" id="sheet-confidence-rating">
+                                                <span class="star" onclick="setSheetRating(1)">★</span>
+                                                <span class="star" onclick="setSheetRating(2)">★</span>
+                                                <span class="star" onclick="setSheetRating(3)">★</span>
+                                                <span class="star" onclick="setSheetRating(4)">★</span>
+                                                <span class="star" onclick="setSheetRating(5)">★</span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="form-group">
+                                            <label class="form-label">Last Edited By:</label>
+                                            <input type="text" class="form-control" value="\${currentUser}" disabled />
+                                        </div>
+                                        
+                                        <div style="grid-column: 1 / -1; display: flex; gap: 10px; margin-top: 30px;">
+                                            <button type="button" class="btn btn-secondary" onclick="closeModal('character-sheet-modal')">Cancel</button>
+                                            <button type="button" class="btn btn-primary" onclick="saveCharacterSheet('\${entityId}')">💾 Save Changes</button>
+                                            <button type="button" class="btn btn-success" onclick="viewCharacterHistory('\${entityId}')">📜 View History</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        \`;
+                        
+                        document.body.insertAdjacentHTML('beforeend', modalHtml);
+                        
+                        // Initialize confidence rating
+                        const confidence = entity.avg_confidence || 0;
+                        if (confidence > 0) {
+                            setSheetRating(Math.round(confidence * 5));
+                        }
+                        
+                        // Simulate real-time collaboration
+                        setTimeout(() => {
+                            addActivityItem('Another user viewed this character sheet', '2 min ago');
+                        }, 3000);
+                    }
+                    
+                    let currentSheetRating = 0;
+                    
+                    function setSheetRating(rating) {
+                        currentSheetRating = rating;
+                        const stars = document.querySelectorAll('#sheet-confidence-rating .star');
+                        stars.forEach((star, index) => {
+                            if (index < rating) {
+                                star.classList.add('active');
+                            } else {
+                                star.classList.remove('active');
+                            }
+                        });
+                    }
+                    
+                    function addActivityItem(text, time) {
+                        const activityList = document.getElementById('character-activity-list');
+                        if (!activityList) return;
+                        
+                        const newActivity = document.createElement('div');
+                        newActivity.className = 'activity-item';
+                        newActivity.innerHTML = \`
+                            <div class="activity-avatar">O</div>
+                            <div class="activity-text">\${text}</div>
+                            <div class="activity-time">\${time}</div>
+                        \`;
+                        
+                        activityList.insertBefore(newActivity, activityList.firstChild);
+                    }
+                    
+                    async function saveCharacterSheet(entityId) {
+                        const formData = {
+                            name: document.getElementById('sheet-name').value,
+                            category: document.getElementById('sheet-category').value,
+                            description: document.getElementById('sheet-description').value,
+                            source: document.getElementById('sheet-source').value,
+                            primary_type: document.getElementById('sheet-primary-type').value,
+                            personality_notes: document.getElementById('sheet-personality-notes').value,
+                            confidence: currentSheetRating / 5.0,
+                            last_edited_by: currentUser,
+                            last_updated: new Date().toISOString()
+                        };
+                        
+                        try {
+                            // Simulate API call for now
+                            showSuccessMessage(\`Character sheet for "\${formData.name}" saved successfully!\`);
+                            
+                            // Update local entity data
+                            const entityIndex = entities.findIndex(e => e.id === entityId);
+                            if (entityIndex !== -1) {
+                                entities[entityIndex] = { ...entities[entityIndex], ...formData };
+                                
+                                // Refresh display if we're in browse section
+                                if (currentSection === 'browse') {
+                                    applyFiltersAndSearch();
+                                    displayEntities();
+                                }
+                            }
+                            
+                            addActivityItem(\`\${currentUser} saved changes to character sheet\`, 'Just now');
+                            closeModal('character-sheet-modal');
+                            
+                        } catch (error) {
+                            showErrorMessage('Failed to save character sheet: ' + error.message);
+                        }
+                    }
+                    
+                    function viewCharacterHistory(entityId) {
+                        const historyModalHtml = \`
+                            <div class="modal show" id="character-history-modal">
+                                <div class="modal-content">
+                                    <button class="close-btn" onclick="closeModal('character-history-modal')">&times;</button>
+                                    <h2>📜 Character History</h2>
+                                    <div class="character-activity">
+                                        <div class="activity-item">
+                                            <div class="activity-avatar">U</div>
+                                            <div class="activity-text">
+                                                <strong>\${currentUser}</strong> updated personality notes
+                                                <div style="font-size: 0.8rem; color: var(--gray-500); margin-top: 5px;">
+                                                    Added detailed analysis of cognitive functions
+                                                </div>
+                                            </div>
+                                            <div class="activity-time">5 min ago</div>
+                                        </div>
+                                        <div class="activity-item">
+                                            <div class="activity-avatar">A</div>
+                                            <div class="activity-text">
+                                                <strong>admin-user</strong> changed category from "other" to "anime"
+                                            </div>
+                                            <div class="activity-time">2 hours ago</div>
+                                        </div>
+                                        <div class="activity-item">
+                                            <div class="activity-avatar">R</div>
+                                            <div class="activity-text">
+                                                <strong>researcher-42</strong> added personality type "ILE (ENTp)"
+                                                <div style="font-size: 0.8rem; color: var(--gray-500); margin-top: 5px;">
+                                                    Confidence: 4/5 stars
+                                                </div>
+                                            </div>
+                                            <div class="activity-time">1 day ago</div>
+                                        </div>
+                                        <div class="activity-item">
+                                            <div class="activity-avatar">S</div>
+                                            <div class="activity-text">
+                                                <strong>System</strong> created character sheet
+                                            </div>
+                                            <div class="activity-time">3 days ago</div>
+                                        </div>
+                                    </div>
+                                    <div style="text-align: center; margin-top: 20px;">
+                                        <button class="btn btn-secondary" onclick="closeModal('character-history-modal')">Close</button>
+                                    </div>
+                                </div>
+                            </div>
+                        \`;
+                        
+                        document.body.insertAdjacentHTML('beforeend', historyModalHtml);
+                    }
+                    
+                    function getSocionicsTypes() {
+                        return [
+                            {value: 'ILE', name: 'ILE (ENTp) - Inventor'},
+                            {value: 'SEI', name: 'SEI (ISFp) - Mediator'},
+                            {value: 'ESE', name: 'ESE (ESFj) - Enthusiast'},
+                            {value: 'LII', name: 'LII (INTj) - Analyst'},
+                            {value: 'SLE', name: 'SLE (ESTp) - Marshal'},
+                            {value: 'IEI', name: 'IEI (INFp) - Lyricist'},
+                            {value: 'EIE', name: 'EIE (ENFj) - Mentor'},
+                            {value: 'LSI', name: 'LSI (ISTj) - Inspector'},
+                            {value: 'SEE', name: 'SEE (ESFp) - Ambassador'},
+                            {value: 'ILI', name: 'ILI (INTp) - Critic'},
+                            {value: 'LIE', name: 'LIE (ENTj) - Entrepreneur'},
+                            {value: 'ESI', name: 'ESI (ISFj) - Guardian'},
+                            {value: 'IEE', name: 'IEE (ENFp) - Psychologist'},
+                            {value: 'SLI', name: 'SLI (ISTp) - Craftsman'},
+                            {value: 'LSE', name: 'LSE (ESTj) - Administrator'},
+                            {value: 'EII', name: 'EII (INFj) - Humanist'}
+                        ];
+                    }
+                    
                     function selectCharacterForComparison(slot) {
                         if (entities.length === 0) {
                             showErrorMessage('Please load characters first');
