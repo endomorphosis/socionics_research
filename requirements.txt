@@ -1,6 +1,5 @@
 # Core requirements for IPDB Enhanced
 numpy>=1.21.0
-sqlite3
 
 # Enhanced features (optional but recommended)
 duckdb>=1.0.0
