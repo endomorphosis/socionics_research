@@ -53,8 +53,14 @@ data/bot_store/backup_*/
 __pycache__
 .secrets
 
-node_modules/bot/test_venv/
-compass/node_modules/
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Keep package-lock.json but ignore node_modules
+# package-lock.json should be tracked for consistent dependencies
 
 # IPDB compiled files and databases
 *.db
