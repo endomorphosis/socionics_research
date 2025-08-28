@@ -10,13 +10,24 @@
 
 const fs = require('fs');
 const path = require('path');
-const IPDBManager = require('./database-manager.cjs');
+const IPDBDuckDBManager = require('./duckdb-manager.cjs');
 const NodeJSParquetReader = require('./parquet_reader_nodejs.cjs');
-const { v4: uuidv4 } = require('uuid');
+// Simple UUID generator to avoid dependency
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
+function uuidv4() {
+    return generateUUID();
+}
 
 class ParquetDataIngester {
     constructor() {
-        this.dbManager = new IPDBManager();
+        this.dbManager = new IPDBDuckDBManager();
         this.parquetReader = new NodeJSParquetReader();
         this.stats = {
             totalProcessed: 0,

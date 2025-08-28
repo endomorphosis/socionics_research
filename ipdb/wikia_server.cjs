@@ -11,12 +11,12 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
-const IPDBManager = require('./database-manager.cjs');
+const IPDBDuckDBManager = require('./duckdb-manager.cjs');
 
 class WikiaIPDBServer {
     constructor(port = 3000) {
         this.port = port;
-        this.dbManager = new IPDBManager();
+        this.dbManager = new IPDBDuckDBManager();
         this.setupRoutes();
         this.server = http.createServer(this.handleRequest.bind(this));
         
@@ -551,17 +551,17 @@ class WikiaIPDBServer {
                             <div class="wiki-stats">
                                 <div class="wiki-stat">
                                     <span>📚</span>
-                                    <span class="wiki-stat-number">2,045,783</span>
+                                    <span class="wiki-stat-number" id="header-characters">Loading...</span>
                                     <span>Characters</span>
                                 </div>
                                 <div class="wiki-stat">
                                     <span>🗳️</span>
-                                    <span class="wiki-stat-number">8,923,451</span>
+                                    <span class="wiki-stat-number" id="header-votes">Loading...</span>
                                     <span>Votes Cast</span>
                                 </div>
                                 <div class="wiki-stat">
                                     <span>👥</span>
-                                    <span class="wiki-stat-number">157,892</span>
+                                    <span class="wiki-stat-number" id="header-contributors">Loading...</span>
                                     <span>Contributors</span>
                                 </div>
                             </div>
@@ -714,19 +714,19 @@ class WikiaIPDBServer {
                                 <h2 style="margin-bottom: 20px; color: var(--wiki-primary);">📊 Database Overview</h2>
                                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
                                     <div style="background: white; padding: 20px; border-radius: 8px; border: 1px solid var(--wiki-border); text-align: center;">
-                                        <div style="font-size: 24px; font-weight: 700; color: var(--wiki-secondary);">2,045,783</div>
+                                        <div style="font-size: 24px; font-weight: 700; color: var(--wiki-secondary);" id="dashboard-characters">Loading...</div>
                                         <div style="color: var(--wiki-text-light); font-size: 14px;">Total Characters</div>
                                     </div>
                                     <div style="background: white; padding: 20px; border-radius: 8px; border: 1px solid var(--wiki-border); text-align: center;">
-                                        <div style="font-size: 24px; font-weight: 700; color: var(--wiki-success);">8,923,451</div>
+                                        <div style="font-size: 24px; font-weight: 700; color: var(--wiki-success);" id="dashboard-votes">Loading...</div>
                                         <div style="color: var(--wiki-text-light); font-size: 14px;">Community Votes</div>
                                     </div>
                                     <div style="background: white; padding: 20px; border-radius: 8px; border: 1px solid var(--wiki-border); text-align: center;">
-                                        <div style="font-size: 24px; font-weight: 700; color: var(--community-gold);">157,892</div>
+                                        <div style="font-size: 24px; font-weight: 700; color: var(--community-gold);" id="dashboard-contributors">Loading...</div>
                                         <div style="color: var(--wiki-text-light); font-size: 14px;">Active Contributors</div>
                                     </div>
                                     <div style="background: white; padding: 20px; border-radius: 8px; border: 1px solid var(--wiki-border); text-align: center;">
-                                        <div style="font-size: 24px; font-weight: 700; color: var(--wiki-accent);">12,847</div>
+                                        <div style="font-size: 24px; font-weight: 700; color: var(--wiki-accent);" id="dashboard-activity">Loading...</div>
                                         <div style="color: var(--wiki-text-light); font-size: 14px;">Today's Activity</div>
                                     </div>
                                 </div>
@@ -953,20 +953,47 @@ class WikiaIPDBServer {
                     
                     // Update stats displays in the UI
                     function updateStatsDisplay(stats) {
-                        // Update header stats
-                        const headerCharacterCount = document.querySelector('.wiki-stats .wiki-stat-number');
-                        if (headerCharacterCount) {
-                            headerCharacterCount.textContent = stats.entities?.toLocaleString() || '1,510';
+                        console.log('Updating stats display with:', stats);
+                        
+                        // Update header stats with real community data
+                        const headerElements = {
+                            characters: document.getElementById('header-characters'),
+                            votes: document.getElementById('header-votes'),
+                            contributors: document.getElementById('header-contributors')
+                        };
+                        
+                        if (headerElements.characters && stats.community_stats) {
+                            headerElements.characters.textContent = stats.community_stats.total_characters;
+                        }
+                        if (headerElements.votes && stats.community_stats) {
+                            headerElements.votes.textContent = stats.community_stats.total_votes;
+                        }
+                        if (headerElements.contributors && stats.community_stats) {
+                            headerElements.contributors.textContent = stats.community_stats.active_contributors;
                         }
                         
-                        // Update dashboard overview stats
-                        const dashboardStats = document.querySelectorAll('#dashboard-section .wiki-layout div[style*="font-size: 24px"]');
-                        if (dashboardStats.length >= 4) {
-                            dashboardStats[0].textContent = (stats.entities || 1510).toLocaleString();
-                            dashboardStats[1].textContent = (stats.ratings * 50 || 1550).toLocaleString(); // Scale up ratings
-                            dashboardStats[2].textContent = (Math.max(stats.users * 100, 500) || 500).toLocaleString(); // Contributors
-                            dashboardStats[3].textContent = (Math.floor((stats.ratings || 31) / 7) || 5).toLocaleString(); // Daily activity
+                        // Update dashboard overview stats with real data
+                        const dashboardElements = {
+                            characters: document.getElementById('dashboard-characters'),
+                            votes: document.getElementById('dashboard-votes'),
+                            contributors: document.getElementById('dashboard-contributors'),
+                            activity: document.getElementById('dashboard-activity')
+                        };
+                        
+                        if (dashboardElements.characters && stats.community_stats) {
+                            dashboardElements.characters.textContent = stats.community_stats.total_characters;
                         }
+                        if (dashboardElements.votes && stats.community_stats) {
+                            dashboardElements.votes.textContent = stats.community_stats.total_votes;
+                        }
+                        if (dashboardElements.contributors && stats.community_stats) {
+                            dashboardElements.contributors.textContent = stats.community_stats.active_contributors;
+                        }
+                        if (dashboardElements.activity && stats.community_stats) {
+                            dashboardElements.activity.textContent = stats.community_stats.daily_activity;
+                        }
+                        
+                        console.log('Stats display updated successfully');
                     }
                     
                     // Global search functionality
@@ -1224,25 +1251,21 @@ class WikiaIPDBServer {
         try {
             const stats = await this.dbManager.getStats();
             
-            // Generate realistic community stats based on actual data
-            const realEntities = stats.entities;
-            const realRatings = stats.ratings;
-            
-            // Scale up realistically - assume each character gets multiple ratings
-            const projectedCharacters = Math.max(realEntities * 1.3, 1500); // Conservative growth
-            const projectedVotes = Math.max(realRatings * 100, 50000); // Each rating represents many votes
-            const projectedContributors = Math.max(Math.floor(projectedVotes / 100), 500);
-            const dailyActivity = Math.floor(projectedVotes / 30); // Daily votes
-            
+            // Return REAL data only - no artificial scaling
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ 
                 success: true, 
-                ...stats,
+                entities: stats.entities,
+                users: stats.users,
+                ratings: stats.ratings,
+                comments: stats.comments,
+                personality_types: stats.personality_types,
+                // Provide real statistics for the community interface
                 community_stats: {
-                    total_characters: projectedCharacters.toLocaleString(),
-                    total_votes: projectedVotes.toLocaleString(),
-                    active_contributors: projectedContributors.toLocaleString(),
-                    daily_activity: dailyActivity.toLocaleString()
+                    total_characters: stats.entities.toLocaleString(),
+                    total_votes: stats.ratings.toLocaleString(),
+                    active_contributors: stats.users.toLocaleString(),
+                    daily_activity: Math.max(Math.floor(stats.ratings / 7), 1).toLocaleString() // Average daily activity
                 }
             }));
         } catch (error) {
