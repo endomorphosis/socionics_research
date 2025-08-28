@@ -118,7 +118,7 @@ class WikiaIPDBServer {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Personality Database Wiki - 2M+ Character Profiles | Community-Driven Personality Typing</title>
+                <title>Personality Database Wiki | Community-Driven Personality Typing</title>
                 <style>
                     @import url('https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700&family=Source+Sans+Pro:wght@300;400;600;700&display=swap');
                     
@@ -581,7 +581,7 @@ class WikiaIPDBServer {
                             </a>
                             
                             <div class="wiki-search">
-                                <input type="text" id="globalSearch" placeholder="Search 2M+ characters, series, personalities..." autocomplete="off">
+                                <input type="text" id="globalSearch" placeholder="Search characters, series, personalities..." autocomplete="off">
                                 <button onclick="performGlobalSearch()">🔍</button>
                             </div>
                             
@@ -615,13 +615,13 @@ class WikiaIPDBServer {
                             <div class="sidebar-header">📂 Categories</div>
                             <div class="sidebar-content">
                                 <ul class="sidebar-nav">
-                                    <li><a onclick="filterByCategory('anime')">🍜 Anime (584K)</a></li>
-                                    <li><a onclick="filterByCategory('movies')">🎬 Movies (342K)</a></li>
-                                    <li><a onclick="filterByCategory('tv')">📺 TV Shows (298K)</a></li>
-                                    <li><a onclick="filterByCategory('books')">📖 Books (201K)</a></li>
-                                    <li><a onclick="filterByCategory('games')">🎮 Games (287K)</a></li>
-                                    <li><a onclick="filterByCategory('comics')">🦸 Comics (178K)</a></li>
-                                    <li><a onclick="filterByCategory('celebrities')">🌟 Celebrities (156K)</a></li>
+                                    <li><a onclick="filterByCategory('anime')">🍜 Anime</a></li>
+                                    <li><a onclick="filterByCategory('movies')">🎬 Movies</a></li>
+                                    <li><a onclick="filterByCategory('tv')">📺 TV Shows</a></li>
+                                    <li><a onclick="filterByCategory('books')">📖 Books</a></li>
+                                    <li><a onclick="filterByCategory('games')">🎮 Games</a></li>
+                                    <li><a onclick="filterByCategory('comics')">🦸 Comics</a></li>
+                                    <li><a onclick="filterByCategory('celebrities')">🌟 Celebrities</a></li>
                                 </ul>
                             </div>
                         </div>
@@ -641,17 +641,13 @@ class WikiaIPDBServer {
                         <div class="sidebar-section">
                             <div class="sidebar-header">📈 Community Stats</div>
                             <div class="sidebar-content" style="font-size: 13px;">
-                                <div style="margin-bottom: 8px;">
+                                <div style="margin-bottom: 8px;" id="community-activity">
                                     <strong>Daily Activity:</strong><br>
-                                    • 12,847 new votes<br>
-                                    • 3,291 comments<br>
-                                    • 892 new profiles
+                                    <span id="daily-stats">Loading...</span>
                                 </div>
-                                <div style="margin-bottom: 8px;">
+                                <div style="margin-bottom: 8px;" id="top-contributors">
                                     <strong>Top Contributors:</strong><br>
-                                    • TypeMaster99 (1,247)<br>
-                                    • PersonalityGuru (1,089)<br>
-                                    • WikiTyper (956)
+                                    <span id="contributor-stats">Loading...</span>
                                 </div>
                             </div>
                         </div>
@@ -664,7 +660,7 @@ class WikiaIPDBServer {
                                 <a href="#">Home</a> › <span>Main Page</span>
                             </div>
                             <h1 class="content-title">Welcome to Personality Database Wiki</h1>
-                            <p class="content-subtitle">The world's largest community-driven database of personality types with over 2 million character profiles</p>
+                            <p class="content-subtitle">Community-driven database of personality types and character profiles</p>
                         </div>
                         
                         <div class="content-body">
@@ -689,23 +685,11 @@ class WikiaIPDBServer {
                                     </div>
                                     
                                     <div style="background: var(--wiki-gray); padding: 20px; border-radius: 12px; border: 1px solid var(--wiki-border);">
-                                        <h3 style="margin-bottom: 15px; color: var(--wiki-primary);">🔥 Trending Now</h3>
-                                        <div style="space-y: 10px;">
+                                        <h3 style="margin-bottom: 15px; color: var(--wiki-primary);">🔥 Recent Activity</h3>
+                                        <div style="space-y: 10px;" id="trending-content">
                                             <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--wiki-border);">
-                                                <span>Jujutsu Kaisen</span>
-                                                <span style="color: var(--wiki-success);">+2,847</span>
-                                            </div>
-                                            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--wiki-border);">
-                                                <span>Attack on Titan</span>
-                                                <span style="color: var(--wiki-success);">+1,923</span>
-                                            </div>
-                                            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--wiki-border);">
-                                                <span>Marvel Universe</span>
-                                                <span style="color: var(--wiki-success);">+1,445</span>
-                                            </div>
-                                            <div style="display: flex; justify-content: space-between; padding: 8px 0;">
-                                                <span>Harry Potter</span>
-                                                <span style="color: var(--wiki-success);">+1,201</span>
+                                                <span>Community Growing</span>
+                                                <span style="color: var(--wiki-success);" id="community-growth">+New</span>
                                             </div>
                                         </div>
                                     </div>
@@ -991,6 +975,29 @@ class WikiaIPDBServer {
                         }
                         if (dashboardElements.activity && stats.community_stats) {
                             dashboardElements.activity.textContent = stats.community_stats.daily_activity;
+                        }
+                        
+                        // Update sidebar community stats
+                        const dailyStatsElement = document.getElementById('daily-stats');
+                        if (dailyStatsElement && stats.community_stats) {
+                            dailyStatsElement.innerHTML = 
+                                '• ' + stats.community_stats.daily_activity + ' new votes<br>' +
+                                '• ' + stats.comments + ' comments<br>' +
+                                '• ' + stats.entities + ' total profiles';
+                        }
+                        
+                        const contributorStatsElement = document.getElementById('contributor-stats');
+                        if (contributorStatsElement && stats.community_stats) {
+                            contributorStatsElement.innerHTML = 
+                                '• Active Contributors: ' + stats.community_stats.active_contributors + '<br>' +
+                                '• Total Ratings: ' + stats.community_stats.total_votes + '<br>' +
+                                '• Characters: ' + stats.community_stats.total_characters;
+                        }
+                        
+                        // Update page subtitle dynamically
+                        const subtitle = document.querySelector('.content-subtitle');
+                        if (subtitle && stats.community_stats) {
+                            subtitle.textContent = 'Community-driven database with ' + stats.community_stats.total_characters + ' character profiles and ' + stats.community_stats.total_votes + ' community votes';
                         }
                         
                         console.log('Stats display updated successfully');
