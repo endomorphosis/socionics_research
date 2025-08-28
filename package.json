@@ -5,12 +5,14 @@
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "build": "echo 'Build not required - using JavaScript files directly'",
-    "dev": "echo 'Development mode - files ready'",
+    "dev": "nodemon ipdb/wikia_server.cjs",
+    "build": "node ipdb/ingest_parquet_data.cjs",
+    "serve": "node ipdb/wikia_server.cjs",
+    "start": "node ipdb/wikia_server.cjs",
     "test": "node --test",
+    "ingest": "node ipdb/ingest_parquet_data.cjs",
     "demo": "node ipdb/wikia_server.cjs",
-    "api": "node ipdb/wikia_server.cjs",
-    "start": "node ipdb/wikia_server.cjs"
+    "api": "node ipdb/wikia_server.cjs"
   },
   "keywords": [
     "socionics",
@@ -34,6 +36,7 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^20.14.0",
+    "nodemon": "^3.1.4",
     "playwright": "^1.55.0",
     "typescript": "^5.6.2"
   },

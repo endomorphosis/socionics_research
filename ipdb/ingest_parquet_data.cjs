@@ -8,15 +8,16 @@
  * into the new Wikia-style database schema.
  */
 
-const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const IPDBManager = require('./database-manager.cjs');
+const NodeJSParquetReader = require('./parquet_reader_nodejs.cjs');
 const { v4: uuidv4 } = require('uuid');
 
 class ParquetDataIngester {
     constructor() {
         this.dbManager = new IPDBManager();
+        this.parquetReader = new NodeJSParquetReader();
         this.stats = {
             totalProcessed: 0,
             entitiesCreated: 0,
@@ -51,58 +52,24 @@ class ParquetDataIngester {
     }
 
     /**
-     * Read and parse the parquet data using Python subprocess
+     * Read and parse the parquet data using pure Node.js
      */
     async readParquetData() {
-        console.log('📂 Reading parquet data...');
+        console.log('📂 Reading parquet data with Node.js...');
         
-        const pythonScript = `
-import pandas as pd
-import json
-import sys
-
-try:
-    df = pd.read_parquet('data/bot_store/pdb_profiles.parquet')
-    results = []
-    
-    for index, row in df.iterrows():
-        try:
-            cid = row['cid']
-            payload = json.loads(row['payload_bytes'].decode('utf-8'))
-            results.append({
-                'cid': cid,
-                'payload': payload
-            })
-        except Exception as e:
-            # Skip malformed records
-            continue
-    
-    print(json.dumps(results))
-except Exception as e:
-    print(f"Error: {e}", file=sys.stderr)
-    sys.exit(1)
-`;
-
-        const tempFile = '/tmp/read_parquet.py';
-        fs.writeFileSync(tempFile, pythonScript);
+        const parquetPath = 'data/bot_store/pdb_profiles.parquet';
         
         try {
-            const output = execSync(`cd /home/runner/work/socionics_research/socionics_research && python3 ${tempFile}`, {
-                encoding: 'utf8',
-                maxBuffer: 50 * 1024 * 1024 // 50MB buffer for large data
-            });
+            const data = await this.parquetReader.readParquetFile(parquetPath);
+            const readerStats = this.parquetReader.getStats();
             
-            const data = JSON.parse(output);
             console.log(`✅ Successfully parsed ${data.length} records from parquet file`);
+            console.log(`📊 Reader stats:`, readerStats);
+            
             return data;
         } catch (error) {
             console.error('❌ Error reading parquet data:', error.message);
             throw error;
-        } finally {
-            // Clean up temp file
-            if (fs.existsSync(tempFile)) {
-                fs.unlinkSync(tempFile);
-            }
         }
     }
 
