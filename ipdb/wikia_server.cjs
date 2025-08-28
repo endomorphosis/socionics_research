@@ -904,6 +904,34 @@ class WikiaIPDBServer {
                         await loadStats();
                         showSection('dashboard');
                         initializeSearch();
+                        setupNavigation(); // Add navigation setup
+                    }
+
+                    // Setup navigation event listeners
+                    function setupNavigation() {
+                        console.log('Setting up navigation...');
+                        
+                        // Add click listeners to all navigation items
+                        const navItems = [
+                            { selector: 'a[onclick*="dashboard"]', section: 'dashboard' },
+                            { selector: 'a[onclick*="browse"]', section: 'browse' },
+                            { selector: 'a[onclick*="compare"]', section: 'compare' },
+                            { selector: 'a[onclick*="recent"]', section: 'recent' },
+                            { selector: 'a[onclick*="popular"]', section: 'popular' }
+                        ];
+
+                        navItems.forEach(item => {
+                            const elements = document.querySelectorAll(item.selector);
+                            elements.forEach(element => {
+                                element.addEventListener('click', function(e) {
+                                    e.preventDefault();
+                                    console.log('Navigation click:', item.section);
+                                    showSection(item.section);
+                                });
+                            });
+                        });
+
+                        console.log('Navigation setup complete');
                     }
                     
                     // Load and update stats from API
