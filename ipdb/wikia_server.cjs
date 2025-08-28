@@ -832,6 +832,71 @@ class WikiaIPDBServer {
                     let filteredEntities = [];
                     let selectedCharacters = { compare: {}, panel: {} };
                     
+                    // Show different sections - define globally first
+                    window.showSection = function showSection(sectionName) {
+                        // Update sidebar navigation
+                        document.querySelectorAll('.sidebar-nav a').forEach(link => {
+                            link.classList.remove('active');
+                        });
+                        
+                        // Find and activate the clicked nav item
+                        const navItems = document.querySelectorAll('.sidebar-nav a');
+                        navItems.forEach(item => {
+                            if (item.getAttribute('onclick') && item.getAttribute('onclick').includes(sectionName)) {
+                                item.classList.add('active');
+                            }
+                        });
+                        
+                        // Update content sections
+                        document.querySelectorAll('.content-section').forEach(section => {
+                            section.classList.remove('active');
+                        });
+                        
+                        // Show selected section
+                        const section = document.getElementById(sectionName + '-section');
+                        if (section) {
+                            section.classList.add('active');
+                            
+                            // Update breadcrumb
+                            const breadcrumb = document.querySelector('.breadcrumb');
+                            const sectionNames = {
+                                'dashboard': 'Main Page',
+                                'browse': 'Browse Characters',
+                                'compare': 'Compare Types',
+                                'recent': 'Recent Activity',
+                                'popular': 'Popular Today'
+                            };
+                            
+                            if (breadcrumb) {
+                                breadcrumb.innerHTML = '<a href="#">Home</a> › <span>' + (sectionNames[sectionName] || sectionName) + '</span>';
+                            }
+                            
+                            // Load section-specific content
+                            if (sectionName === 'browse') {
+                                renderCharacterGrid();
+                            }
+                        } else {
+                            console.warn('Section not found:', sectionName + '-section');
+                        }
+                    };
+
+                    // Character interaction functions - define globally  
+                    window.showCharacterDetails = function showCharacterDetails(entityId) {
+                        console.log('Showing details for character:', entityId);
+                        showMessage('Character details coming soon!', 'info');
+                    };
+                    
+                    window.voteOnCharacter = function voteOnCharacter(entityId, event) {
+                        event.stopPropagation();
+                        console.log('Voting on character:', entityId);
+                        showMessage('Vote recorded! Thank you for contributing to the community.', 'success');
+                    };
+                    
+                    // Comparison functions - define globally
+                    window.selectCharacterForComparison = function selectCharacterForComparison(slot) {
+                        console.log('Selecting character for comparison slot:', slot);
+                        showMessage('Character selection coming soon!', 'info');
+                    };
                     // Initialize the application
                     async function init() {
                         console.log('🚀 Initializing Personality Database Wiki...');
@@ -912,7 +977,7 @@ class WikiaIPDBServer {
                     }
                     
                     // Show different sections
-                    function showSection(sectionName) {
+                    window.showSection = function showSection(sectionName) {
                         // Update sidebar navigation
                         document.querySelectorAll('.sidebar-nav a').forEach(link => {
                             link.classList.remove('active');
@@ -1090,24 +1155,6 @@ class WikiaIPDBServer {
                         });
                         
                         renderCharacterGrid();
-                    }
-                    
-                    // Character interaction functions
-                    function showCharacterDetails(entityId) {
-                        console.log('Showing details for character:', entityId);
-                        showMessage('Character details coming soon!', 'info');
-                    }
-                    
-                    function voteOnCharacter(entityId, event) {
-                        event.stopPropagation();
-                        console.log('Voting on character:', entityId);
-                        showMessage('Vote recorded! Thank you for contributing to the community.', 'success');
-                    }
-                    
-                    // Comparison functions
-                    function selectCharacterForComparison(slot) {
-                        console.log('Selecting character for comparison slot:', slot);
-                        showMessage('Character selection coming soon!', 'info');
                     }
                     
                     // Utility functions
